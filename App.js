@@ -1,20 +1,269 @@
-import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View } from 'react-native';
+import { useRef, useState, useEffect } from 'react';
+import { View, ActivityIndicator } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Ionicons } from '@expo/vector-icons';
+import { NavigationContainer } from '@react-navigation/native';
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { supabase } from './lib/supabase';
+import { setupNotificationHandler } from './lib/notifications';
+import FeedScreen from './screens/FeedScreen';
+import LogMealScreen from './screens/LogMealScreen';
+import RecapsScreen from './screens/RecapsScreen';
+import TierListScreen from './screens/TierListScreen';
+import AccountScreen from './screens/AccountScreen';
+import HistoryScreen from './screens/HistoryScreen';
+import AuthScreen from './screens/AuthScreen';
+import OnboardingScreen from './screens/OnboardingScreen';
+import UsernamePromptScreen from './screens/UsernamePromptScreen';
+import FriendsScreen from './screens/FriendsScreen';
+import UserProfileScreen from './screens/UserProfileScreen';
 
-export default function App() {
+const Tab  = createBottomTabNavigator();
+const Root = createNativeStackNavigator();
+
+// React Navigation v7 requires all four font slots; without them the tab bar
+// accesses theme.fonts.regular → undefined → crashes silently in React 19.
+const NAV_THEME = {
+  dark: true,
+  colors: {
+    primary: '#FF6B3D',
+    background: '#0d0d0d',
+    card: '#0d0d0d',
+    text: '#ffffff',
+    border: '#2a2a2a',
+    notification: '#FF6B3D',
+  },
+  fonts: {
+    regular: { fontFamily: 'System', fontWeight: '400' },
+    medium:  { fontFamily: 'System', fontWeight: '500' },
+    bold:    { fontFamily: 'System', fontWeight: '600' },
+    heavy:   { fontFamily: 'System', fontWeight: '700' },
+  },
+};
+
+// ─── Bottom tab navigator ─────────────────────────────────────────────────────
+
+function TabNavigator() {
   return (
-    <View style={styles.container}>
-      <Text>Open up App.js to start working on your app!</Text>
-      <StatusBar style="auto" />
-    </View>
+    <Tab.Navigator
+      screenOptions={{
+        headerShown: false,
+        tabBarStyle: { backgroundColor: '#0d0d0d', borderTopColor: '#2a2a2a' },
+        tabBarActiveTintColor: '#FF6B3D',
+        tabBarInactiveTintColor: '#666666',
+        sceneContainerStyle: { backgroundColor: '#0d0d0d' },
+      }}
+    >
+      <Tab.Screen
+        name="Feed"
+        component={FeedScreen}
+        options={{
+          tabBarLabel: 'Feed',
+          tabBarIcon: ({ color, size }) => <Ionicons name="people-outline" size={size} color={color} />,
+        }}
+      />
+      <Tab.Screen
+        name="LogMeal"
+        component={LogMealScreen}
+        options={{
+          tabBarLabel: 'Log Meal',
+          tabBarIcon: ({ color, size }) => <Ionicons name="camera-outline" size={size} color={color} />,
+        }}
+      />
+      <Tab.Screen
+        name="Recaps"
+        component={RecapsScreen}
+        options={{
+          tabBarLabel: 'Recaps',
+          tabBarIcon: ({ color, size }) => <Ionicons name="film-outline" size={size} color={color} />,
+        }}
+      />
+      <Tab.Screen
+        name="TierList"
+        component={TierListScreen}
+        options={{
+          tabBarLabel: 'Tier List',
+          tabBarIcon: ({ color, size }) => <Ionicons name="trophy-outline" size={size} color={color} />,
+        }}
+      />
+      <Tab.Screen
+        name="History"
+        component={HistoryScreen}
+        options={{
+          tabBarLabel: 'History',
+          tabBarIcon: ({ color, size }) => <Ionicons name="time-outline" size={size} color={color} />,
+        }}
+      />
+      <Tab.Screen
+        name="Account"
+        component={AccountScreen}
+        options={{
+          tabBarLabel: 'Account',
+          tabBarIcon: ({ color, size }) => <Ionicons name="person-outline" size={size} color={color} />,
+        }}
+      />
+    </Tab.Navigator>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-});
+// ─── Root stack: tabs + push screens ─────────────────────────────────────────
+
+function AppNavigator() {
+  return (
+    <NavigationContainer theme={NAV_THEME}>
+      <Root.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#0d0d0d' } }}>
+        <Root.Screen name="Tabs" component={TabNavigator} />
+        <Root.Screen
+          name="UserProfile"
+          component={UserProfileScreen}
+          options={{ animation: 'slide_from_right' }}
+        />
+        <Root.Screen
+          name="Friends"
+          component={FriendsScreen}
+          options={{ animation: 'slide_from_right' }}
+        />
+      </Root.Navigator>
+    </NavigationContainer>
+  );
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function onboardingKey(userId) {
+  return `onboarding_done_${userId}`;
+}
+
+// ─── App root ─────────────────────────────────────────────────────────────────
+
+export default function App() {
+  const [session, setSession]               = useState(undefined);
+  const [onboardingDone, setOnboardingDone] = useState(undefined);
+  const [hasUsername, setHasUsername]       = useState(undefined);
+  const lastCheckedUserRef                  = useRef(null);
+
+  async function checkProfile(userId) {
+    if (lastCheckedUserRef.current === userId) return;
+    lastCheckedUserRef.current = userId;
+
+    // AsyncStorage is the primary source of truth for onboarding.
+    // It persists even when DB writes fail (RLS, network, migration not run, etc.).
+    const localDone = await AsyncStorage.getItem(onboardingKey(userId)).catch(() => null);
+
+    if (localDone === 'true') {
+      setOnboardingDone(true);
+      try {
+        const { data } = await supabase
+          .from('profiles')
+          .select('username')
+          .eq('id', userId)
+          .maybeSingle();
+        setHasUsername(!!(data?.username));
+      } catch {
+        setHasUsername(false);
+      }
+      return;
+    }
+
+    // First launch for this user on this device — check DB.
+    try {
+      const { data } = await supabase
+        .from('profiles')
+        .select('onboarding_completed, username')
+        .eq('id', userId)
+        .maybeSingle();
+
+      const done = data?.onboarding_completed === true;
+      setOnboardingDone(done);
+      setHasUsername(!!(data?.username));
+
+      if (done) await AsyncStorage.setItem(onboardingKey(userId), 'true').catch(() => {});
+    } catch {
+      // username column might not exist yet — fall back to onboarding_completed only.
+      try {
+        const { data } = await supabase
+          .from('profiles')
+          .select('onboarding_completed')
+          .eq('id', userId)
+          .maybeSingle();
+
+        const done = data?.onboarding_completed === true;
+        setOnboardingDone(done);
+        setHasUsername(false);
+
+        if (done) await AsyncStorage.setItem(onboardingKey(userId), 'true').catch(() => {});
+      } catch {
+        setOnboardingDone(false);
+        setHasUsername(false);
+      }
+    }
+  }
+
+  useEffect(() => {
+    setupNotificationHandler();
+  }, []);
+
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      setSession(session ?? null);
+
+      if (event === 'INITIAL_SESSION' || event === 'SIGNED_IN') {
+        if (session) {
+          checkProfile(session.user.id);
+        } else {
+          setOnboardingDone(false);
+          setHasUsername(false);
+        }
+      } else if (event === 'SIGNED_OUT') {
+        lastCheckedUserRef.current = null;
+        setOnboardingDone(false);
+        setHasUsername(false);
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  async function handleOnboardingDone() {
+    setOnboardingDone(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) await AsyncStorage.setItem(onboardingKey(user.id), 'true');
+    } catch { /* non-fatal */ }
+  }
+
+  function handleUsernameDone() {
+    setHasUsername(true);
+  }
+
+  const isLoading =
+    session === undefined ||
+    (session !== null && onboardingDone === undefined) ||
+    (session !== null && onboardingDone === true && hasUsername === undefined);
+
+  // Single render tree — no separate early return for loading state.
+  // This prevents the GestureHandlerRootView + SafeAreaProvider from unmounting
+  // and remounting between the loading and content phases (which caused a white flash).
+  return (
+    <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#0d0d0d' }}>
+      <SafeAreaProvider>
+        {isLoading ? (
+          <View style={{ flex: 1, backgroundColor: '#0d0d0d', alignItems: 'center', justifyContent: 'center' }}>
+            <ActivityIndicator color="#FF6B3D" />
+          </View>
+        ) : !session ? (
+          <AuthScreen />
+        ) : !onboardingDone ? (
+          <OnboardingScreen onDone={handleOnboardingDone} />
+        ) : !hasUsername ? (
+          <UsernamePromptScreen onDone={handleUsernameDone} />
+        ) : (
+          <AppNavigator />
+        )}
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
+  );
+}

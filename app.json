@@ -3,11 +3,19 @@
     "name": "FoodWrapped",
     "slug": "FoodWrapped",
     "version": "1.0.0",
+    "scheme": "com.ncoderpro.foodwrapped",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.ncoderpro.foodwrapped",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSCameraUsageDescription": "FoodWrapped uses your camera to photograph your meals.",
+        "NSPhotoLibraryUsageDescription": "FoodWrapped accesses your photo library so you can log meals from existing photos.",
+        "NSUserNotificationsUsageDescription": "FoodWrapped sends daily reminders to log your meals and alerts when your streak is at risk."
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -15,10 +23,40 @@
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
-      }
+      },
+      "package": "com.Nibbl"
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "extra": {
+      "eas": {
+        "projectId": "1fdf8914-bc1a-4e5c-b5a8-affda263178e"
+      }
+    },
+    "plugins": [
+      [
+        "expo-notifications",
+        {
+          "color": "#FF6B3D"
+        }
+      ],
+      "expo-sharing",
+      "expo-apple-authentication",
+      "expo-web-browser",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "FoodWrapped uses your camera to photograph your meals."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "FoodWrapped accesses your photo library so you can log meals from existing photos."
+        }
+      ],
+      "expo-font"
+    ]
   }
 }

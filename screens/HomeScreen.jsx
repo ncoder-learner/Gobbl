@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import {
   View,
   Text,
@@ -10,9 +10,13 @@ import {
   SafeAreaView,
   StatusBar,
   Dimensions,
+  ActivityIndicator,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
-import { supabase } from '../lib/supabase'; // adjust path as needed
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { Ionicons } from '@expo/vector-icons';
+import { supabase } from '../lib/supabase';
+import { loadNotifPrefs, getPermissionStatus, syncStreakRiskNotification } from '../lib/notifications';
+import { useFirstVisit } from '../lib/firstVisit';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -38,38 +42,57 @@ const C = {
   gray5: '#333333',
 };
 
-// ─── Mock data (replace with Supabase queries) ────────────────────────────────
-const MOCK_MEALS = [
-  {
-    id: '1',
-    type: 'personal',
-    name: 'Blueberry pancakes',
-    emoji: '🥞',
-    time: '8:15 AM',
-    rating: 4,
-    bgColor: '#1e1510',
-  },
-  {
-    id: '2',
-    type: 'business',
-    name: 'Birria tacos',
-    emoji: '🌮',
-    time: '1:00 PM',
-    rating: 5,
-    bgColor: '#0f1a0f',
-    businessName: 'Taco Loco PHX',
-  },
-  {
-    id: '3',
-    type: 'personal',
-    name: 'Spicy tuna roll',
-    emoji: '🍣',
-    time: '7:00 PM',
-    rating: 5,
-    bgColor: '#151018',
-  },
-];
+const WRAPPED_THRESHOLD = 5; // meals needed before Wrapped is unlockable
 
+// ─── Timezone-safe helpers ────────────────────────────────────────────────────
+
+// Returns YYYY-MM-DD for any Date using the device's local timezone.
+function localDateKey(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+// Returns the ISO string of local midnight (so Supabase gte/lte comparisons are timezone-correct).
+function localMidnightISO() {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d.toISOString();
+}
+
+// Compute streak, loggedToday, and last-7-days booleans from a list of { created_at } rows.
+// All grouping is done in the device's local timezone.
+function computeStreakData(rows) {
+  if (!rows || rows.length === 0) {
+    return { streak: 0, loggedToday: false, last7Days: Array(7).fill(false) };
+  }
+
+  const dateSet = new Set(rows.map((r) => localDateKey(new Date(r.created_at))));
+
+  const todayKey = localDateKey(new Date());
+  const loggedToday = dateSet.has(todayKey);
+
+  // Walk back from today (or yesterday if not yet logged today).
+  let streak = 0;
+  const cursor = new Date();
+  if (!loggedToday) cursor.setDate(cursor.getDate() - 1);
+  while (dateSet.has(localDateKey(cursor))) {
+    streak++;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+
+  // Last 7 days: index 0 = 6 days ago, index 6 = today.
+  const last7Days = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date();
+    d.setDate(d.getDate() - (6 - i));
+    return dateSet.has(localDateKey(d));
+  });
+
+  return { streak, loggedToday, last7Days };
+}
+
+// ─── Mock data kept for ad/coupon sections (not yet implemented) ──────────────
 const MOCK_SPONSORED = {
   id: 'sp1',
   businessName: 'Shake Shack',
@@ -92,12 +115,6 @@ const MOCK_COUPONS = [
   },
 ];
 
-const MOCK_STATS = {
-  mealsThisMonth: 47,
-  avgRating: 4.2,
-  cityRank: 3,
-};
-
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function StarRating({ rating, size = 10 }) {
@@ -106,10 +123,7 @@ function StarRating({ rating, size = 10 }) {
       {[1, 2, 3, 4, 5].map((i) => (
         <Text
           key={i}
-          style={[
-            styles.star,
-            { fontSize: size, color: i <= rating ? C.orange : C.gray5 },
-          ]}
+          style={[styles.star, { fontSize: size, color: i <= rating ? C.orange : C.gray5 }]}
         >
           ★
         </Text>
@@ -125,9 +139,7 @@ function PersonalMealCard({ meal }) {
         <Text style={styles.mealEmoji}>{meal.emoji}</Text>
       </View>
       <View style={styles.mealBody}>
-        <Text style={styles.mealName} numberOfLines={2}>
-          {meal.name}
-        </Text>
+        <Text style={styles.mealName} numberOfLines={2}>{meal.name}</Text>
         <View style={styles.mealMeta}>
           <Text style={styles.mealTime}>{meal.time}</Text>
           <StarRating rating={meal.rating} />
@@ -143,13 +155,11 @@ function BusinessMealCard({ meal }) {
       <View style={[styles.mealImgBox, { backgroundColor: meal.bgColor }]}>
         <Text style={styles.mealEmoji}>{meal.emoji}</Text>
         <View style={styles.bizBadge}>
-          <Text style={styles.bizBadgeText}>📍 Logged here</Text>
+          <Text style={styles.bizBadgeText}>Logged here</Text>
         </View>
       </View>
       <View style={styles.mealBody}>
-        <Text style={styles.mealName} numberOfLines={1}>
-          {meal.name}
-        </Text>
+        <Text style={styles.mealName} numberOfLines={1}>{meal.name}</Text>
         <Text style={styles.bizSource}>{meal.businessName}</Text>
         <View style={styles.mealMeta}>
           <Text style={styles.mealTime}>{meal.time}</Text>
@@ -165,24 +175,70 @@ function MealCard({ meal }) {
   return <PersonalMealCard meal={meal} />;
 }
 
-function StreakBanner({ streak }) {
-  const days = Math.min(streak, 7);
+// One-time nudge to enable notifications, shown after the user has at least one meal.
+function NotifNudge({ onEnable, onDismiss }) {
+  return (
+    <View style={styles.notifNudge}>
+      <View style={styles.notifNudgeLeft}>
+        <Text style={styles.notifNudgeTitle}>Get meal reminders</Text>
+        <Text style={styles.notifNudgeSub}>Never miss a day — keep your streak going.</Text>
+      </View>
+      <View style={styles.notifNudgeBtns}>
+        <TouchableOpacity style={styles.notifNudgeEnable} onPress={onEnable} activeOpacity={0.8}>
+          <Text style={styles.notifNudgeEnableText}>Enable</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={onDismiss} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+          <Text style={styles.notifNudgeDismiss}>✕</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
+// Streak banner: flame, day count, and 7-dot history.
+// Dots show the last 7 days (index 0 = oldest, 6 = today).
+// If the streak is alive but the user hasn't logged today, the today dot pulses with a ring.
+function StreakBanner({ streak, loggedToday, last7Days }) {
+  const alive = streak > 0;
+
   return (
     <View style={styles.streakBanner}>
       <View style={styles.streakLeft}>
-        <Text style={styles.streakFlame}>🔥</Text>
+        {alive
+          ? <Text style={styles.streakFlame}>🔥</Text>
+          : <Ionicons name="moon-outline" size={22} color={C.gray3} style={{ width: 28 }} />
+        }
         <View>
-          <Text style={styles.streakLabel}>Current streak</Text>
-          <Text style={styles.streakCount}>{streak} days</Text>
+          <Text style={styles.streakLabel}>
+            {alive ? 'Day streak' : 'Start your streak'}
+          </Text>
+          <Text style={[styles.streakCount, !alive && { color: C.gray2, fontSize: 14 }]}>
+            {alive
+              ? `${streak} day${streak !== 1 ? 's' : ''}`
+              : 'Log a meal today'}
+          </Text>
         </View>
       </View>
-      <View style={styles.streakDots}>
-        {[...Array(7)].map((_, i) => (
-          <View
-            key={i}
-            style={[styles.dot, i < days && styles.dotActive]}
-          />
-        ))}
+
+      <View style={styles.streakRight}>
+        <View style={styles.streakDots}>
+          {last7Days.map((logged, i) => {
+            const isToday = i === 6;
+            return (
+              <View
+                key={i}
+                style={[
+                  styles.dot,
+                  logged && styles.dotActive,
+                  isToday && !loggedToday && styles.dotTodayRing,
+                ]}
+              />
+            );
+          })}
+        </View>
+        {alive && !loggedToday && (
+          <Text style={styles.streakWarning}>Log today to keep it!</Text>
+        )}
       </View>
     </View>
   );
@@ -228,7 +284,6 @@ function CouponCard({ coupon }) {
   const [copied, setCopied] = useState(false);
 
   function handleCopy() {
-    // Replace with Clipboard.setString(coupon.code) if expo-clipboard is installed
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }
@@ -254,85 +309,197 @@ function CouponCard({ coupon }) {
   );
 }
 
-function StatCard({ emoji, value, label }) {
+function StatCard({ iconName, iconColor, value, label }) {
   return (
     <View style={styles.statCard}>
-      <Text style={{ fontSize: 18, marginBottom: 6 }}>{emoji}</Text>
+      <Ionicons name={iconName} size={18} color={iconColor || C.gray1} style={{ marginBottom: 6 }} />
       <Text style={styles.statNum}>{value}</Text>
       <Text style={styles.statLabel}>{label}</Text>
     </View>
   );
 }
 
-function WrappedTeaser({ mealsRemaining }) {
+// Wrapped tease: shows whenever the user has logged ≥1 meal this month.
+// Becomes tappable (and says "ready") once they hit WRAPPED_THRESHOLD.
+function WrappedTeaser({ mealsThisMonth, monthName, onPress }) {
+  if (mealsThisMonth === 0) return null;
+
+  const ready = mealsThisMonth >= WRAPPED_THRESHOLD;
+  const remaining = WRAPPED_THRESHOLD - mealsThisMonth;
+
   return (
-    <View style={styles.wrappedTeaser}>
+    <TouchableOpacity
+      style={styles.wrappedTeaser}
+      activeOpacity={ready ? 0.82 : 1}
+      onPress={ready ? onPress : undefined}
+    >
       <View style={styles.wrappedArt}>
-        <Text style={{ fontSize: 26 }}>✨</Text>
+        <Ionicons
+          name={ready ? 'film-outline' : 'hourglass-outline'}
+          size={26}
+          color={ready ? '#ddb8ff' : C.gray2}
+        />
       </View>
       <View style={styles.wrappedText}>
-        <Text style={styles.wrappedLabel}>Coming soon</Text>
-        <Text style={styles.wrappedTitle}>Your June Wrapped is almost ready</Text>
+        <Text style={styles.wrappedLabel}>{ready ? 'READY TO VIEW' : 'BUILDING'}</Text>
+        <Text style={styles.wrappedTitle}>
+          {ready
+            ? `Your ${monthName} Wrapped is ready`
+            : `Your ${monthName} Wrapped is building`}
+        </Text>
         <Text style={styles.wrappedSub}>
-          Log {mealsRemaining} more meal{mealsRemaining !== 1 ? 's' : ''} to unlock
+          {ready
+            ? 'Tap to see your story →'
+            : `${remaining} more meal${remaining !== 1 ? 's' : ''} to unlock`}
         </Text>
       </View>
-    </View>
+    </TouchableOpacity>
   );
 }
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
 export default function HomeScreen() {
   const navigation = useNavigation();
-  const [meals, setMeals] = useState(MOCK_MEALS);
+
+  // Auth / profile
+  const [userName, setUserName] = useState('');
+
+  // Today's meal cards
+  const [meals, setMeals] = useState([]);
+  const [mealsLoading, setMealsLoading] = useState(true);
+
+  // Streak & today state
+  const [streak, setStreak] = useState(0);
+  const [loggedToday, setLoggedToday] = useState(false);
+  const [last7Days, setLast7Days] = useState(Array(7).fill(false));
+
+  // This-month stats
+  const [mealsThisMonth, setMealsThisMonth] = useState(0);
+  const [avgScore, setAvgScore] = useState(null);
+
+  // Ad / coupons (still mock-backed)
   const [sponsored, setSponsored] = useState(MOCK_SPONSORED);
   const [coupons, setCoupons] = useState(MOCK_COUPONS);
-  const [stats, setStats] = useState(MOCK_STATS);
-  const [streak, setStreak] = useState(12);
   const [showAd, setShowAd] = useState(true);
-  const [userName, setUserName] = useState('Nople');
 
-  // Replace mock data with real Supabase queries
-  useEffect(() => {
-    async function loadData() {
+  // Notification nudge (shown once after the user has ≥1 meal and hasn't set up notifs)
+  const [notifNudgeVisible, dismissNotifNudge] = useFirstVisit('@fw_notif_nudge_v1');
+  const [notifPermStatus, setNotifPermStatus] = useState('undetermined');
+
+  const monthName = MONTH_NAMES[new Date().getMonth()];
+
+  const loadData = useCallback(async () => {
+    try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      // Today's meals
-      const today = new Date().toISOString().split('T')[0];
-      const { data: mealData } = await supabase
-        .from('meals')
-        .select('*, businesses(name)')
-        .eq('user_id', user.id)
-        .gte('created_at', `${today}T00:00:00`)
-        .order('created_at', { ascending: true });
+      // Run independent queries in parallel.
+      const todayStart = localMidnightISO();
+      const monthStart = new Date(
+        new Date().getFullYear(),
+        new Date().getMonth(),
+        1,
+      ).toISOString();
 
-      if (mealData) {
-        const mapped = mealData.map((m) => ({
+      const [
+        profileResult,
+        todayResult,
+        streakResult,
+        monthResult,
+        couponResult,
+        adResult,
+      ] = await Promise.allSettled([
+        supabase
+          .from('profiles')
+          .select('display_name')
+          .eq('id', user.id)
+          .single(),
+
+        supabase
+          .from('meals')
+          .select('id, name, emoji, score, rating, created_at, business_id, businesses(name)')
+          .eq('user_id', user.id)
+          .gte('created_at', todayStart)
+          .order('created_at', { ascending: true }),
+
+        supabase
+          .from('meals')
+          .select('created_at')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false })
+          .limit(500),
+
+        supabase
+          .from('meals')
+          .select('score')
+          .eq('user_id', user.id)
+          .gte('created_at', monthStart),
+
+        supabase
+          .from('coupons')
+          .select('*, businesses(name)')
+          .gt('expires_at', new Date().toISOString())
+          .eq('active', true)
+          .limit(3),
+
+        supabase
+          .from('sponsored_posts')
+          .select('*, businesses(name, emoji)')
+          .eq('active', true)
+          .limit(1)
+          .single(),
+      ]);
+
+      // Profile
+      if (profileResult.status === 'fulfilled') {
+        const p = profileResult.value.data;
+        if (p?.display_name) setUserName(p.display_name);
+      }
+
+      // Today's meals
+      if (todayResult.status === 'fulfilled') {
+        const data = todayResult.value.data || [];
+        setMeals(data.map((m) => ({
           id: m.id,
           type: m.business_id ? 'business' : 'personal',
           name: m.name,
           emoji: m.emoji || '🍽️',
           time: new Date(m.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
           rating: m.rating,
-          bgColor: m.bg_color || '#1a1a1a',
+          bgColor: '#1a1a1a',
           businessName: m.businesses?.name,
-        }));
-        setMeals(mapped);
+        })));
       }
 
-      // Active coupons for user's city
-      const { data: couponData } = await supabase
-        .from('coupons')
-        .select('*, businesses(name)')
-        .gt('expires_at', new Date().toISOString())
-        .eq('active', true)
-        .limit(3);
+      // Streak (client-side, timezone-aware)
+      if (streakResult.status === 'fulfilled') {
+        const { streak: s, loggedToday: lt, last7Days: l7 } =
+          computeStreakData(streakResult.value.data || []);
+        setStreak(s);
+        setLoggedToday(lt);
+        setLast7Days(l7);
+      }
 
-      if (couponData) {
+      // This-month stats
+      if (monthResult.status === 'fulfilled') {
+        const data = monthResult.value.data || [];
+        setMealsThisMonth(data.length);
+        if (data.length > 0) {
+          const total = data.reduce((sum, m) => sum + (m.score ?? 5), 0);
+          setAvgScore(total / data.length);
+        }
+      }
+
+      // Coupons
+      if (couponResult.status === 'fulfilled' && couponResult.value.data?.length) {
         setCoupons(
-          couponData.map((c) => ({
+          couponResult.value.data.map((c) => ({
             id: c.id,
             title: c.title,
             businessName: c.businesses?.name,
@@ -343,42 +510,45 @@ export default function HomeScreen() {
         );
       }
 
-      // Sponsored ad — pick one active ad for this user's city
-      const { data: adData } = await supabase
-        .from('sponsored_posts')
-        .select('*, businesses(name, emoji)')
-        .eq('active', true)
-        .limit(1)
-        .single();
-
-      if (adData) {
+      // Sponsored ad
+      if (adResult.status === 'fulfilled' && adResult.value.data) {
+        const ad = adResult.value.data;
         setSponsored({
-          id: adData.id,
-          businessName: adData.businesses?.name,
-          businessEmoji: adData.businesses?.emoji || '🍽️',
-          title: adData.title,
-          description: adData.description,
-          emoji: adData.image_emoji || '🍽️',
+          id: ad.id,
+          businessName: ad.businesses?.name,
+          businessEmoji: ad.businesses?.emoji || '🍽️',
+          title: ad.title,
+          description: ad.description,
+          emoji: ad.image_emoji || '🍽️',
           bgColor: '#0f1a10',
         });
       }
 
-      // Streak — count consecutive days with at least 1 meal
-      const { data: streakData } = await supabase
-        .rpc('get_user_streak', { uid: user.id });
-      if (streakData !== null) setStreak(streakData);
-
-      // Profile name
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('display_name')
-        .eq('id', user.id)
-        .single();
-      if (profile?.display_name) setUserName(profile.display_name);
+      // Sync streak-risk notification and check permission status for nudge.
+      const [prefs, permStatus] = await Promise.all([
+        loadNotifPrefs(),
+        getPermissionStatus(),
+      ]);
+      setNotifPermStatus(permStatus);
+      if (prefs.enabled && permStatus === 'granted') {
+        const { streak: s, loggedToday: lt } = computeStreakData(
+          streakResult.status === 'fulfilled' ? (streakResult.value.data || []) : []
+        );
+        syncStreakRiskNotification(s, lt).catch(() => {});
+      }
+    } catch {
+      // Non-fatal: stale data is better than a crash.
+    } finally {
+      setMealsLoading(false);
     }
-
-    loadData();
   }, []);
+
+  // Refresh every time this tab comes into focus so a freshly-logged meal shows up.
+  useFocusEffect(
+    useCallback(() => {
+      loadData();
+    }, [loadData])
+  );
 
   const greeting = (() => {
     const h = new Date().getHours();
@@ -400,32 +570,54 @@ export default function HomeScreen() {
           <Text style={styles.greeting}>{greeting}</Text>
           <Text style={styles.title}>
             What are you{'\n'}eating,{' '}
-            <Text style={styles.titleAccent}>{userName}?</Text>
+            <Text style={styles.titleAccent}>{userName || 'friend'}?</Text>
           </Text>
         </View>
 
         {/* Streak */}
-        <StreakBanner streak={streak} />
+        <StreakBanner streak={streak} loggedToday={loggedToday} last7Days={last7Days} />
+
+        {/* Notification nudge — one-time, shown once user has meals and hasn't enabled notifs */}
+        {notifNudgeVisible &&
+          notifPermStatus === 'undetermined' &&
+          (streak > 0 || mealsThisMonth > 0) && (
+          <NotifNudge
+            onEnable={() => navigation.navigate('Account')}
+            onDismiss={dismissNotifNudge}
+          />
+        )}
 
         {/* Today's meals */}
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Today's meals</Text>
-          <TouchableOpacity onPress={() => navigation.navigate('AllMeals')}>
+          <TouchableOpacity onPress={() => navigation.navigate('History')}>
             <Text style={styles.sectionAction}>see all</Text>
           </TouchableOpacity>
         </View>
 
-        <FlatList
-          data={meals}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) => <MealCard meal={item} />}
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.mealsScrollPadding}
-          ItemSeparatorComponent={() => <View style={{ width: 12 }} />}
-        />
+        {mealsLoading ? (
+          <View style={styles.mealsLoadingBox}>
+            <ActivityIndicator color={C.orange} size="small" />
+          </View>
+        ) : meals.length === 0 ? (
+          <View style={styles.todayEmpty}>
+            <Ionicons name="restaurant-outline" size={20} color={C.gray3} />
+            <Text style={styles.todayEmptyText}>Nothing logged yet today</Text>
+          </View>
+        ) : (
+          <FlatList
+            data={meals}
+            keyExtractor={(item) => item.id}
+            renderItem={({ item }) => <MealCard meal={item} />}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.mealsScrollPadding}
+            ItemSeparatorComponent={() => <View style={{ width: 12 }} />}
+            scrollEnabled
+          />
+        )}
 
-        {/* Log meal CTA */}
+        {/* Log meal CTA — copy changes depending on whether user has logged today */}
         <TouchableOpacity
           style={styles.logBtn}
           activeOpacity={0.88}
@@ -433,11 +625,15 @@ export default function HomeScreen() {
         >
           <View style={styles.logLeft}>
             <View style={styles.logIcon}>
-              <Text style={{ fontSize: 20 }}>📸</Text>
+              <Ionicons name="camera" size={22} color={C.white} />
             </View>
             <View>
               <Text style={styles.logLabel}>Log a meal</Text>
-              <Text style={styles.logSub}>Snap a photo to identify it</Text>
+              <Text style={styles.logSub}>
+                {loggedToday
+                  ? 'Keep the streak going!'
+                  : "You haven't logged today yet"}
+              </Text>
             </View>
           </View>
           <Text style={styles.logArrow}>→</Text>
@@ -447,7 +643,7 @@ export default function HomeScreen() {
         {showAd && sponsored && (
           <SponsoredBanner
             ad={sponsored}
-            onLogAndTry={() => navigation.navigate('LogMeal', { sponsored: sponsored })}
+            onLogAndTry={() => navigation.navigate('LogMeal', { sponsored })}
             onDismiss={() => setShowAd(false)}
           />
         )}
@@ -457,9 +653,6 @@ export default function HomeScreen() {
           <>
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>Deals near you</Text>
-              <TouchableOpacity onPress={() => navigation.navigate('Coupons')}>
-                <Text style={styles.sectionAction}>see all</Text>
-              </TouchableOpacity>
             </View>
             {coupons.map((c) => (
               <CouponCard key={c.id} coupon={c} />
@@ -469,13 +662,33 @@ export default function HomeScreen() {
 
         {/* Stats */}
         <View style={styles.statsRow}>
-          <StatCard emoji="🍽️" value={stats.mealsThisMonth} label="meals logged" />
-          <StatCard emoji="⭐" value={stats.avgRating.toFixed(1)} label="avg rating" />
-          <StatCard emoji="🏆" value={`#${stats.cityRank}`} label="PHX rank" />
+          <StatCard
+            iconName="restaurant-outline"
+            iconColor={C.orange}
+            value={mealsThisMonth}
+            label="this month"
+          />
+          <StatCard
+            iconName="star-outline"
+            iconColor="#ffd166"
+            value={avgScore != null ? avgScore.toFixed(1) : '—'}
+            label="avg score"
+          />
+          <StatCard
+            iconName="flame-outline"
+            iconColor={C.orange}
+            value={streak}
+            label="day streak"
+          />
         </View>
 
-        {/* Wrapped teaser */}
-        <WrappedTeaser mealsRemaining={3} />
+        {/* Wrapped tease */}
+        <WrappedTeaser
+          mealsThisMonth={mealsThisMonth}
+          monthName={monthName}
+          onPress={() => navigation.navigate('Recaps')}
+        />
+
       </ScrollView>
     </SafeAreaView>
   );
@@ -494,21 +707,48 @@ const styles = StyleSheet.create({
   titleAccent: { color: C.orange },
 
   // Streak
-  streakBanner: { marginHorizontal: 24, marginTop: 16, backgroundColor: C.surface, borderWidth: 0.5, borderColor: C.border, borderRadius: 16, padding: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  streakBanner: {
+    marginHorizontal: 24,
+    marginTop: 16,
+    backgroundColor: C.surface,
+    borderWidth: 0.5,
+    borderColor: C.border,
+    borderRadius: 16,
+    padding: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
   streakLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   streakFlame: { fontSize: 22 },
   streakLabel: { fontSize: 12, color: C.gray2 },
   streakCount: { fontFamily: 'Syne_800ExtraBold', fontSize: 18, color: C.orange },
+  streakRight: { alignItems: 'flex-end', gap: 4 },
   streakDots: { flexDirection: 'row', gap: 5 },
   dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: C.border },
   dotActive: { backgroundColor: C.orange },
+  // Today's dot gets a ring when the streak is alive but today is not yet logged
+  dotTodayRing: {
+    borderWidth: 1.5,
+    borderColor: C.orange,
+    backgroundColor: 'transparent',
+  },
+  streakWarning: { fontSize: 11, color: C.orange, fontWeight: '600', opacity: 0.85 },
 
   // Section headers
-  sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 24, marginTop: 24, marginBottom: 12 },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 24,
+    marginTop: 24,
+    marginBottom: 12,
+  },
   sectionTitle: { fontFamily: 'Syne_700Bold', fontSize: 16, color: C.white },
   sectionAction: { fontSize: 13, color: C.orange, fontWeight: '500' },
 
   // Meal cards
+  mealsLoadingBox: { paddingHorizontal: 24, paddingVertical: 20, alignItems: 'flex-start' },
   mealsScrollPadding: { paddingHorizontal: 24 },
   mealCard: { width: 150, backgroundColor: C.surface, borderWidth: 0.5, borderColor: C.border, borderRadius: 16, overflow: 'hidden' },
   bizMealCard: { width: 160, borderColor: '#2a3a2a' },
@@ -522,7 +762,17 @@ const styles = StyleSheet.create({
   mealMeta: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   mealTime: { fontSize: 11, color: C.gray3 },
   starsRow: { flexDirection: 'row', gap: 1 },
-  star: { },
+  star: {},
+
+  // Today empty state
+  todayEmpty: {
+    paddingHorizontal: 24,
+    paddingVertical: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  todayEmptyText: { fontSize: 14, color: C.gray2 },
 
   // Log CTA
   logBtn: { marginHorizontal: 24, marginTop: 20, backgroundColor: C.orange, borderRadius: 16, padding: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
@@ -575,4 +825,30 @@ const styles = StyleSheet.create({
   wrappedLabel: { fontSize: 10, color: C.purple, fontWeight: '500', letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 3 },
   wrappedTitle: { fontFamily: 'Syne_700Bold', fontSize: 15, color: C.purpleText, lineHeight: 20 },
   wrappedSub: { fontSize: 12, color: '#6644aa', marginTop: 2 },
+
+  // Notification nudge
+  notifNudge: {
+    marginHorizontal: 24,
+    marginTop: 14,
+    backgroundColor: '#0d1a0d',
+    borderWidth: 0.5,
+    borderColor: '#1a3a1a',
+    borderRadius: 14,
+    padding: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  notifNudgeLeft: { flex: 1 },
+  notifNudgeTitle: { fontSize: 13, fontWeight: '600', color: C.white, marginBottom: 2 },
+  notifNudgeSub: { fontSize: 12, color: C.gray2 },
+  notifNudgeBtns: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  notifNudgeEnable: {
+    backgroundColor: C.orange,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  notifNudgeEnableText: { fontSize: 12, fontWeight: '600', color: C.white },
+  notifNudgeDismiss: { fontSize: 14, color: C.gray3 },
 });
