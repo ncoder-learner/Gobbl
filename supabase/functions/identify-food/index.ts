@@ -5,6 +5,16 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+const SAFE_FALLBACK = {
+  name: 'Unknown food',
+  description: '',
+  cuisine: '',
+  emoji: '🍽️',
+  confidence: 'low',
+  is_food: false,
+  is_appropriate: true,
+};
+
 serve(async (req) => {
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
@@ -34,7 +44,7 @@ serve(async (req) => {
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-20250514',
-        max_tokens: 1000,
+        max_tokens: 1024,
         messages: [
           {
             role: 'user',
@@ -45,15 +55,22 @@ serve(async (req) => {
               },
               {
                 type: 'text',
-                text: `Identify the food in this image. Respond ONLY with a JSON object — no preamble, no markdown, no backticks. Format:
+                text: `Analyze this image and respond ONLY with a JSON object — no preamble, no markdown, no backticks. Use this exact format:
 {
   "name": "short food name (e.g. Pepperoni pizza)",
   "description": "one sentence description",
   "cuisine": "cuisine type (e.g. Italian, Mexican, Japanese)",
   "emoji": "single most relevant emoji",
-  "confidence": "high | medium | low"
+  "confidence": "high | medium | low",
+  "is_food": true,
+  "is_appropriate": true
 }
-If no food is visible, return { "name": "Unknown", "description": "Could not identify food", "cuisine": "", "emoji": "🍽️", "confidence": "low" }`,
+
+Rules:
+- is_food: true if the image plausibly contains any food or drink, even if the photo is dark, blurry, partially out-of-frame, or from an unusual angle. Set false ONLY when the image clearly contains no food whatsoever.
+- is_appropriate: true unless the image contains explicit sexual content, graphic violence, gore, or other clearly unsafe material. When in doubt, set true.
+- If is_appropriate is false, you may set all other fields to empty defaults.
+- If no food is visible: is_food false, name "Unknown", description "Could not identify food", cuisine "", emoji "🍽️", confidence "low".`,
               },
             ],
           },
@@ -65,21 +82,25 @@ If no food is visible, return { "name": "Unknown", "description": "Could not ide
     if (!response.ok) {
       const errBody = await response.text();
       console.error('Anthropic error body:', errBody);
-      return new Response(
-        JSON.stringify({ name: 'Unknown food', description: '', cuisine: '', emoji: '🍽️', confidence: 'low' }),
-        { headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-      );
+      return new Response(JSON.stringify(SAFE_FALLBACK), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
     }
 
     const data = await response.json();
     const text = data.content?.map((b: any) => b.text || '').join('') || '';
 
-    let parsed;
+    let parsed: any;
     try {
       parsed = JSON.parse(text.replace(/```json|```/g, '').trim());
     } catch {
-      parsed = { name: 'Unknown food', description: '', cuisine: '', emoji: '🍽️', confidence: 'low' };
+      parsed = { ...SAFE_FALLBACK };
     }
+
+    // Ensure safety booleans are always present and are actual booleans.
+    // If the model omitted them or returned non-boolean values, default conservatively.
+    if (typeof parsed.is_appropriate !== 'boolean') parsed.is_appropriate = true;
+    if (typeof parsed.is_food !== 'boolean') parsed.is_food = false;
 
     return new Response(JSON.stringify(parsed), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

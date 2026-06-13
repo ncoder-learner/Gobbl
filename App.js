@@ -9,6 +9,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { supabase } from './lib/supabase';
 import { setupNotificationHandler } from './lib/notifications';
+import * as Notifications from 'expo-notifications';
 import FeedScreen from './screens/FeedScreen';
 import LogMealScreen from './screens/LogMealScreen';
 import RecapsScreen from './screens/RecapsScreen';
@@ -20,6 +21,7 @@ import OnboardingScreen from './screens/OnboardingScreen';
 import UsernamePromptScreen from './screens/UsernamePromptScreen';
 import FriendsScreen from './screens/FriendsScreen';
 import UserProfileScreen from './screens/UserProfileScreen';
+import MyProfileScreen from './screens/MyProfileScreen';
 
 const Tab  = createBottomTabNavigator();
 const Root = createNativeStackNavigator();
@@ -98,10 +100,10 @@ function TabNavigator() {
         }}
       />
       <Tab.Screen
-        name="Account"
-        component={AccountScreen}
+        name="Profile"
+        component={MyProfileScreen}
         options={{
-          tabBarLabel: 'Account',
+          tabBarLabel: 'Profile',
           tabBarIcon: ({ color, size }) => <Ionicons name="person-outline" size={size} color={color} />,
         }}
       />
@@ -126,6 +128,11 @@ function AppNavigator() {
           component={FriendsScreen}
           options={{ animation: 'slide_from_right' }}
         />
+        <Root.Screen
+          name="AccountSettings"
+          component={AccountScreen}
+          options={{ animation: 'slide_from_right' }}
+        />
       </Root.Navigator>
     </NavigationContainer>
   );
@@ -135,6 +142,16 @@ function AppNavigator() {
 
 function onboardingKey(userId) {
   return `onboarding_done_${userId}`;
+}
+
+async function registerPushToken(userId) {
+  try {
+    const { status } = await Notifications.getPermissionsAsync();
+    if (status !== 'granted') return;
+    const tokenData = await Notifications.getExpoPushTokenAsync();
+    if (!tokenData.data) return;
+    await supabase.from('profiles').update({ push_token: tokenData.data }).eq('id', userId);
+  } catch { /* non-fatal */ }
 }
 
 // ─── App root ─────────────────────────────────────────────────────────────────
@@ -213,6 +230,7 @@ export default function App() {
       if (event === 'INITIAL_SESSION' || event === 'SIGNED_IN') {
         if (session) {
           checkProfile(session.user.id);
+          registerPushToken(session.user.id);
         } else {
           setOnboardingDone(false);
           setHasUsername(false);

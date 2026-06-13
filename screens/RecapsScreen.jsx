@@ -12,6 +12,7 @@ import {
   Pressable,
   Animated,
   Easing,
+  Alert,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { supabase } from '../lib/supabase';
@@ -116,10 +117,10 @@ function ThisMonthCard({ stats, onPress }) {
           <Text style={styles.cardMealCount}>{stats?.totalMeals ?? 0} meals so far</Text>
         </View>
 
-        <Text style={styles.cardChevron}>›</Text>
+        <Text style={styles.cardLock}>🔒</Text>
       </View>
 
-      <Text style={styles.thisMonthHint}>Preview · finalises when month ends</Text>
+      <Text style={styles.thisMonthHint}>Finalises at the end of {monthLabel} — keep logging!</Text>
     </Pressable>
   );
 }
@@ -312,7 +313,13 @@ export default function RecapsScreen() {
             <>
               <Text style={styles.sectionLabel}>THIS MONTH</Text>
               <View style={styles.sectionContent}>
-                <ThisMonthCard stats={thisMonthStats} onPress={() => setSelected({ stats: thisMonthStats })} />
+                <ThisMonthCard
+                  stats={thisMonthStats}
+                  onPress={() => Alert.alert(
+                    'Still building',
+                    `Your ${MONTH_NAMES[new Date().getMonth()]} Wrapped finalises at the end of the month. Keep logging to get the full picture!`,
+                  )}
+                />
               </View>
             </>
           )}
@@ -400,6 +407,7 @@ const styles = StyleSheet.create({
   cardPersonality: { fontWeight: '700', fontSize: 18, color: C.white, letterSpacing: -0.2, marginBottom: 3 },
   cardMealCount:   { fontSize: 12, color: C.gray2 },
   cardChevron: { fontSize: 22, color: C.gray3, paddingRight: 4 },
+  cardLock: { fontSize: 16, opacity: 0.45, paddingRight: 4 },
 
   newBadge: { position: 'absolute', top: 14, right: 14, backgroundColor: C.orange, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
   newBadgeText: { fontWeight: '800', fontSize: 9, letterSpacing: 1, color: '#0d0d0d' },

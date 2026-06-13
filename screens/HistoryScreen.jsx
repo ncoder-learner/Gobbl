@@ -19,6 +19,7 @@ import {
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
+import { computeTierRank, createPost } from '../lib/postUtils';
 
 const PAGE_SIZE = 20;
 
@@ -243,19 +244,9 @@ function MealDetailModal({ meal, onClose, onUpdated, onDeleted, onPostChanged })
     setShareCaption('');
     setError(null);
     setMode('share');
-    // Compute tier_rank async: find rank of this meal in user's year meals by score
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-      const yearStart = new Date(new Date().getFullYear(), 0, 1).toISOString();
-      const yearEnd   = new Date(new Date().getFullYear() + 1, 0, 1).toISOString();
-      const { data } = await supabase
-        .from('meals').select('id, score').eq('user_id', user.id)
-        .gte('created_at', yearStart).lt('created_at', yearEnd)
-        .order('score', { ascending: false });
-      const idx = (data || []).findIndex(m => m.id === meal.id);
-      const rank = idx >= 0 ? idx + 1 : null;
-      setShareTierRank(rank != null && rank <= 10 ? rank : null);
+      const rank = await computeTierRank(meal.id);
+      setShareTierRank(rank);
     } catch { setShareTierRank(null); }
   }
 
@@ -263,19 +254,10 @@ function MealDetailModal({ meal, onClose, onUpdated, onDeleted, onPostChanged })
     setSharingPost(true);
     setError(null);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('Not signed in');
-      const { data, error: insertErr } = await supabase.from('posts').insert({
-        user_id: user.id,
-        meal_id: meal.id,
-        caption: shareCaption.trim() || null,
-        tier_rank: shareTierRank,
-        visibility: 'friends',
-      }).select('id').single();
-      if (insertErr) throw insertErr;
+      const newPostId = await createPost(meal.id, shareCaption, shareTierRank);
       setIsPosted(true);
-      setPostId(data.id);
-      onPostChanged?.(meal.id, data.id);
+      setPostId(newPostId);
+      onPostChanged?.(meal.id, newPostId);
       setMode('detail');
     } catch (err) {
       setError(err.message || 'Could not post. Try again.');

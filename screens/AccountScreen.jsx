@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import {
   View,
   Text,
+  TextInput,
   TouchableOpacity,
   Switch,
   Linking,
@@ -13,6 +14,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import {
   loadNotifPrefs,
@@ -119,6 +121,12 @@ export default function AccountScreen() {
   const [notifLoading, setNotifLoading] = useState(false);
   const [notifPermDenied, setNotifPermDenied] = useState(false);
 
+  // Profile editing
+  const [editName, setEditName] = useState('');
+  const [editCity, setEditCity] = useState('');
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileSaved, setProfileSaved] = useState(false);
+
   useEffect(() => {
     async function load() {
       try {
@@ -133,10 +141,12 @@ export default function AccountScreen() {
         if (u) {
           const { data } = await supabase
             .from('profiles')
-            .select('display_name, username')
+            .select('display_name, username, city')
             .eq('id', u.id)
             .single();
           setProfile(data);
+          setEditName(data?.display_name ?? '');
+          setEditCity(data?.city ?? '');
         }
       } catch (err) {
         setError(err.message || 'Failed to load account info.');
@@ -146,6 +156,32 @@ export default function AccountScreen() {
     }
     load();
   }, []);
+
+  async function handleSaveProfile() {
+    setProfileSaving(true);
+    setProfileSaved(false);
+    try {
+      const { data: { user: u } } = await supabase.auth.getUser();
+      if (!u) return;
+      await supabase.from('profiles').upsert({
+        id: u.id,
+        display_name: editName.trim() || null,
+        city: editCity.trim() || null,
+        updated_at: new Date().toISOString(),
+      });
+      setProfile(p => ({ ...p, display_name: editName.trim() || null, city: editCity.trim() || null }));
+      setProfileSaved(true);
+      setTimeout(() => setProfileSaved(false), 2000);
+    } catch (err) {
+      setError(err.message || 'Failed to save profile.');
+    } finally {
+      setProfileSaving(false);
+    }
+  }
+
+  const profileDirty =
+    editName.trim() !== (profile?.display_name ?? '') ||
+    editCity.trim() !== (profile?.city ?? '');
 
   async function handleToggleNotif(value) {
     setNotifLoading(true);
@@ -250,11 +286,17 @@ export default function AccountScreen() {
   return (
     <SafeAreaView style={styles.safe}>
       <StatusBar barStyle="light-content" backgroundColor={C.bg} />
+      <View style={styles.navBar}>
+        <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={12}>
+          <Ionicons name="arrow-back" size={22} color="#ffffff" />
+        </TouchableOpacity>
+        <Text style={styles.navTitle}>Account</Text>
+        <View style={{ width: 22 }} />
+      </View>
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.pageTitle}>Account</Text>
 
         {/* Profile card */}
         <View style={styles.card}>
@@ -270,6 +312,50 @@ export default function AccountScreen() {
               <Text style={styles.email}>{user.email}</Text>
             </View>
           </View>
+        </View>
+
+        {/* Edit profile */}
+        <View style={styles.card}>
+          <View style={styles.editField}>
+            <Text style={styles.editLabel}>Display name</Text>
+            <TextInput
+              style={styles.editInput}
+              value={editName}
+              onChangeText={v => { setEditName(v); setProfileSaved(false); }}
+              placeholder="Your name"
+              placeholderTextColor={C.gray4}
+              autoCapitalize="words"
+              returnKeyType="next"
+            />
+          </View>
+          <View style={styles.rowDivider} />
+          <View style={styles.editField}>
+            <Text style={styles.editLabel}>City</Text>
+            <TextInput
+              style={styles.editInput}
+              value={editCity}
+              onChangeText={v => { setEditCity(v); setProfileSaved(false); }}
+              placeholder="Your city"
+              placeholderTextColor={C.gray4}
+              autoCapitalize="words"
+              returnKeyType="done"
+              onSubmitEditing={profileDirty ? handleSaveProfile : undefined}
+            />
+          </View>
+          {(profileDirty || profileSaved) && (
+            <View style={styles.editActions}>
+              <TouchableOpacity
+                style={[styles.saveBtn, profileSaving && styles.btnDisabled]}
+                onPress={handleSaveProfile}
+                disabled={profileSaving || !profileDirty}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.saveBtnText}>
+                  {profileSaving ? 'Saving…' : profileSaved ? 'Saved ✓' : 'Save'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
 
         {/* Social */}
@@ -406,13 +492,11 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: C.bg },
   scrollContent: { padding: 24, paddingBottom: 48 },
 
-  pageTitle: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: C.white,
-    letterSpacing: -0.5,
-    marginBottom: 24,
+  navBar: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 20, paddingVertical: 14,
   },
+  navTitle: { fontSize: 15, fontWeight: '600', color: '#ffffff' },
 
   card: {
     backgroundColor: C.surface,
@@ -547,6 +631,28 @@ const styles = StyleSheet.create({
   },
   notifDeniedText: { fontSize: 12, color: '#ccaa44', lineHeight: 17 },
   notifOpenSettings: { fontSize: 12, color: C.orange, fontWeight: '600' },
+
+  // Edit profile card
+  editField: { paddingHorizontal: 18, paddingVertical: 12 },
+  editLabel: { fontSize: 12, color: C.gray2, fontWeight: '500', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 },
+  editInput: {
+    fontSize: 15,
+    color: C.white,
+    backgroundColor: '#111111',
+    borderWidth: 0.5,
+    borderColor: C.border,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  editActions: { paddingHorizontal: 18, paddingBottom: 14, paddingTop: 4 },
+  saveBtn: {
+    backgroundColor: C.purple,
+    borderRadius: 10,
+    paddingVertical: 11,
+    alignItems: 'center',
+  },
+  saveBtnText: { fontSize: 14, fontWeight: '700', color: C.white },
 
   modalOverlay: {
     flex: 1,

@@ -104,6 +104,15 @@ function RequestRow({ row, myId, onAccepted, onDeclined }) {
         .from('friendships').update({ status: 'accepted', updated_at: new Date().toISOString() })
         .eq('id', row.id);
       if (error) throw error;
+      // Notify the requester that their request was accepted
+      const accepterUsername = row.addressee_profile?.username ?? row.addressee_profile?.display_name ?? 'Someone';
+      supabase.functions.invoke('send-notification', {
+        body: {
+          targetUserId: row.requester_id,
+          title: '🤝 Friend request accepted',
+          body: `@${accepterUsername} accepted your friend request!`,
+        },
+      }).catch(() => {});
       onAccepted(row.id);
     } catch (err) {
       Alert.alert('Error', err.message);

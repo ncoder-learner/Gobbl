@@ -1,12 +1,9 @@
 import { useRef, useState } from 'react';
 import {
   Dimensions,
-  KeyboardAvoidingView,
-  Platform,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
   SafeAreaView,
@@ -29,41 +26,31 @@ const C = {
   gray1: '#888888',
   gray2: '#666666',
   gray4: '#444444',
-  inputBg: '#161616',
 };
 
 const INFO_SLIDES = [
   {
-    emoji: '🍽️',
-    title: 'Log every meal',
+    emoji: '📸',
+    title: 'Log & rate',
     body: 'Snap a photo of anything you eat. FoodWrapped identifies the dish and pre-fills the details — just rate it and keep going.',
   },
   {
     emoji: '🏆',
-    title: 'Your tier list builds itself',
-    body: 'Every meal you rate gets ranked automatically. Drag the handle on any card to reorder and build your personal all-time ranking.',
+    title: 'Remember & rank',
+    body: 'Every meal you rate is remembered and automatically ranked into your tier list. Never forget what you loved or where it was from.',
   },
   {
-    emoji: '📌',
-    title: 'Lock your favourites',
-    body: 'The yearly Top 10 auto-ranks by score — but tap the 📌 on any card to pin it in place. Pinned meals hold their spot even as better ones come in.',
-  },
-  {
-    emoji: '✨',
-    title: 'Your monthly Wrapped',
-    body: 'At the end of every month, a shareable story-card shows your top dishes, favorite cuisines, and how you rank in your city.',
+    emoji: '👥',
+    title: 'See what friends eat',
+    body: 'Follow friends to see their ratings and rankings. Find your next meal through people with the same taste.',
   },
 ];
 
-// Profile slide is INFO_SLIDES.length + 1 total slides.
-// Username is handled exclusively by UsernamePromptScreen after onboarding.
-const TOTAL_SLIDES = INFO_SLIDES.length + 1;
+const TOTAL_SLIDES = INFO_SLIDES.length;
 
 export default function OnboardingScreen({ onDone }) {
   const scrollRef = useRef(null);
   const [currentIdx, setCurrentIdx] = useState(0);
-  const [displayName, setDisplayName] = useState('');
-  const [city, setCity] = useState('');
   const [saving, setSaving] = useState(false);
 
   function handleScroll(e) {
@@ -90,14 +77,11 @@ export default function OnboardingScreen({ onDone }) {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
-        const updates = {
+        await supabase.from('profiles').upsert({
           id: user.id,
           onboarding_completed: true,
           updated_at: new Date().toISOString(),
-        };
-        if (displayName.trim()) updates.display_name = displayName.trim();
-        if (city.trim()) updates.city = city.trim();
-        await supabase.from('profiles').upsert(updates);
+        });
       }
     } catch (_) {
       // Non-fatal: proceed even if save fails. The gate in App.js trusts local state.
@@ -112,115 +96,66 @@ export default function OnboardingScreen({ onDone }) {
   return (
     <SafeAreaView style={styles.safe}>
       <StatusBar barStyle="light-content" backgroundColor={C.bg} />
-      <KeyboardAvoidingView
-        style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
-        {/* Slides */}
-        <ScrollView
-          ref={scrollRef}
-          horizontal
-          pagingEnabled
-          showsHorizontalScrollIndicator={false}
-          scrollEventThrottle={16}
-          onScroll={handleScroll}
-          decelerationRate="fast"
-          disableIntervalMomentum
-          bounces={false}
-          style={styles.scrollView}
-        >
-          {/* Info slides */}
-          {INFO_SLIDES.map((slide, i) => (
-            <View key={i} style={styles.slide}>
-              <View style={styles.artBox}>
-                <LinearGradient
-                  colors={['#1e0a38', '#2a0d4a']}
-                  style={StyleSheet.absoluteFill}
-                />
-                <Text style={styles.slideEmoji}>{slide.emoji}</Text>
-              </View>
-              <Text style={styles.slideTitle}>{slide.title}</Text>
-              <Text style={styles.slideBody}>{slide.body}</Text>
-            </View>
-          ))}
 
-          {/* Profile collection slide (display name + city, both optional) */}
-          <View style={styles.slide}>
+      <ScrollView
+        ref={scrollRef}
+        horizontal
+        pagingEnabled
+        showsHorizontalScrollIndicator={false}
+        scrollEventThrottle={16}
+        onScroll={handleScroll}
+        decelerationRate="fast"
+        disableIntervalMomentum
+        bounces={false}
+        style={styles.scrollView}
+      >
+        {INFO_SLIDES.map((slide, i) => (
+          <View key={i} style={styles.slide}>
             <View style={styles.artBox}>
               <LinearGradient
                 colors={['#1e0a38', '#2a0d4a']}
                 style={StyleSheet.absoluteFill}
               />
-              <Text style={styles.slideEmoji}>👋</Text>
+              <Text style={styles.slideEmoji}>{slide.emoji}</Text>
             </View>
-            <Text style={styles.slideTitle}>One quick thing</Text>
-            <Text style={[styles.slideBody, { marginBottom: 28 }]}>
-              Totally optional — helps us personalize your Wrapped.
-            </Text>
-
-            <View style={styles.fields}>
-              <View style={styles.fieldGroup}>
-                <Text style={styles.fieldLabel}>Your name</Text>
-                <TextInput
-                  style={styles.input}
-                  value={displayName}
-                  onChangeText={setDisplayName}
-                  placeholder="e.g. Alex"
-                  placeholderTextColor={C.gray4}
-                  autoCapitalize="words"
-                  returnKeyType="next"
-                />
-              </View>
-              <View style={styles.fieldGroup}>
-                <Text style={styles.fieldLabel}>Your city</Text>
-                <TextInput
-                  style={styles.input}
-                  value={city}
-                  onChangeText={setCity}
-                  placeholder="e.g. Phoenix"
-                  placeholderTextColor={C.gray4}
-                  autoCapitalize="words"
-                  returnKeyType="done"
-                  onSubmitEditing={handleComplete}
-                />
-              </View>
-            </View>
+            <Text style={styles.slideTitle}>{slide.title}</Text>
+            <Text style={styles.slideBody}>{slide.body}</Text>
           </View>
-        </ScrollView>
+        ))}
+      </ScrollView>
 
-        {/* Progress dots */}
-        <View style={styles.dotsRow}>
-          {Array.from({ length: TOTAL_SLIDES }).map((_, i) => (
-            <TouchableOpacity
-              key={i}
-              onPress={() => goTo(i)}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-              <View style={[styles.dot, i === currentIdx && styles.dotActive]} />
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {/* Next / Get started CTA */}
-        <View style={styles.ctaWrap}>
+      {/* Progress dots */}
+      <View style={styles.dotsRow}>
+        {Array.from({ length: TOTAL_SLIDES }).map((_, i) => (
           <TouchableOpacity
-            style={[styles.ctaBtn, saving && styles.ctaBtnDisabled]}
-            onPress={handleNext}
-            disabled={saving}
-            activeOpacity={0.85}
+            key={i}
+            onPress={() => goTo(i)}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
-            <LinearGradient
-              colors={['#8855cc', '#6633aa']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={StyleSheet.absoluteFill}
-            />
-            <Text style={styles.ctaBtnText}>
-              {isLastSlide ? "Let's eat! 🍴" : 'Next →'}
-            </Text>
+            <View style={[styles.dot, i === currentIdx && styles.dotActive]} />
           </TouchableOpacity>
-        </View>
-      </KeyboardAvoidingView>
+        ))}
+      </View>
+
+      {/* Next / Get started CTA */}
+      <View style={styles.ctaWrap}>
+        <TouchableOpacity
+          style={[styles.ctaBtn, saving && styles.ctaBtnDisabled]}
+          onPress={handleNext}
+          disabled={saving}
+          activeOpacity={0.85}
+        >
+          <LinearGradient
+            colors={['#8855cc', '#6633aa']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={StyleSheet.absoluteFill}
+          />
+          <Text style={styles.ctaBtnText}>
+            {isLastSlide ? "Let's eat! 🍴" : 'Next →'}
+          </Text>
+        </TouchableOpacity>
+      </View>
     </SafeAreaView>
   );
 }
@@ -266,20 +201,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 22,
     paddingHorizontal: 8,
-  },
-
-  fields: { width: '100%' },
-  fieldGroup: { marginBottom: 16 },
-  fieldLabel: { fontSize: 13, color: C.gray2, marginBottom: 8, fontWeight: '500' },
-  input: {
-    backgroundColor: C.inputBg,
-    borderWidth: 0.5,
-    borderColor: C.border,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 15,
-    color: C.white,
   },
 
   dotsRow: {

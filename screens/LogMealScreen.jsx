@@ -18,12 +18,15 @@ import {
   PanResponder,
   Linking,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
+import { decode } from 'base64-arraybuffer';
 import { FirstVisitTooltip, useFirstVisit } from '../lib/firstVisit';
+import ShareBottomSheet from '../components/ShareBottomSheet';
 
 // ─── Theme (matches HomeScreen) ───────────────────────────────────────────────
 const C = {
@@ -241,6 +244,9 @@ export default function LogMealScreen() {
   const [mealName, setMealName] = useState('');
   const [score, setScore] = useState(5.5);
   const [savedMealId, setSavedMealId] = useState(null);
+  const [savedPhotoUrl, setSavedPhotoUrl] = useState(null);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [sharePosted, setSharePosted] = useState(false);
   const [notes, setNotes] = useState('');
   const [facing, setFacing] = useState('back');
   const [processing, setProcessing] = useState(false);
@@ -258,6 +264,7 @@ export default function LogMealScreen() {
       setImageUri(compressed.uri);
       setImageBase64(compressed.base64);
       setImageMediaType('image/jpeg');
+      setIdentifyError(null);
       setStage('preview');
     } catch (err) {
       Alert.alert('Capture failed', 'Could not capture photo. Try again.');
@@ -296,6 +303,7 @@ export default function LogMealScreen() {
         setImageUri(compressed.uri);
         setImageBase64(compressed.base64);
         setImageMediaType('image/jpeg');
+        setIdentifyError(null);
         setStage('preview');
       } catch (err) {
         Alert.alert('Processing failed', 'Could not process the selected photo. Try again.');
@@ -322,14 +330,49 @@ export default function LogMealScreen() {
         identifyFoodWithClaude(imageBase64, imageMediaType),
         timeoutPromise,
       ]);
+
+      // TEMP DIAGNOSTIC LOG — remove after confirming pizza works
+      console.log('[identify-food] raw result:', JSON.stringify(result));
+      console.log('[identify-food] name:', result?.name, '| is_food:', result?.is_food, '| is_appropriate:', result?.is_appropriate);
+
+      // ── Safety gate ────────────────────────────────────────────────────────
+      // Strict: reject immediately if content is inappropriate.
+      if (result.is_appropriate === false) {
+        Alert.alert(
+          'Photo not accepted',
+          "This image can't be used. Please choose a photo of your food.",
+          [{ text: 'OK' }],
+        );
+        setStage('camera');
+        return;
+      }
+
+      // Fail safe: if safety flags are missing or not proper booleans, the
+      // response is unverified — don't allow saving and ask the user to retry.
+      if (typeof result.is_food !== 'boolean' || typeof result.is_appropriate !== 'boolean') {
+        setIdentifyError('error');
+        setStage('preview');
+        return;
+      }
+
+      // Lenient: only block if the model is confident there is no food at all.
+      if (!result.is_food) {
+        setIdentifyError('no_food');
+        setStage('preview');
+        return;
+      }
+
+      // Both checks passed — proceed to confirm.
       setIdentified(result);
       setMealName(result.name);
       setStage('confirm');
     } catch (err) {
+      // Network error, timeout, or unexpected failure — fail safe: stay on
+      // preview so the user can retry without an unverified image being saved.
+      // TEMP DIAGNOSTIC LOG — remove after confirming pizza works
+      console.log('[identify-food] CATCH:', err?.isTimeout ? 'TIMEOUT' : 'ERROR', err?.message);
       setIdentifyError(err.isTimeout ? 'timeout' : 'error');
-      setIdentified({ name: '', description: '', cuisine: '', emoji: '🍽️', confidence: 'low' });
-      setMealName('');
-      setStage('confirm');
+      setStage('preview');
     }
   }
 
@@ -350,12 +393,9 @@ export default function LogMealScreen() {
       // 1. Upload image to Supabase Storage
       const fileName = `${user.id}/${Date.now()}.jpg`;
       uploadedFileName = fileName;
-      const response = await fetch(imageUri);
-      const blob = await response.blob();
-
       const { error: uploadError } = await supabase.storage
         .from('meal-photos')
-        .upload(fileName, blob, { contentType: imageMediaType });
+        .upload(fileName, decode(imageBase64), { contentType: imageMediaType });
 
       if (uploadError) throw uploadError;
 
@@ -391,6 +431,8 @@ export default function LogMealScreen() {
       }
 
       setSavedMealId(inserted?.id ?? null);
+      setSavedPhotoUrl(publicUrl);
+      setSharePosted(false);
       setStage('done');
     } catch (err) {
       console.error(err);
@@ -428,7 +470,23 @@ export default function LogMealScreen() {
     );
   }
 
-  // ── Done screen — celebrate, then hand off to the tier list ─────────────────
+  // ── Done screen — celebrate, then offer share or continue ──────────────────
+
+  function handleFinish() {
+    const mealId = savedMealId;
+    setStage('camera');
+    setImageUri(null);
+    setImageBase64(null);
+    setIdentified(null);
+    setMealName('');
+    setScore(5.5);
+    setNotes('');
+    setSavedMealId(null);
+    setSavedPhotoUrl(null);
+    setShareOpen(false);
+    setSharePosted(false);
+    navigation.navigate('TierList', { newMealId: mealId });
+  }
 
   if (stage === 'done') {
     return (
@@ -437,20 +495,59 @@ export default function LogMealScreen() {
           emoji={identified?.emoji || '🍽️'}
           mealName={mealName}
           score={score}
-          onFinished={() => {
-            const mealId = savedMealId;
-            // Reset the form so coming back to this tab starts fresh
-            setStage('camera');
-            setImageUri(null);
-            setImageBase64(null);
-            setIdentified(null);
-            setMealName('');
-            setScore(5.5);
-            setNotes('');
-            setSavedMealId(null);
+          onFinished={() => setStage('done-options')}
+        />
+      </SafeAreaView>
+    );
+  }
 
-            navigation.navigate('TierList', { newMealId: mealId });
-          }}
+  if (stage === 'done-options') {
+    const shareMeal = {
+      id: savedMealId,
+      name: mealName,
+      emoji: identified?.emoji || '🍽️',
+      score,
+      photo_url: savedPhotoUrl,
+    };
+    return (
+      <SafeAreaView style={styles.safe}>
+        <View style={styles.doneBox}>
+          <Text style={styles.doneEmoji}>{identified?.emoji || '🍽️'}</Text>
+          <Text style={styles.doneTitle}>Logged!</Text>
+          <Text style={styles.doneSub} numberOfLines={1}>{mealName}</Text>
+
+          <View style={styles.doneOptionsRow}>
+            {sharePosted ? (
+              <View style={styles.doneSharedBadge}>
+                <Text style={styles.doneSharedText}>✓ Shared to feed</Text>
+              </View>
+            ) : (
+              <TouchableOpacity
+                style={styles.doneShareBtn}
+                onPress={() => setShareOpen(true)}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.doneShareBtnText}>Share to feed →</Text>
+              </TouchableOpacity>
+            )}
+
+            <TouchableOpacity
+              style={styles.doneContinueBtn}
+              onPress={handleFinish}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.doneContinueBtnText}>
+                {sharePosted ? 'Continue →' : 'Skip · Go to tier list'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <ShareBottomSheet
+          visible={shareOpen}
+          meal={shareMeal}
+          onDismiss={() => setShareOpen(false)}
+          onPosted={() => setSharePosted(true)}
         />
       </SafeAreaView>
     );
@@ -494,7 +591,7 @@ export default function LogMealScreen() {
           {/* Bottom controls */}
           <View style={styles.camControls}>
             <TouchableOpacity style={styles.camLibBtn} onPress={pickFromLibrary} disabled={processing}>
-              <Text style={styles.camLibText}>📂</Text>
+              <Ionicons name="images-outline" size={28} color="rgba(255,255,255,0.9)" />
               <Text style={styles.camLibLabel}>Library</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.camShutter} onPress={takePhoto} disabled={processing}>
@@ -534,13 +631,28 @@ export default function LogMealScreen() {
             </View>
           )}
         </View>
+        {stage === 'preview' && identifyError && (
+          <View style={styles.previewErrBox}>
+            <Text style={styles.previewErrText}>
+              {identifyError === 'no_food'
+                ? "We couldn't find food in this photo — try another shot."
+                : identifyError === 'timeout'
+                  ? 'Identification timed out. Please try again.'
+                  : "Couldn't verify the photo. Please try again."}
+            </Text>
+          </View>
+        )}
         {stage === 'preview' && (
           <View style={styles.previewActions}>
             <TouchableOpacity style={styles.previewRetake} onPress={() => setStage('camera')}>
-              <Text style={styles.previewRetakeText}>Retake</Text>
+              <Text style={styles.previewRetakeText}>
+                {identifyError === 'no_food' ? 'Try another shot' : 'Retake'}
+              </Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.previewIdentify} onPress={identify}>
-              <Text style={styles.previewIdentifyText}>Identify food →</Text>
+              <Text style={styles.previewIdentifyText}>
+                {identifyError ? 'Try again →' : 'Identify food →'}
+              </Text>
             </TouchableOpacity>
           </View>
         )}
@@ -714,6 +826,8 @@ const styles = StyleSheet.create({
   previewImg: { width: '100%', height: 320 },
   identifyingOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center', gap: 16 },
   identifyingText: { fontSize: 16, color: C.white, fontWeight: '500' },
+  previewErrBox: { backgroundColor: '#1a0d00', borderTopWidth: 0.5, borderTopColor: '#4a2a00', paddingHorizontal: 20, paddingVertical: 14 },
+  previewErrText: { fontSize: 14, color: '#ffaa44', lineHeight: 20, textAlign: 'center' },
   previewActions: { flexDirection: 'row', gap: 12, padding: 24 },
   previewRetake: { flex: 1, borderWidth: 0.5, borderColor: C.border, borderRadius: 14, paddingVertical: 14, alignItems: 'center' },
   previewRetakeText: { fontSize: 15, color: C.gray1, fontWeight: '500' },
@@ -813,4 +927,22 @@ const styles = StyleSheet.create({
   doneScoreNum: { fontWeight: '800', fontSize: 56, letterSpacing: -1 },
   doneScoreLabel: { fontWeight: '700', fontSize: 16, marginTop: 2 },
   doneHint: { fontSize: 13, color: C.gray2, marginTop: 28 },
+
+  // Done-options stage
+  doneOptionsRow: { width: '100%', marginTop: 36, gap: 12 },
+  doneShareBtn: {
+    backgroundColor: '#8855cc', borderRadius: 16,
+    paddingVertical: 16, alignItems: 'center',
+  },
+  doneShareBtnText: { fontSize: 16, fontWeight: '700', color: C.white },
+  doneContinueBtn: {
+    backgroundColor: C.surface, borderWidth: 0.5, borderColor: C.border,
+    borderRadius: 16, paddingVertical: 16, alignItems: 'center',
+  },
+  doneContinueBtnText: { fontSize: 15, fontWeight: '500', color: C.gray1 },
+  doneSharedBadge: {
+    backgroundColor: '#1a2a1a', borderWidth: 0.5, borderColor: '#2a5a2a',
+    borderRadius: 16, paddingVertical: 16, alignItems: 'center',
+  },
+  doneSharedText: { fontSize: 15, fontWeight: '600', color: '#00c896' },
 });

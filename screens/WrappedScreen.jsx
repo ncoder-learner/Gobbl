@@ -348,29 +348,34 @@ function FinaleSlide({
   monthName, year,
   shareCardRef,
 }) {
-  const headerAnim   = useRef(new Animated.Value(0)).current;
+  const emojiAnim    = useRef(new Animated.Value(0)).current;
+  const heroAnim     = useRef(new Animated.Value(0)).current;
   const statsAnim    = useRef(new Animated.Value(0)).current;
   const bestMealAnim = useRef(new Animated.Value(0)).current;
   const insightsAnim = useRef(new Animated.Value(0)).current;
-  const glowAnim     = useRef(new Animated.Value(0)).current;
+  const auraAnim     = useRef(new Animated.Value(0.4)).current;
 
   useEffect(() => {
+    // Entrance sequence: emoji bounces in first, then text slides up, then stats cascade in
     Animated.sequence([
-      Animated.delay(100),
-      Animated.parallel([
-        Animated.spring(headerAnim, { toValue: 1, useNativeDriver: true, speed: 8, bounciness: 10 }),
-        Animated.timing(glowAnim,   { toValue: 1, duration: 1000, useNativeDriver: true }),
-      ]),
-      Animated.delay(180),
-      Animated.timing(statsAnim,    { toValue: 1, duration: 520, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+      Animated.spring(emojiAnim, { toValue: 1, useNativeDriver: true, speed: 4, bounciness: 22 }),
+      Animated.timing(heroAnim, { toValue: 1, duration: 420, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
       Animated.delay(120),
-      Animated.timing(bestMealAnim, { toValue: 1, duration: 460, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+      Animated.timing(statsAnim, { toValue: 1, duration: 440, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
       Animated.delay(80),
-      Animated.timing(insightsAnim, { toValue: 1, duration: 400, useNativeDriver: true }),
+      Animated.timing(bestMealAnim, { toValue: 1, duration: 380, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+      Animated.delay(60),
+      Animated.timing(insightsAnim, { toValue: 1, duration: 340, useNativeDriver: true }),
     ]).start();
-  }, []);
 
-  const emojiScale = headerAnim.interpolate({ inputRange: [0, 0.55, 1], outputRange: [0, 1.2, 1] });
+    // Aura pulses independently — lives inside the scroll content so it never drifts
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(auraAnim, { toValue: 1, duration: 1800, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        Animated.timing(auraAnim, { toValue: 0.4, duration: 1800, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+      ])
+    ).start();
+  }, []);
 
   const pills = [
     mostLoggedFood && mostLoggedCount > 1 ? { icon: '🔄', text: `${mostLoggedFood} × ${mostLoggedCount} this month` } : null,
@@ -403,21 +408,33 @@ function FinaleSlide({
 
   return (
     <View style={{ flex: 1, width: '100%' }}>
-      <Animated.View pointerEvents="none" style={[styles.finaleGlow, { opacity: glowAnim }]} />
       <ScrollView contentContainerStyle={styles.finaleContent} showsVerticalScrollIndicator={false}>
         <Text style={styles.finaleKicker}>FOODWRAPPED · {monthName.toUpperCase()} {year}</Text>
 
-        <Animated.View style={[styles.finalePersonality, {
-          opacity: headerAnim,
-          transform: [{ scale: headerAnim.interpolate({ inputRange: [0, 1], outputRange: [0.88, 1] }) }],
-        }]}>
-          <Animated.Text style={[styles.finaleEmoji, { transform: [{ scale: emojiScale }] }]}>
+        {/* PERSONALITY HERO — aura lives here, scrolls with content, no jitter */}
+        <View style={styles.finalePersonality}>
+          <Animated.View
+            pointerEvents="none"
+            style={[styles.finaleAura, {
+              opacity: auraAnim.interpolate({ inputRange: [0.4, 1], outputRange: [0.13, 0.28] }),
+              transform: [{ scale: auraAnim.interpolate({ inputRange: [0.4, 1], outputRange: [0.88, 1.12] }) }],
+            }]}
+          />
+          <Animated.Text style={[styles.finaleEmoji, {
+            transform: [{ scale: emojiAnim.interpolate({ inputRange: [0, 1], outputRange: [0.2, 1] }) }],
+          }]}>
             {personality.emoji}
           </Animated.Text>
-          <Text style={styles.finaleYoure}>YOU ARE</Text>
-          <Text style={styles.finaleName}>{personality.name}</Text>
-          <Text style={styles.finaleTagline}>"{personality.tagline}"</Text>
-        </Animated.View>
+          <Animated.View style={{
+            opacity: heroAnim,
+            transform: [{ translateY: heroAnim.interpolate({ inputRange: [0, 1], outputRange: [14, 0] }) }],
+            alignItems: 'center',
+          }}>
+            <Text style={styles.finaleYoure}>YOU ARE</Text>
+            <Text style={styles.finaleName}>{personality.name}</Text>
+            <Text style={styles.finaleTagline}>"{personality.tagline}"</Text>
+          </Animated.View>
+        </View>
 
         <View style={styles.finaleLine} />
 
@@ -466,13 +483,13 @@ function FinaleSlide({
           </Animated.View>
         )}
 
-        <Animated.View style={{ opacity: insightsAnim, marginBottom: 20 }}>
+        <Animated.View style={{ opacity: insightsAnim, marginTop: 8, marginBottom: 20 }}>
           <Pressable
             onPress={handleShare}
             disabled={sharing}
             style={({ pressed }) => [styles.shareBtn, pressed && { opacity: 0.75 }]}
           >
-            <Text style={styles.shareBtnIcon}>↑</Text>
+            <Text style={styles.shareBtnIcon}>✦</Text>
             <Text style={styles.shareBtnText}>{sharing ? 'Creating…' : 'Share your Wrapped'}</Text>
           </Pressable>
         </Animated.View>
@@ -746,7 +763,7 @@ const styles = StyleSheet.create({
   retryBtn:     { backgroundColor: C.orange, borderRadius: 14, paddingHorizontal: 28, paddingVertical: 13 },
   retryBtnText: { fontSize: 15, fontWeight: '700', color: C.white },
 
-  playerHeaderRow: { flexDirection: 'row', alignItems: 'center', paddingRight: 8 },
+  playerHeaderRow: { flexDirection: 'row', alignItems: 'center', paddingRight: 8, paddingTop: 6 },
   closeBtn:     { paddingHorizontal: 14, paddingVertical: 10 },
   closeBtnText: { fontSize: 16, color: 'rgba(255,255,255,0.55)', fontWeight: '600' },
 
@@ -782,15 +799,15 @@ const styles = StyleSheet.create({
   starsRow: { flexDirection: 'row', gap: 4 },
   star:     { fontSize: 20 },
 
-  finaleGlow: { position: 'absolute', width: 280, height: 280, borderRadius: 140, backgroundColor: C.purple, opacity: 0.14, top: '8%', alignSelf: 'center', zIndex: 0 },
-  finaleContent:     { paddingHorizontal: 22, paddingTop: 20, paddingBottom: 44 },
-  finaleKicker:      { fontSize: 10, fontWeight: '700', letterSpacing: 2.5, color: C.purple, textAlign: 'center', marginBottom: 24, opacity: 0.75 },
-  finalePersonality: { alignItems: 'center', marginBottom: 24 },
-  finaleEmoji:       { fontSize: 80, marginBottom: 14 },
-  finaleYoure:       { fontSize: 11, color: C.gray2, letterSpacing: 3, textTransform: 'uppercase', marginBottom: 5 },
-  finaleName:        { fontWeight: '800', fontSize: 32, color: C.white, textAlign: 'center', letterSpacing: -0.5, lineHeight: 38 },
-  finaleTagline:     { fontSize: 14, color: C.purpleText, fontStyle: 'italic', marginTop: 7, textAlign: 'center', opacity: 0.85 },
-  finaleLine:        { height: 1, backgroundColor: 'rgba(255,255,255,0.06)', marginBottom: 24 },
+  finaleAura: { position: 'absolute', width: 200, height: 200, borderRadius: 100, backgroundColor: C.purple, alignSelf: 'center', top: -24 },
+  finaleContent:     { paddingHorizontal: 22, paddingTop: 16, paddingBottom: 44 },
+  finaleKicker:      { fontSize: 10, fontWeight: '700', letterSpacing: 2.5, color: C.purple, textAlign: 'center', marginBottom: 20, opacity: 0.75 },
+  finalePersonality: { alignItems: 'center', marginBottom: 20, paddingTop: 12 },
+  finaleEmoji:       { fontSize: 96, marginBottom: 12 },
+  finaleYoure:       { fontSize: 11, color: C.gray2, letterSpacing: 3, textTransform: 'uppercase', marginBottom: 6 },
+  finaleName:        { fontWeight: '800', fontSize: 40, color: C.white, textAlign: 'center', letterSpacing: -0.5, lineHeight: 46 },
+  finaleTagline:     { fontSize: 14, color: C.purpleText, fontStyle: 'italic', marginTop: 8, textAlign: 'center', opacity: 0.85 },
+  finaleLine:        { height: 1, backgroundColor: 'rgba(255,255,255,0.06)', marginBottom: 18 },
 
   finaleBigStats:    { flexDirection: 'row', backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 20, borderWidth: 0.5, borderColor: 'rgba(255,255,255,0.06)', marginBottom: 24, overflow: 'hidden' },
   finaleStatCell:    { flex: 1, alignItems: 'center', paddingVertical: 18 },
@@ -816,7 +833,7 @@ const styles = StyleSheet.create({
   insightPillText: { fontSize: 12, color: C.gray1, fontWeight: '500' },
 
   finaleFooter:  { fontSize: 10, color: C.gray4, letterSpacing: 2, textTransform: 'uppercase', textAlign: 'center' },
-  shareBtn:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: C.purple, borderRadius: 16, paddingVertical: 14, paddingHorizontal: 24 },
+  shareBtn:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: C.purple, borderRadius: 16, paddingVertical: 16, paddingHorizontal: 24, borderWidth: 1, borderColor: 'rgba(136,85,204,0.5)', shadowColor: C.purple, shadowOpacity: 0.55, shadowRadius: 14, shadowOffset: { width: 0, height: 4 }, elevation: 8 },
   shareBtnIcon:  { fontSize: 16, color: C.white },
   shareBtnText:  { fontSize: 15, fontWeight: '700', color: C.white, letterSpacing: 0.2 },
 });

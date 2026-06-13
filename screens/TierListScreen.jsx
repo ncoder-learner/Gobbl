@@ -249,7 +249,16 @@ function TopCard({ meal, rank, index, isNew, onLanded, isPinned, onTogglePin }) 
   }, []);
   const sweepX = sweep.interpolate({ inputRange: [0, 1], outputRange: [-140, 360] });
 
-  const rankBadgeContent = (
+  const rankBadgeContent = onTogglePin ? (
+    <Pressable
+      onPress={onTogglePin}
+      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      style={[styles.rankBadge, styles.rankBadgePinnable, isPinned && styles.rankBadgePinned]}
+    >
+      <Text style={[styles.topRankNum, isPinned && { color: C.orange }]}>{rank}</Text>
+      <Text style={[styles.topRankPinDot, isPinned && styles.topRankPinDotActive]}>📌</Text>
+    </Pressable>
+  ) : (
     <View style={styles.rankBadge}>
       <Text style={styles.topRankNum}>{rank}</Text>
     </View>
@@ -284,18 +293,6 @@ function TopCard({ meal, rank, index, isNew, onLanded, isPinned, onTogglePin }) 
       )}
 
       {rankBadgeContent}
-
-      {/* Persistent pin indicator — always rendered in yearly mode so it's discoverable */}
-      {onTogglePin && (
-        <Pressable
-          onPress={onTogglePin}
-          hitSlop={10}
-          style={[styles.topPinPill, isPinned && styles.topPinPillActive]}
-        >
-          <Text style={styles.topPinPillIcon}>📌</Text>
-          {isPinned && <Text style={styles.topPinPillLabel}>Pinned</Text>}
-        </Pressable>
-      )}
 
       {meal.photo_url ? (
         <Image source={{ uri: meal.photo_url }} style={styles.topImg} resizeMode="cover" />
@@ -600,7 +597,8 @@ export default function TierListScreen() {
 
   // ── Shared drag state ──
   const listRef = useRef(null);
-  const [tooltipVisible, dismissTooltip] = useFirstVisit('@fw_tt_tierlist');
+  const [tooltipVisible, dismissTooltip]       = useFirstVisit('@fw_tt_tierlist');
+  const [pinTooltipVisible, dismissPinTooltip] = useFirstVisit('@fw_tt_pin', 3600000);
   const draggedIdShared = useSharedValue('');
   const dragTranslateY  = useSharedValue(0);
   const rowLayoutsRef   = useRef({});
@@ -1035,6 +1033,13 @@ export default function TierListScreen() {
           style={{ bottom: 90, right: 16 }}
         />
       )}
+      {pinTooltipVisible && mode === 'yearly' && !tooltipVisible && (
+        <FirstVisitTooltip
+          message="Tap the rank badge to pin a meal in place — it holds its spot even as better ones come in."
+          onDismiss={dismissPinTooltip}
+          style={{ bottom: 90, alignSelf: 'center' }}
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -1045,7 +1050,7 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
   inlineCenter: { paddingTop: 60, alignItems: 'center', paddingHorizontal: 32 },
   list: { flex: 1, width: '100%', maxWidth: 480, alignSelf: 'center' },
-  listContent: { paddingBottom: 40 },
+  listContent: { paddingBottom: 40, paddingTop: 16 },
 
   emptyEmoji: { fontSize: 48, marginBottom: 16 },
   emptyTitle: { fontWeight: '700', fontSize: 20, color: C.white, marginBottom: 8, textAlign: 'center' },
@@ -1055,7 +1060,7 @@ const styles = StyleSheet.create({
 
   kicker: {
     fontWeight: '700', fontSize: 12, letterSpacing: 1.5, color: C.orange,
-    textTransform: 'uppercase', paddingHorizontal: 24, paddingTop: 20, marginBottom: 6,
+    textTransform: 'uppercase', paddingHorizontal: 24, paddingTop: 4, marginBottom: 6,
   },
   heading: {
     fontWeight: '800', fontSize: 30, color: '#f5f5f5',
@@ -1100,35 +1105,17 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
     backgroundColor: 'rgba(255,255,255,0.04)',
   },
+  rankBadgePinnable: {
+    height: 46, borderRadius: 10,
+    flexDirection: 'column', justifyContent: 'center', gap: 2,
+  },
   rankBadgePinned: {
     backgroundColor: 'rgba(255,107,61,0.15)',
     borderWidth: 1, borderColor: C.orange + '60',
   },
   topRankNum: { fontWeight: '800', fontSize: 16, textAlign: 'center', color: C.rankGray },
-
-  // Yearly pin pill — sits at bottom-left of TopCard, always rendered when in yearly mode
-  topPinPill: {
-    position: 'absolute',
-    bottom: 7,
-    left: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-    paddingHorizontal: 6,
-    paddingVertical: 3,
-    borderRadius: 7,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
-    backgroundColor: 'transparent',
-    opacity: 0.22,
-  },
-  topPinPillActive: {
-    opacity: 1,
-    backgroundColor: 'rgba(255,107,61,0.18)',
-    borderColor: C.orange + '80',
-  },
-  topPinPillIcon: { fontSize: 10 },
-  topPinPillLabel: { fontSize: 9, fontWeight: '700', color: C.orange, letterSpacing: 0.4 },
+  topRankPinDot: { fontSize: 9, textAlign: 'center', opacity: 0.22 },
+  topRankPinDotActive: { opacity: 1 },
 
   topImg: { width: 52, height: 52, borderRadius: 14, backgroundColor: C.bg, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' },
   topImgFallback: { alignItems: 'center', justifyContent: 'center' },
