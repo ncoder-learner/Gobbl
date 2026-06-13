@@ -1,8 +1,9 @@
 import { useCallback, useState } from 'react';
 import {
   View, Text, FlatList, Image, TouchableOpacity, StyleSheet,
-  SafeAreaView, StatusBar, Dimensions, ActivityIndicator, Alert,
+  StatusBar, Dimensions, ActivityIndicator, Alert,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -290,7 +291,7 @@ export default function UserProfileScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.safe}>
+      <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <StatusBar barStyle="light-content" backgroundColor={C.bg} />
         <View style={styles.navBar}>
           <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={12}>
@@ -305,7 +306,7 @@ export default function UserProfileScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       <StatusBar barStyle="light-content" backgroundColor={C.bg} />
 
       {/* Nav bar */}

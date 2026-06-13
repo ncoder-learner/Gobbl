@@ -7,7 +7,6 @@ import {
   TextInput,
   StyleSheet,
   Image,
-  SafeAreaView,
   StatusBar,
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -18,6 +17,7 @@ import {
   PanResponder,
   Linking,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
@@ -448,7 +448,7 @@ export default function LogMealScreen() {
 
   if (!permission.granted) {
     return (
-      <SafeAreaView style={styles.safe}>
+      <SafeAreaView style={styles.safe} edges={['top']}>
         <View style={styles.permissionBox}>
           <Text style={styles.permissionEmoji}>📸</Text>
           <Text style={styles.permissionTitle}>Camera access needed</Text>
@@ -490,7 +490,7 @@ export default function LogMealScreen() {
 
   if (stage === 'done') {
     return (
-      <SafeAreaView style={styles.safe}>
+      <SafeAreaView style={styles.safe} edges={['top']}>
         <DoneCelebration
           emoji={identified?.emoji || '🍽️'}
           mealName={mealName}
@@ -510,7 +510,7 @@ export default function LogMealScreen() {
       photo_url: savedPhotoUrl,
     };
     return (
-      <SafeAreaView style={styles.safe}>
+      <SafeAreaView style={styles.safe} edges={['top']}>
         <View style={styles.doneBox}>
           <Text style={styles.doneEmoji}>{identified?.emoji || '🍽️'}</Text>
           <Text style={styles.doneTitle}>Logged!</Text>
@@ -561,7 +561,7 @@ export default function LogMealScreen() {
         <StatusBar barStyle="light-content" />
         <CameraView ref={cameraRef} style={{ flex: 1 }} facing={facing}>
           {/* Top bar */}
-          <SafeAreaView>
+          <SafeAreaView edges={['top']}>
             <View style={styles.camTopBar}>
               <TouchableOpacity onPress={() => navigation.goBack()} style={styles.camBackBtn}>
                 <Text style={styles.camBackText}>✕</Text>
@@ -620,7 +620,7 @@ export default function LogMealScreen() {
 
   if (stage === 'preview' || stage === 'identifying') {
     return (
-      <SafeAreaView style={styles.safe}>
+      <SafeAreaView style={styles.safe} edges={['top']}>
         <StatusBar barStyle="light-content" backgroundColor={C.bg} />
         <View style={styles.previewBox}>
           <Image source={{ uri: imageUri }} style={styles.previewImg} resizeMode="cover" />
@@ -663,7 +663,7 @@ export default function LogMealScreen() {
   // ── Confirm + Save ──────────────────────────────────────────────────────────
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['top']}>
       <StatusBar barStyle="light-content" backgroundColor={C.bg} />
       <KeyboardAvoidingView
         style={{ flex: 1 }}

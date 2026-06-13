@@ -7,12 +7,12 @@ import {
   Switch,
   Linking,
   StyleSheet,
-  SafeAreaView,
   StatusBar,
   ScrollView,
   Modal,
   ActivityIndicator,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
@@ -246,7 +246,7 @@ export default function AccountScreen() {
 
   if (loadingProfile) {
     return (
-      <SafeAreaView style={styles.safe}>
+      <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
           <ActivityIndicator color={C.orange} />
         </View>
@@ -256,7 +256,7 @@ export default function AccountScreen() {
 
   if (!user) {
     return (
-      <SafeAreaView style={styles.safe}>
+      <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 }}>
           <Text style={{ fontSize: 14, color: C.gray1, textAlign: 'center' }}>
             {error || 'Could not load account. Please restart the app.'}
@@ -284,7 +284,7 @@ export default function AccountScreen() {
     : null;
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       <StatusBar barStyle="light-content" backgroundColor={C.bg} />
       <View style={styles.navBar}>
         <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={12}>

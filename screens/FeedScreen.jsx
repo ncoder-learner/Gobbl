@@ -1,9 +1,10 @@
 import { useCallback, useState, useRef } from 'react';
 import {
   View, Text, FlatList, Image, TouchableOpacity, StyleSheet,
-  SafeAreaView, StatusBar, Dimensions, ActivityIndicator, RefreshControl,
+  StatusBar, Dimensions, ActivityIndicator, RefreshControl,
   Modal, Pressable, ScrollView, Share,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -491,7 +492,7 @@ export default function FeedScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.safe}>
+      <SafeAreaView style={styles.safe} edges={['top']}>
         <StatusBar barStyle="light-content" backgroundColor={C.bg} />
         {listHeader}
         <View style={styles.loadingBox}>
@@ -502,7 +503,7 @@ export default function FeedScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['top']}>
       <StatusBar barStyle="light-content" backgroundColor={C.bg} />
 
       {/* ── Meal picker modal ─────────────────────────────────────────────── */}

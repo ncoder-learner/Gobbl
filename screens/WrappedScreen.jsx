@@ -4,7 +4,6 @@ import {
   Text,
   StyleSheet,
   Image,
-  SafeAreaView,
   StatusBar,
   ActivityIndicator,
   Animated,
@@ -14,6 +13,7 @@ import {
   ScrollView,
   Alert,
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import ViewShot from 'react-native-view-shot';
 import * as Sharing from 'expo-sharing';
@@ -506,6 +506,7 @@ function FinaleSlide({
 // Full tap-through Wrapped experience. Accepts a stats object and an optional
 // onClose callback (shown as ✕ button; also called when user taps past the last slide).
 export function WrappedPlayer({ stats, onClose }) {
+  const insets = useSafeAreaInsets();
   const [index, setIndex]       = useState(0);
   const [revealed, setRevealed] = useState(false);
   const directionRef            = useRef(1);
@@ -549,10 +550,10 @@ export function WrappedPlayer({ stats, onClose }) {
   ].filter(Boolean);
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <StatusBar barStyle="light-content" backgroundColor={C.bg} />
+    <View style={styles.safe}>
+      <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
 
-      <View style={styles.playerHeaderRow}>
+      <View style={[styles.playerHeaderRow, { paddingTop: insets.top + 6 }]}>
         <ProgressBar count={slides.length} index={safeIndex} />
         {onClose && (
           <TouchableOpacity onPress={onClose} hitSlop={16} style={styles.closeBtn}>
@@ -660,7 +661,7 @@ export function WrappedPlayer({ stats, onClose }) {
           pills={sharePills} monthName={monthName} year={year}
         />
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -712,7 +713,7 @@ export default function WrappedScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.safe}>
+      <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <StatusBar barStyle="light-content" backgroundColor={C.bg} />
         <View style={styles.center}><ActivityIndicator color={C.orange} /></View>
       </SafeAreaView>
@@ -721,7 +722,7 @@ export default function WrappedScreen() {
 
   if (error) {
     return (
-      <SafeAreaView style={styles.safe}>
+      <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <StatusBar barStyle="light-content" backgroundColor={C.bg} />
         <View style={styles.center}>
           <Text style={styles.emptyEmoji}>⚠️</Text>
@@ -738,7 +739,7 @@ export default function WrappedScreen() {
   if (!stats) {
     const monthName = MONTH_NAMES[new Date().getMonth()];
     return (
-      <SafeAreaView style={styles.safe}>
+      <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <StatusBar barStyle="light-content" backgroundColor={C.bg} />
         <View style={styles.center}>
           <Text style={styles.emptyEmoji}>📭</Text>

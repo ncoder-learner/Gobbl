@@ -4,7 +4,6 @@ import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   StatusBar,
   ActivityIndicator,
   ScrollView,
@@ -14,6 +13,7 @@ import {
   Easing,
   Alert,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { supabase } from '../lib/supabase';
 import { WrappedPlayer, computeWrappedStats, MONTH_NAMES } from './WrappedScreen';
@@ -261,7 +261,7 @@ export default function RecapsScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.safe}>
+      <SafeAreaView style={styles.safe} edges={['top']}>
         <StatusBar barStyle="light-content" backgroundColor={C.bg} />
         <View style={styles.center}><ActivityIndicator color={C.orange} /></View>
       </SafeAreaView>
@@ -272,7 +272,7 @@ export default function RecapsScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: C.bg }}>
-      <SafeAreaView style={styles.safe}>
+      <SafeAreaView style={styles.safe} edges={['top']}>
         <StatusBar barStyle="light-content" backgroundColor={C.bg} />
 
         <ScrollView

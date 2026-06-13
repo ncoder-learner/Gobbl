@@ -7,7 +7,6 @@ import {
   ScrollView,
   StyleSheet,
   Image,
-  SafeAreaView,
   StatusBar,
   ActivityIndicator,
   Alert,
@@ -19,6 +18,7 @@ import {
   UIManager,
   Platform,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import RAnimated, {
   useSharedValue,
   useAnimatedStyle,
@@ -873,7 +873,7 @@ export default function TierListScreen() {
   // ── Loading / error states ──
   if (loading) {
     return (
-      <SafeAreaView style={styles.safe}>
+      <SafeAreaView style={styles.safe} edges={['top']}>
         <StatusBar barStyle="light-content" backgroundColor={C.bg} />
         <View style={styles.center}><ActivityIndicator color={C.orange} /></View>
       </SafeAreaView>
@@ -882,7 +882,7 @@ export default function TierListScreen() {
 
   if (error) {
     return (
-      <SafeAreaView style={styles.safe}>
+      <SafeAreaView style={styles.safe} edges={['top']}>
         <StatusBar barStyle="light-content" backgroundColor={C.bg} />
         <View style={styles.center}>
           <Text style={styles.emptyEmoji}>⚠️</Text>
@@ -992,7 +992,7 @@ export default function TierListScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['top']}>
       <StatusBar barStyle="light-content" backgroundColor={C.bg} />
       <ScrollView
         ref={listRef}
