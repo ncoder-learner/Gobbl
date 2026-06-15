@@ -14,7 +14,7 @@
         "ITSAppUsesNonExemptEncryption": false,
         "NSCameraUsageDescription": "FoodWrapped uses your camera to photograph your meals.",
         "NSPhotoLibraryUsageDescription": "FoodWrapped accesses your photo library so you can log meals from existing photos.",
-        "NSUserNotificationsUsageDescription": "FoodWrapped sends daily reminders to log your meals and alerts when your streak is at risk."
+        "NSLocationWhenInUseUsageDescription": "FoodWrapped uses your location to tag where you got a meal so you can find great spots again later."
       }
     },
     "android": {
