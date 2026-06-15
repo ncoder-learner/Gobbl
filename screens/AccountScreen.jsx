@@ -11,7 +11,9 @@ import {
   ScrollView,
   Modal,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -214,6 +216,32 @@ export default function AccountScreen() {
     await saveNotifPrefs({ enabled: notifEnabled, reminderHour: hour, reminderMinute: 0 });
     if (notifEnabled) {
       scheduleDailyReminder(hour, 0).catch(() => {});
+    }
+  }
+
+  async function handleDevReset() {
+    try {
+      const { data: { user: u } } = await supabase.auth.getUser();
+      const keysToRemove = [
+        '@fw_notif_nudge_v1',
+        '@fw_tt_feed',
+        '@fw_tt_tierlist',
+        '@fw_tt_pin',
+        ...(u ? [`onboarding_done_${u.id}`] : []),
+      ];
+      await AsyncStorage.multiRemove(keysToRemove);
+      if (u) {
+        await supabase
+          .from('profiles')
+          .update({ onboarding_completed: false, updated_at: new Date().toISOString() })
+          .eq('id', u.id);
+      }
+      Alert.alert(
+        'Dev Reset Done',
+        'First-run flags cleared.\n\nForce-close the app and reopen — onboarding and all tooltips will fire again.',
+      );
+    } catch (err) {
+      Alert.alert('Dev Reset Failed', err.message || 'Unknown error');
     }
   }
 
@@ -441,6 +469,18 @@ export default function AccountScreen() {
             <Text style={styles.errorText}>{error}</Text>
           </View>
         ) : null}
+
+        {__DEV__ && (
+          <View style={styles.devSection}>
+            <Text style={styles.devHeader}>DEV TOOLS</Text>
+            <TouchableOpacity style={styles.devBtn} onPress={handleDevReset} activeOpacity={0.8}>
+              <Text style={styles.devBtnText}>Reset first-run flags</Text>
+            </TouchableOpacity>
+            <Text style={styles.devNote}>
+              Clears onboarding + all tooltip flags. Force-close & reopen to re-trigger.
+            </Text>
+          </View>
+        )}
       </ScrollView>
 
       {/* Delete confirmation modal */}
@@ -631,6 +671,35 @@ const styles = StyleSheet.create({
   },
   notifDeniedText: { fontSize: 12, color: '#ccaa44', lineHeight: 17 },
   notifOpenSettings: { fontSize: 12, color: C.orange, fontWeight: '600' },
+
+  // DEV section
+  devSection: {
+    marginTop: 24,
+    borderWidth: 1,
+    borderColor: '#3a2a00',
+    borderRadius: 14,
+    padding: 16,
+    backgroundColor: '#1a1400',
+  },
+  devHeader: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#aa8800',
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+    marginBottom: 12,
+  },
+  devBtn: {
+    backgroundColor: '#2a2000',
+    borderWidth: 1,
+    borderColor: '#5a4400',
+    borderRadius: 10,
+    paddingVertical: 11,
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  devBtnText: { fontSize: 14, fontWeight: '600', color: '#ffcc00' },
+  devNote: { fontSize: 11, color: '#666644', lineHeight: 15, textAlign: 'center' },
 
   // Edit profile card
   editField: { paddingHorizontal: 18, paddingVertical: 12 },
