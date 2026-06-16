@@ -28,6 +28,7 @@ import { decode } from 'base64-arraybuffer';
 import { FirstVisitTooltip, useFirstVisit } from '../lib/firstVisit';
 import ShareBottomSheet from '../components/ShareBottomSheet';
 import * as Location from 'expo-location';
+import * as Crypto from 'expo-crypto';
 
 // ─── Theme (matches HomeScreen) ───────────────────────────────────────────────
 const C = {
@@ -421,7 +422,7 @@ export default function LogMealScreen() {
   async function runAutocomplete(query) {
     // Generate a session token once per search session; reuse it for every keystroke.
     if (!placeSessionRef.current) {
-      placeSessionRef.current = crypto.randomUUID();
+      placeSessionRef.current = Crypto.randomUUID();
     }
     try {
       const body = { query, sessionToken: placeSessionRef.current };
