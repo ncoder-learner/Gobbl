@@ -27,6 +27,7 @@ import { supabase } from '../lib/supabase';
 import { decode } from 'base64-arraybuffer';
 import { FirstVisitTooltip, useFirstVisit } from '../lib/firstVisit';
 import ShareBottomSheet from '../components/ShareBottomSheet';
+import * as Location from 'expo-location';
 
 // ─── Theme (matches HomeScreen) ───────────────────────────────────────────────
 const C = {
@@ -253,6 +254,33 @@ export default function LogMealScreen() {
   const [saveStatus, setSaveStatus] = useState(''); // 'uploading' | 'inserting'
   const [identifyError, setIdentifyError] = useState(null); // null | 'timeout' | 'error'
 
+  // ── Place / location state ──────────────────────────────────────────────────
+  const [placeQuery, setPlaceQuery]       = useState('');
+  const [suggestions, setSuggestions]     = useState([]);
+  const [selectedPlace, setSelectedPlace] = useState(null); // {place_id, name, address, lat, lng}
+  const [placeSearching, setPlaceSearching] = useState(false);
+  const [userCoords, setUserCoords]       = useState(null); // {lat, lng} — null if permission denied
+  const placeSessionRef  = useRef(null); // UUID reused across AC keystrokes + final details call
+  const placeDebounceRef = useRef(null);
+
+  // Request foreground location once when the confirm stage appears.
+  // Non-blocking: if denied, autocomplete still works without distance biasing.
+  useEffect(() => {
+    if (stage !== 'confirm' || userCoords) return;
+    (async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') return;
+        const loc = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+        setUserCoords({ lat: loc.coords.latitude, lng: loc.coords.longitude });
+      } catch {
+        // non-fatal
+      }
+    })();
+  }, [stage]);
+
   // ── Camera actions ──────────────────────────────────────────────────────────
 
   async function takePhoto() {
@@ -376,6 +404,71 @@ export default function LogMealScreen() {
     }
   }
 
+  // ── Place search ───────────────────────────────────────────────────────────
+
+  function handlePlaceQueryChange(text) {
+    setPlaceQuery(text);
+    setSuggestions([]);
+    if (placeDebounceRef.current) clearTimeout(placeDebounceRef.current);
+    if (!text.trim() || text.trim().length < 2) {
+      setPlaceSearching(false);
+      return;
+    }
+    setPlaceSearching(true);
+    placeDebounceRef.current = setTimeout(() => runAutocomplete(text.trim()), 300);
+  }
+
+  async function runAutocomplete(query) {
+    // Generate a session token once per search session; reuse it for every keystroke.
+    if (!placeSessionRef.current) {
+      placeSessionRef.current = crypto.randomUUID();
+    }
+    try {
+      const body = { query, sessionToken: placeSessionRef.current };
+      if (userCoords) { body.lat = userCoords.lat; body.lng = userCoords.lng; }
+      const { data, error } = await supabase.functions.invoke('places-search', { body });
+      if (error) throw error;
+      setSuggestions(data.suggestions ?? []);
+    } catch {
+      setSuggestions([]);
+    } finally {
+      setPlaceSearching(false);
+    }
+  }
+
+  async function handleSelectPlace(suggestion) {
+    setSuggestions([]);
+    setPlaceQuery(suggestion.main_text);
+    setPlaceSearching(true);
+    try {
+      // Fetch full details with the same session token — this closes the billing session.
+      const { data, error } = await supabase.functions.invoke('places-search', {
+        body: { placeId: suggestion.place_id, sessionToken: placeSessionRef.current },
+      });
+      if (error) throw error;
+      setSelectedPlace(data);
+    } catch {
+      // Fallback: use autocomplete data without coords
+      setSelectedPlace({
+        place_id: suggestion.place_id,
+        name: suggestion.main_text,
+        address: suggestion.secondary_text,
+        lat: null,
+        lng: null,
+      });
+    } finally {
+      placeSessionRef.current = null; // session consumed; next search gets a fresh UUID
+      setPlaceSearching(false);
+    }
+  }
+
+  function clearPlace() {
+    setSelectedPlace(null);
+    setPlaceQuery('');
+    setSuggestions([]);
+    placeSessionRef.current = null;
+  }
+
   // ── Save to Supabase ────────────────────────────────────────────────────────
 
   async function saveMeal() {
@@ -403,7 +496,24 @@ export default function LogMealScreen() {
         .from('meal-photos')
         .getPublicUrl(fileName);
 
-      // 2. Insert meal row; if this fails, remove the orphaned photo
+      // 2. Upsert place (if selected) before inserting the meal that FK-references it.
+      //    ignoreDuplicates: true → ON CONFLICT DO NOTHING (no UPDATE attempted, matching RLS).
+      let resolvedPlaceId = null;
+      if (selectedPlace?.place_id) {
+        await supabase.from('places').upsert(
+          {
+            place_id: selectedPlace.place_id,
+            name:     selectedPlace.name,
+            address:  selectedPlace.address ?? null,
+            lat:      selectedPlace.lat     ?? null,
+            lng:      selectedPlace.lng     ?? null,
+          },
+          { onConflict: 'place_id', ignoreDuplicates: true },
+        );
+        resolvedPlaceId = selectedPlace.place_id;
+      }
+
+      // 3. Insert meal row; if this fails, remove the orphaned photo
       setSaveStatus('inserting');
       const derivedRating = Math.max(1, Math.min(5, Math.round(score / 2)));
 
@@ -421,6 +531,7 @@ export default function LogMealScreen() {
           photo_url: publicUrl,
           business_id: sponsored?.id || null,
           ai_confidence: identified?.confidence || null,
+          place_id: resolvedPlaceId,
         })
         .select('id')
         .single();
@@ -485,6 +596,10 @@ export default function LogMealScreen() {
     setSavedPhotoUrl(null);
     setShareOpen(false);
     setSharePosted(false);
+    setPlaceQuery('');
+    setSuggestions([]);
+    setSelectedPlace(null);
+    placeSessionRef.current = null;
     navigation.navigate('TierList', { newMealId: mealId });
   }
 
@@ -753,12 +868,69 @@ export default function LogMealScreen() {
               style={[styles.textInput, styles.textArea]}
               value={notes}
               onChangeText={setNotes}
-              placeholder="Where'd you eat it? Any thoughts?"
+              placeholder="Any thoughts?"
               placeholderTextColor={C.gray4}
               multiline
               numberOfLines={3}
               returnKeyType="done"
             />
+          </View>
+
+          {/* Place / location */}
+          <View style={styles.fieldGroup}>
+            <Text style={styles.fieldLabel}>Where'd you get it? <Text style={styles.optional}>(optional)</Text></Text>
+            {selectedPlace ? (
+              <View style={styles.placeChip}>
+                <Ionicons name="location" size={16} color={C.orange} style={{ marginTop: 1 }} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.placeChipName} numberOfLines={1}>{selectedPlace.name}</Text>
+                  {selectedPlace.address ? (
+                    <Text style={styles.placeChipAddr} numberOfLines={1}>{selectedPlace.address}</Text>
+                  ) : null}
+                </View>
+                <TouchableOpacity onPress={clearPlace} hitSlop={12}>
+                  <Ionicons name="close-circle" size={20} color={C.gray3} />
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <>
+                <View style={styles.placeInputRow}>
+                  <Ionicons name="search" size={16} color={C.gray3} style={{ marginLeft: 12 }} />
+                  <TextInput
+                    style={styles.placeInput}
+                    value={placeQuery}
+                    onChangeText={handlePlaceQueryChange}
+                    placeholder="Search restaurant or spot"
+                    placeholderTextColor={C.gray4}
+                    returnKeyType="search"
+                    autoCorrect={false}
+                  />
+                  {placeSearching && (
+                    <ActivityIndicator size="small" color={C.gray3} style={{ marginRight: 12 }} />
+                  )}
+                </View>
+                {suggestions.length > 0 && (
+                  <View style={styles.suggestionsList}>
+                    {suggestions.map((s, i) => (
+                      <TouchableOpacity
+                        key={s.place_id}
+                        style={[styles.suggestionRow, i > 0 && styles.suggestionDivider]}
+                        onPress={() => handleSelectPlace(s)}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons name="location-outline" size={14} color={C.gray3} style={{ marginTop: 1 }} />
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.suggestionMain} numberOfLines={1}>{s.main_text}</Text>
+                          {s.secondary_text ? (
+                            <Text style={styles.suggestionSub} numberOfLines={1}>{s.secondary_text}</Text>
+                          ) : null}
+                        </View>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
+              </>
+            )}
           </View>
 
           {/* Save button */}
@@ -945,4 +1117,56 @@ const styles = StyleSheet.create({
     borderRadius: 16, paddingVertical: 16, alignItems: 'center',
   },
   doneSharedText: { fontSize: 15, fontWeight: '600', color: '#00c896' },
+
+  // Place field
+  placeChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: C.inputBg,
+    borderWidth: 0.5,
+    borderColor: C.orange,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
+  placeChipName: { fontSize: 14, fontWeight: '500', color: C.white, marginBottom: 1 },
+  placeChipAddr: { fontSize: 12, color: C.gray2 },
+  placeInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: C.inputBg,
+    borderWidth: 0.5,
+    borderColor: C.border,
+    borderRadius: 12,
+  },
+  placeInput: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingRight: 12,
+    fontSize: 15,
+    color: C.white,
+  },
+  suggestionsList: {
+    marginTop: 4,
+    backgroundColor: C.surface,
+    borderWidth: 0.5,
+    borderColor: C.border,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  suggestionRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  suggestionDivider: {
+    borderTopWidth: 0.5,
+    borderTopColor: C.border,
+  },
+  suggestionMain: { fontSize: 14, color: C.white, fontWeight: '500', marginBottom: 1 },
+  suggestionSub: { fontSize: 12, color: C.gray2 },
 });
