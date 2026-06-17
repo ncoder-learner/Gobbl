@@ -124,9 +124,11 @@ serve(async (req) => {
         acBody.locationBias = {
           circle: {
             center: { latitude: lat, longitude: lng },
-            radius: 50_000, // 50 km soft bias; user can still pick results outside it
+            radius: 5_000, // 5 km soft bias; user can still pick results outside it
           },
         };
+        // origin (separate from locationBias) is what makes Google populate distanceMeters
+        acBody.origin = { latitude: lat, longitude: lng };
       }
 
       const res = await fetch('https://places.googleapis.com/v1/places:autocomplete', {
@@ -145,14 +147,26 @@ serve(async (req) => {
       }
 
       const data = await res.json();
+      const hasOrigin = typeof acBody.origin !== 'undefined';
       const suggestions = (data.suggestions ?? []).map((s: any) => {
         const p = s.placePrediction;
         return {
           place_id:       p.placeId,
           main_text:      p.structuredFormat?.mainText?.text      ?? p.text?.text ?? '',
           secondary_text: p.structuredFormat?.secondaryText?.text ?? '',
+          // distanceMeters is omitted by Google both when the value is 0 (< 1m away) and
+          // when a prediction type just doesn't carry distance (e.g. routes) — same absent
+          // key either way. Use `types` to tell them apart: route predictions sort last
+          // (Infinity); everything else with origin set and no distance is treated as 0.
+          distance_meters: typeof p.distanceMeters === 'number'
+            ? p.distanceMeters
+            : (hasOrigin && !p.types?.includes('route') ? 0 : Infinity),
         };
       });
+
+      if (hasOrigin) {
+        suggestions.sort((a, b) => a.distance_meters - b.distance_meters);
+      }
 
       return json({ suggestions });
     }

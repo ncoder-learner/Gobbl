@@ -93,15 +93,17 @@ function ScoreSlider({ value, onChange }) {
   useEffect(() => { onChangeRef.current = onChange; });
 
   function valueToX(v, width) {
-    return ((v - SCORE_MIN) / (SCORE_MAX - SCORE_MIN)) * width;
+    const usable = width - THUMB_SIZE;
+    return ((v - SCORE_MIN) / (SCORE_MAX - SCORE_MIN)) * usable;
   }
 
   // Stored in a ref so the PanResponder closure never goes stale
-  const reportRef = useRef((x) => {
+  const reportRef = useRef((locationX) => {
     const width = trackWidthRef.current;
     if (!width) return;
-    const clamped = Math.max(0, Math.min(width, x));
-    const raw = SCORE_MIN + (clamped / width) * (SCORE_MAX - SCORE_MIN);
+    const usable = width - THUMB_SIZE;
+    const x = Math.max(0, Math.min(usable, locationX - THUMB_SIZE / 2));
+    const raw = SCORE_MIN + (x / usable) * (SCORE_MAX - SCORE_MIN);
     onChangeRef.current(Math.round(raw * 2) / 2); // snap to nearest 0.5
   });
 
@@ -264,10 +266,11 @@ export default function LogMealScreen() {
   const placeSessionRef  = useRef(null); // UUID reused across AC keystrokes + final details call
   const placeDebounceRef = useRef(null);
 
-  // Request foreground location once when the confirm stage appears.
-  // Non-blocking: if denied, autocomplete still works without distance biasing.
+  // Request foreground location as soon as the log flow starts (mount), so coords
+  // are usually ready well before the user reaches place search at the confirm stage.
+  // Non-blocking: if denied or slow, autocomplete still works without distance biasing.
   useEffect(() => {
-    if (stage !== 'confirm' || userCoords) return;
+    if (userCoords) return;
     (async () => {
       try {
         const { status } = await Location.requestForegroundPermissionsAsync();
@@ -280,7 +283,7 @@ export default function LogMealScreen() {
         // non-fatal
       }
     })();
-  }, [stage]);
+  }, []);
 
   // ── Camera actions ──────────────────────────────────────────────────────────
 
