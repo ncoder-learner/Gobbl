@@ -24,7 +24,7 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "package": "com.Nibbl"
+      "package": "com.ncoderpro.foodwrapped"
     },
     "web": {
       "favicon": "./assets/favicon.png"
