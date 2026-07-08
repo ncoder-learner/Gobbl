@@ -13,15 +13,32 @@ interface Payload {
 
 Deno.serve(async (req) => {
   try {
-    // Verify the caller is authenticated
+    // Verify the caller is authenticated, and derive their id from the token
+    // itself rather than trusting anything the client sends.
     const authHeader = req.headers.get('Authorization');
     if (!authHeader) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
     }
 
+    const token = authHeader.replace(/^Bearer\s+/i, '');
+    const { data: authData, error: authError } = await supabase.auth.getUser(token);
+    if (authError || !authData?.user) {
+      return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
+    }
+    const senderId = authData.user.id;
+
     const { targetUserId, title, body }: Payload = await req.json();
     if (!targetUserId || !title || !body) {
       return new Response(JSON.stringify({ error: 'Missing fields' }), { status: 400 });
+    }
+
+    const { data: blockRows } = await supabase
+      .from('blocks')
+      .select('id')
+      .or(`and(blocker_id.eq.${senderId},blocked_id.eq.${targetUserId}),and(blocker_id.eq.${targetUserId},blocked_id.eq.${senderId})`)
+      .limit(1);
+    if (blockRows && blockRows.length > 0) {
+      return new Response(JSON.stringify({ sent: false, reason: 'blocked' }), { status: 200 });
     }
 
     const { data: profile } = await supabase
@@ -30,15 +47,15 @@ Deno.serve(async (req) => {
       .eq('id', targetUserId)
       .single();
 
-    const token = profile?.push_token;
-    if (!token || !token.startsWith('ExponentPushToken')) {
+    const pushToken = profile?.push_token;
+    if (!pushToken || !pushToken.startsWith('ExponentPushToken')) {
       return new Response(JSON.stringify({ sent: false, reason: 'no_token' }), { status: 200 });
     }
 
     const expoRes = await fetch('https://exp.host/--/api/v2/push/send', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-      body: JSON.stringify({ to: token, title, body, sound: 'default' }),
+      body: JSON.stringify({ to: pushToken, title, body, sound: 'default' }),
     });
 
     const result = await expoRes.json();

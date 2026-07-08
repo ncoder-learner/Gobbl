@@ -396,6 +396,15 @@ export default function AccountScreen() {
           <Text style={styles.friendsRowChevron}>›</Text>
         </TouchableOpacity>
 
+        <TouchableOpacity
+          style={[styles.card, styles.friendsRow]}
+          onPress={() => navigation.navigate('BlockedUsers')}
+          activeOpacity={0.75}
+        >
+          <Text style={styles.friendsRowLabel}>Blocked Users</Text>
+          <Text style={styles.friendsRowChevron}>›</Text>
+        </TouchableOpacity>
+
         {/* Account details */}
         <View style={styles.card}>
           <InfoRow label="Signed in with" value={providerLabel} />

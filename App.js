@@ -22,6 +22,7 @@ import UsernamePromptScreen from './screens/UsernamePromptScreen';
 import FriendsScreen from './screens/FriendsScreen';
 import UserProfileScreen from './screens/UserProfileScreen';
 import MyProfileScreen from './screens/MyProfileScreen';
+import BlockedUsersScreen from './screens/BlockedUsersScreen';
 
 const Tab  = createBottomTabNavigator();
 const Root = createNativeStackNavigator();
@@ -131,6 +132,11 @@ function AppNavigator() {
         <Root.Screen
           name="AccountSettings"
           component={AccountScreen}
+          options={{ animation: 'slide_from_right' }}
+        />
+        <Root.Screen
+          name="BlockedUsers"
+          component={BlockedUsersScreen}
           options={{ animation: 'slide_from_right' }}
         />
       </Root.Navigator>

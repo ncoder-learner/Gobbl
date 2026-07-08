@@ -182,6 +182,30 @@ export default function UserProfileScreen() {
   const [friendStatus, setFriendStatus] = useState(null); // null | 'accepted' | 'outgoing' | 'incoming'
   const [friendshipId, setFriendshipId] = useState(null);
   const [isOwnProfile, setIsOwnProfile] = useState(false);
+  const [notFound, setNotFound] = useState(false);
+
+  async function handleBlock() {
+    try {
+      const { error } = await supabase.from('blocks').insert({
+        blocker_id: myId, blocked_id: userId,
+      });
+      if (error && error.code !== '23505') throw error;
+      navigation.goBack();
+    } catch (err) {
+      Alert.alert('Error', err.message);
+    }
+  }
+
+  function confirmBlock() {
+    Alert.alert(
+      'Block @' + (profile.username || 'user') + '?',
+      "You won't see each other's posts, profiles, or comments. They won't be notified.",
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Block', style: 'destructive', onPress: handleBlock },
+      ]
+    );
+  }
 
   useFocusEffect(
     useCallback(() => {
@@ -201,7 +225,7 @@ export default function UserProfileScreen() {
         supabase.from('profiles')
           .select('id, username, display_name, avatar_url')
           .eq('id', userId)
-          .single(),
+          .maybeSingle(),
 
         user.id !== userId
           ? supabase.from('friendships')
@@ -222,6 +246,9 @@ export default function UserProfileScreen() {
 
       if (profileResult.status === 'fulfilled') {
         setProfile(profileResult.value.data);
+        setNotFound(!profileResult.value.data);
+      } else {
+        setNotFound(true);
       }
 
       if (friendResult.status === 'fulfilled') {
@@ -305,6 +332,25 @@ export default function UserProfileScreen() {
     );
   }
 
+  if (notFound) {
+    return (
+      <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+        <StatusBar barStyle="light-content" backgroundColor={C.bg} />
+        <View style={styles.navBar}>
+          <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={12}>
+            <Ionicons name="arrow-back" size={22} color={C.white} />
+          </TouchableOpacity>
+          <Text style={styles.navTitle}></Text>
+          <View style={{ width: 22 }} />
+        </View>
+        <View style={styles.notFoundBox}>
+          <Ionicons name="person-remove-outline" size={32} color={C.gray4} />
+          <Text style={styles.notFoundText}>This user is unavailable.</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       <StatusBar barStyle="light-content" backgroundColor={C.bg} />
@@ -315,7 +361,13 @@ export default function UserProfileScreen() {
           <Ionicons name="arrow-back" size={22} color={C.white} />
         </TouchableOpacity>
         <Text style={styles.navTitle}>@{profile?.username ?? ''}</Text>
-        <View style={{ width: 22 }} />
+        {!isOwnProfile && profile ? (
+          <TouchableOpacity onPress={confirmBlock} hitSlop={12}>
+            <Ionicons name="ellipsis-vertical" size={22} color={C.white} />
+          </TouchableOpacity>
+        ) : (
+          <View style={{ width: 22 }} />
+        )}
       </View>
 
       <FlatList
@@ -413,6 +465,9 @@ const styles = StyleSheet.create({
   },
   lockedTitle: { fontSize: 16, fontWeight: '600', color: C.white, marginTop: 12, marginBottom: 6 },
   lockedSub: { fontSize: 13, color: C.gray2, textAlign: 'center' },
+
+  notFoundBox: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 36 },
+  notFoundText: { fontSize: 16, fontWeight: '600', color: C.white, marginTop: 12, textAlign: 'center' },
 
   noPostsBox: { paddingHorizontal: 20, paddingTop: 20 },
   noPostsText: { fontSize: 14, color: C.gray2 },
