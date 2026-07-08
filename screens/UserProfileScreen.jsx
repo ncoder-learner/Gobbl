@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react';
 import {
   View, Text, FlatList, Image, TouchableOpacity, StyleSheet,
-  StatusBar, Dimensions, ActivityIndicator, Alert,
+  StatusBar, Dimensions, ActivityIndicator, Alert, Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -21,6 +21,14 @@ const C = {
   purpleText: '#ddb8ff', white: '#ffffff', gray1: '#888888', gray2: '#666666',
   gray4: '#444444', green: '#00c896', red: '#ff4444',
 };
+
+const REPORT_REASONS = [
+  { value: 'spam', label: 'Spam' },
+  { value: 'harassment', label: 'Harassment' },
+  { value: 'inappropriate', label: 'Inappropriate' },
+  { value: 'impersonation', label: 'Impersonation' },
+  { value: 'other', label: 'Other' },
+];
 
 function scoreToneColor(score) {
   const n = typeof score === 'number' ? score : Number(score);
@@ -183,6 +191,41 @@ export default function UserProfileScreen() {
   const [friendshipId, setFriendshipId] = useState(null);
   const [isOwnProfile, setIsOwnProfile] = useState(false);
   const [notFound, setNotFound] = useState(false);
+  const [reportModalVisible, setReportModalVisible] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  function openActionMenu() {
+    Alert.alert(
+      '@' + (profile?.username || 'user'),
+      undefined,
+      [
+        { text: 'Report', onPress: openReportModal },
+        { text: 'Block', style: 'destructive', onPress: confirmBlock },
+        { text: 'Cancel', style: 'cancel' },
+      ]
+    );
+  }
+
+  function openReportModal() {
+    setReportModalVisible(true);
+  }
+
+  async function submitReport(reason) {
+    if (submitting) return;
+    setSubmitting(true);
+    try {
+      const { error } = await supabase.from('reports').insert({
+        reporter_id: myId, reported_id: userId, content_type: 'user', reason, status: 'pending',
+      });
+      if (error) throw error;
+      setReportModalVisible(false);
+      Alert.alert('Report submitted', 'Thanks for helping keep the community safe.');
+    } catch (err) {
+      Alert.alert('Error', err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  }
 
   async function handleBlock() {
     try {
@@ -362,7 +405,7 @@ export default function UserProfileScreen() {
         </TouchableOpacity>
         <Text style={styles.navTitle}>@{profile?.username ?? ''}</Text>
         {!isOwnProfile && profile ? (
-          <TouchableOpacity onPress={confirmBlock} hitSlop={12}>
+          <TouchableOpacity onPress={openActionMenu} hitSlop={12}>
             <Ionicons name="ellipsis-vertical" size={22} color={C.white} />
           </TouchableOpacity>
         ) : (
@@ -389,6 +432,44 @@ export default function UserProfileScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.listContent}
       />
+
+      {/* Report confirmation modal */}
+      <Modal
+        visible={reportModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => !submitting && setReportModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Report @{profile?.username ?? 'user'}</Text>
+            <Text style={styles.modalBody}>
+              What's the issue? Your report is reviewed by our team.
+            </Text>
+
+            {REPORT_REASONS.map(r => (
+              <TouchableOpacity
+                key={r.value}
+                style={styles.reasonRow}
+                onPress={() => submitReport(r.value)}
+                disabled={submitting}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.reasonRowText}>{r.label}</Text>
+              </TouchableOpacity>
+            ))}
+
+            <TouchableOpacity
+              style={[styles.btn, styles.cancelBtn, { marginTop: 10 }]}
+              onPress={() => setReportModalVisible(false)}
+              disabled={submitting}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.btnText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -471,4 +552,51 @@ const styles = StyleSheet.create({
 
   noPostsBox: { paddingHorizontal: 20, paddingTop: 20 },
   noPostsText: { fontSize: 14, color: C.gray2 },
+
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  modalCard: {
+    width: '100%',
+    backgroundColor: C.surface,
+    borderWidth: 0.5,
+    borderColor: C.border,
+    borderRadius: 20,
+    padding: 24,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: C.white,
+    marginBottom: 10,
+  },
+  modalBody: {
+    fontSize: 14,
+    color: C.gray1,
+    lineHeight: 20,
+    marginBottom: 20,
+  },
+  reasonRow: {
+    paddingVertical: 14,
+    borderTopWidth: 0.5,
+    borderTopColor: C.border,
+  },
+  reasonRowText: { fontSize: 15, fontWeight: '600', color: C.white },
+
+  btn: {
+    borderRadius: 14,
+    paddingVertical: 15,
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  btnText: { fontSize: 15, fontWeight: '600', color: C.white },
+  cancelBtn: {
+    backgroundColor: C.bg,
+    borderWidth: 0.5,
+    borderColor: C.border,
+  },
 });
