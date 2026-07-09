@@ -124,9 +124,6 @@ CREATE POLICY "users_can_manage_own_posts" ON posts
 CREATE POLICY "users_can_delete_own_posts" ON posts
   FOR DELETE USING (user_id = auth.uid());
 
--- ─── 6. delete-account cleanup (reminder) ────────────────────────────────────
--- Add to supabase/functions/delete-account/index.ts:
---   supabaseAdmin.from('posts').delete().eq('user_id', userId)
---   supabaseAdmin.from('friendships').delete().or(`requester_id.eq.${userId},addressee_id.eq.${userId}`)
---   supabaseAdmin.from('reports').delete().eq('reporter_id', userId)
--- (CASCADE on profiles handles most of this automatically, but explicit is safer)
+-- ─── 6. delete-account cleanup ────────────────────────────────────────────────
+-- Handled in supabase/functions/delete-account/index.ts (posts, post_likes,
+-- post_comments, friendships, reports, blocks, meals, storage, profiles, auth user).
