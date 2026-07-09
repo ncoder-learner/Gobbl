@@ -10,12 +10,16 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  Linking as RNLinking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import { supabase } from '../lib/supabase';
+
+const TERMS_URL = 'https://ncoder-learner.github.io/gobbl-legal/terms.html';
+const PRIVACY_URL = 'https://ncoder-learner.github.io/gobbl-legal/privacy.html';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -56,8 +60,12 @@ export default function AuthScreen() {
   const [googleLoading, setGoogleLoading] = useState(false);
   const [appleLoading, setAppleLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
+
+  const signupBlocked = mode === 'signup' && !agreedToTerms;
 
   async function handleSubmit() {
+    if (signupBlocked) return;
     if (!email.trim() || !password.trim()) {
       setError('Email and password are required.');
       return;
@@ -75,6 +83,7 @@ export default function AuthScreen() {
   }
 
   async function handleGoogle() {
+    if (signupBlocked) return;
     setGoogleLoading(true);
     setError(null);
     try {
@@ -96,6 +105,7 @@ export default function AuthScreen() {
   }
 
   async function handleApple() {
+    if (signupBlocked) return;
     setError(null);
     setAppleLoading(true);
     try {
@@ -189,6 +199,28 @@ export default function AuthScreen() {
               />
             </View>
 
+            {mode === 'signup' && (
+              <TouchableOpacity
+                style={styles.consentRow}
+                onPress={() => setAgreedToTerms(v => !v)}
+                activeOpacity={0.7}
+              >
+                <View style={[styles.checkbox, agreedToTerms && styles.checkboxChecked]}>
+                  {agreedToTerms && <Text style={styles.checkboxMark}>✓</Text>}
+                </View>
+                <Text style={styles.consentText}>
+                  I agree to the{' '}
+                  <Text style={styles.consentLink} onPress={() => RNLinking.openURL(TERMS_URL)}>
+                    Terms of Service
+                  </Text>{' '}
+                  and{' '}
+                  <Text style={styles.consentLink} onPress={() => RNLinking.openURL(PRIVACY_URL)}>
+                    Privacy Policy
+                  </Text>
+                </Text>
+              </TouchableOpacity>
+            )}
+
             {error ? (
               <View style={styles.errorBox}>
                 <Text style={styles.errorText}>{error}</Text>
@@ -196,9 +228,9 @@ export default function AuthScreen() {
             ) : null}
 
             <TouchableOpacity
-              style={[styles.submitBtn, loading && styles.submitBtnDisabled]}
+              style={[styles.submitBtn, (loading || signupBlocked) && styles.submitBtnDisabled]}
               onPress={handleSubmit}
-              disabled={loading}
+              disabled={loading || signupBlocked}
             >
               {loading ? (
                 <ActivityIndicator color={C.white} />
@@ -216,9 +248,9 @@ export default function AuthScreen() {
             </View>
 
             <TouchableOpacity
-              style={[styles.socialBtn, googleLoading && styles.submitBtnDisabled]}
+              style={[styles.socialBtn, (googleLoading || signupBlocked) && styles.submitBtnDisabled]}
               onPress={handleGoogle}
-              disabled={googleLoading}
+              disabled={googleLoading || signupBlocked}
             >
               {googleLoading ? (
                 <ActivityIndicator color={C.white} size="small" />
@@ -237,13 +269,18 @@ export default function AuthScreen() {
                   <Text style={styles.socialText}>Signing in…</Text>
                 </View>
               ) : (
-                <AppleAuthentication.AppleAuthenticationButton
-                  buttonType={AppleAuthentication.AppleAuthenticationButtonType.CONTINUE}
-                  buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
-                  cornerRadius={14}
-                  style={styles.appleBtn}
-                  onPress={handleApple}
-                />
+                <View
+                  style={signupBlocked && styles.appleBtnDisabled}
+                  pointerEvents={signupBlocked ? 'none' : 'auto'}
+                >
+                  <AppleAuthentication.AppleAuthenticationButton
+                    buttonType={AppleAuthentication.AppleAuthenticationButtonType.CONTINUE}
+                    buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
+                    cornerRadius={14}
+                    style={styles.appleBtn}
+                    onPress={handleApple}
+                  />
+                </View>
               )
             )}
           </View>
@@ -295,6 +332,30 @@ const styles = StyleSheet.create({
     color: C.white,
   },
 
+  consentRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    marginBottom: 16,
+  },
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 5,
+    borderWidth: 1.5,
+    borderColor: C.gray4,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 1,
+  },
+  checkboxChecked: {
+    backgroundColor: C.orange,
+    borderColor: C.orange,
+  },
+  checkboxMark: { fontSize: 13, fontWeight: '800', color: C.white, lineHeight: 14 },
+  consentText: { flex: 1, fontSize: 13, color: C.gray1, lineHeight: 19 },
+  consentLink: { color: C.orange, fontWeight: '600' },
+
   errorBox: {
     backgroundColor: '#2a0a0a',
     borderWidth: 0.5,
@@ -335,6 +396,7 @@ const styles = StyleSheet.create({
   socialText: { fontSize: 15, fontWeight: '600', color: C.white },
 
   appleBtn: { width: '100%', height: 48 },
+  appleBtnDisabled: { opacity: 0.6 },
   appleBtnLoading: {
     flexDirection: 'row',
     alignItems: 'center',
