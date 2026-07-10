@@ -26,6 +26,7 @@ import RAnimated, {
   withSpring,
 } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import * as Location from 'expo-location';
 import { supabase } from '../lib/supabase';
 import { FirstVisitTooltip, useFirstVisit } from '../lib/firstVisit';
 
@@ -66,6 +67,31 @@ function scoreBarWidth(score) {
   const n = typeof score === 'string' ? Number(score) : score;
   const pct = typeof n === 'number' && !Number.isNaN(n) ? Math.max(0, Math.min(n, 10)) / 10 : 0;
   return Math.max(6, pct * 40);
+}
+
+// ─── Distance (Near Me) ────────────────────────────────────────────────────────
+// Straight-line distance, not persisted anywhere — recomputed on each load from
+// the user's live device position and the meal's joined place lat/lng.
+function haversineMiles(lat1, lng1, lat2, lng2) {
+  const R = 3958.8; // earth radius, miles
+  const toRad = (d) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+}
+
+function mealDistanceMi(meal, coords) {
+  const lat = meal.places?.lat;
+  const lng = meal.places?.lng;
+  if (lat == null || lng == null || !coords) return null;
+  return haversineMiles(coords.lat, coords.lng, lat, lng);
+}
+
+function formatDistance(mi) {
+  if (mi == null) return null;
+  if (mi < 0.1) return '<0.1 mi';
+  return `${mi.toFixed(1)} mi`;
 }
 
 // ─── Yearly list builder ──────────────────────────────────────────────────────
@@ -114,7 +140,7 @@ function DragHandle({ panGesture }) {
 }
 
 // ─── Drag wrapper ─────────────────────────────────────────────────────────────
-function DraggableRow({ mealId, draggedIdShared, dragTranslateY, onLayout, onDragStart, onDrop, style, children }) {
+function DraggableRow({ mealId, draggedIdShared, dragTranslateY, onLayout, onDragStart, onDrop, style, children, dragEnabled = true }) {
   const panGesture = Gesture.Pan()
     .minDistance(4)
     .onStart(() => {
@@ -151,7 +177,7 @@ function DraggableRow({ mealId, draggedIdShared, dragTranslateY, onLayout, onDra
   return (
     <RAnimated.View style={[style, animStyle]} onLayout={onLayout}>
       {children}
-      <DragHandle panGesture={panGesture} />
+      {dragEnabled && <DragHandle panGesture={panGesture} />}
     </RAnimated.View>
   );
 }
@@ -199,7 +225,7 @@ function AnimatedRow({ index, children, style, pressableStyle, isNew }) {
 
 // ─── TopCard ──────────────────────────────────────────────────────────────────
 // isPinned / onTogglePin are yearly-only; undefined on the monthly list.
-function TopCard({ meal, rank, index, isNew, onLanded, isPinned, onTogglePin }) {
+function TopCard({ meal, rank, index, isNew, onLanded, isPinned, onTogglePin, distance }) {
   const accent = ACCENTS[rank] || DEFAULT_ACCENT;
   const isFirst = rank === 1;
   const targetBarWidth = scoreBarWidth(meal.score);
@@ -304,6 +330,7 @@ function TopCard({ meal, rank, index, isNew, onLanded, isPinned, onTogglePin }) 
 
       <View style={styles.topNameWrap}>
         <Text style={styles.topName} numberOfLines={1}>{meal.name}</Text>
+        {distance && <Text style={styles.topDistance} numberOfLines={1}>📍 {distance}</Text>}
       </View>
 
       <View style={styles.scoreWrap}>
@@ -320,7 +347,7 @@ function TopCard({ meal, rank, index, isNew, onLanded, isPinned, onTogglePin }) 
 
 // ─── RankRow ──────────────────────────────────────────────────────────────────
 // isPinned / onTogglePin are yearly-only; undefined on the monthly list.
-function RankRow({ meal, rank, listIndex, isNew, onLanded, isPinned, onTogglePin }) {
+function RankRow({ meal, rank, listIndex, isNew, onLanded, isPinned, onTogglePin, distance }) {
   const enter = useRef(new Animated.Value(0)).current;
   const glow = useRef(new Animated.Value(0)).current;
   const badgeIn = useRef(new Animated.Value(0)).current;
@@ -378,7 +405,10 @@ function RankRow({ meal, rank, listIndex, isNew, onLanded, isPinned, onTogglePin
             <Text style={styles.rowEmoji}>{meal.emoji || '🍽️'}</Text>
           </View>
         )}
-        <Text style={styles.rowName} numberOfLines={1}>{meal.name}</Text>
+        <View style={styles.rowNameWrap}>
+          <Text style={styles.rowName} numberOfLines={1}>{meal.name}</Text>
+          {distance && <Text style={styles.rowDistance} numberOfLines={1}>📍 {distance}</Text>}
+        </View>
         <Text style={styles.rowScore}>{formatScore(meal.score)}</Text>
         {isNew && (
           <Animated.View pointerEvents="none" style={[styles.rowBadge, { opacity: badgeIn, transform: [{ scale: badgeScale }] }]}>
@@ -560,6 +590,19 @@ function SegmentedControl({ value, onChange }) {
   );
 }
 
+// ─── Near Me toggle ────────────────────────────────────────────────────────────
+function NearMeToggle({ active, hasCoords, onToggle }) {
+  return (
+    <TouchableOpacity
+      style={[styles.nearMeChip, active && styles.nearMeChipActive, !hasCoords && styles.nearMeChipDim]}
+      onPress={onToggle}
+      activeOpacity={0.8}
+    >
+      <Text style={[styles.nearMeChipText, active && styles.nearMeChipTextActive]}>📍 Near Me</Text>
+    </TouchableOpacity>
+  );
+}
+
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 export default function TierListScreen() {
   const navigation = useNavigation();
@@ -575,6 +618,13 @@ export default function TierListScreen() {
 
   // ── Mode ──
   const [mode, setMode] = useState('monthly');
+
+  // ── Near Me (location) ──
+  // Live device position only — never persisted. Used to compute a live
+  // distance from each meal's place and, when the toggle is on, to re-sort
+  // the visible monthly list by that distance instead of score.
+  const [userCoords, setUserCoords] = useState(null);
+  const [nearMeOn, setNearMeOn] = useState(false);
 
   // ── Yearly state ──
   // allYearMeals: full year meal list (score-sorted), needed for rebuilding after pin changes
@@ -610,6 +660,29 @@ export default function TierListScreen() {
 
   const headerEnter = useRef(new Animated.Value(0)).current;
 
+  // Request foreground location on mount, mirroring LogMealScreen's pattern.
+  // Non-blocking and non-fatal: if denied, Near Me simply stays unavailable.
+  useEffect(() => {
+    (async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') return;
+        const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        setUserCoords({ lat: loc.coords.latitude, lng: loc.coords.longitude });
+      } catch {
+        // non-fatal
+      }
+    })();
+  }, []);
+
+  function handleToggleNearMe() {
+    if (!userCoords) {
+      Alert.alert('Location needed', 'Enable location access to sort your meals by distance.');
+      return;
+    }
+    setNearMeOn(v => !v);
+  }
+
   // ── Load monthly ──
   const load = useCallback(async () => {
     setError(null);
@@ -624,7 +697,7 @@ export default function TierListScreen() {
       const monthEnd   = new Date(CURRENT_YEAR, CURRENT_MONTH + 1, 1).toISOString();
 
       const { data, error: fetchError } = await supabase
-        .from('meals').select('*').eq('user_id', user.id)
+        .from('meals').select('*, places(lat, lng)').eq('user_id', user.id)
         .gte('created_at', monthStart).lt('created_at', monthEnd)
         .order('score', { ascending: false, nullsFirst: false });
 
@@ -710,6 +783,7 @@ export default function TierListScreen() {
     setDraggedId(null);
     draggedIdShared.value = '';
     setMode(newMode);
+    if (newMode === 'yearly') setNearMeOn(false);
     if (newMode === 'yearly' && !yearlyEverLoadedRef.current) {
       yearlyEverLoadedRef.current = true;
       loadYearly();
@@ -907,9 +981,21 @@ export default function TierListScreen() {
         </View>
       );
     }
-    return meals.map((meal, idx) => {
+    const displayMeals = nearMeOn
+      ? [...meals].sort((a, b) => {
+          const da = mealDistanceMi(a, userCoords);
+          const db = mealDistanceMi(b, userCoords);
+          if (da == null && db == null) return 0;
+          if (da == null) return 1;
+          if (db == null) return -1;
+          return da - db;
+        })
+      : meals;
+
+    return displayMeals.map((meal, idx) => {
       const rank = idx + 1;
       const isTop = rank <= 5;
+      const distance = nearMeOn ? formatDistance(mealDistanceMi(meal, userCoords)) : null;
       return (
         <Fragment key={meal.id}>
           {rank === 6 && (
@@ -925,16 +1011,19 @@ export default function TierListScreen() {
             onLayout={e => { rowLayoutsRef.current[meal.id] = { y: e.nativeEvent.layout.y, height: e.nativeEvent.layout.height }; }}
             onDragStart={handleDragStart}
             onDrop={handleDrop}
-            style={isTop ? [styles.topDragRow, idx < Math.min(4, meals.length - 1) && { marginBottom: 12 }] : styles.rankDragRow}
+            dragEnabled={!nearMeOn}
+            style={isTop ? [styles.topDragRow, idx < Math.min(4, displayMeals.length - 1) && { marginBottom: 12 }] : styles.rankDragRow}
           >
             {isTop ? (
               <TopCard meal={meal} rank={rank} index={idx}
                 isNew={meal.id === highlightId}
-                onLanded={() => setHighlightId(cur => cur === meal.id ? null : cur)} />
+                onLanded={() => setHighlightId(cur => cur === meal.id ? null : cur)}
+                distance={distance} />
             ) : (
               <RankRow meal={meal} rank={rank} listIndex={idx - 5}
                 isNew={meal.id === highlightId}
-                onLanded={() => setHighlightId(cur => cur === meal.id ? null : cur)} />
+                onLanded={() => setHighlightId(cur => cur === meal.id ? null : cur)}
+                distance={distance} />
             )}
           </DraggableRow>
         </Fragment>
@@ -1010,9 +1099,16 @@ export default function TierListScreen() {
           <Text style={styles.kicker}>TIER LIST</Text>
           <Text style={styles.heading}>Your rankings</Text>
           <SegmentedControl value={mode} onChange={switchMode} />
+          {mode === 'monthly' && meals.length > 0 && (
+            <View style={styles.nearMeRow}>
+              <NearMeToggle active={nearMeOn} hasCoords={!!userCoords} onToggle={handleToggleNearMe} />
+            </View>
+          )}
           <Text style={styles.subheading}>
             {mode === 'monthly'
-              ? `${meals.length} ${meals.length === 1 ? 'meal' : 'meals'} in ${CURRENT_MONTH_LABEL}`
+              ? nearMeOn
+                ? `${meals.length} ${meals.length === 1 ? 'meal' : 'meals'} · sorted by distance`
+                : `${meals.length} ${meals.length === 1 ? 'meal' : 'meals'} in ${CURRENT_MONTH_LABEL}`
               : yearlyMeals.length === 0
                 ? `No entries in ${CURRENT_YEAR}`
                 : `Top ${yearlyMeals.length} of ${CURRENT_YEAR} · tap rank to pin`}
@@ -1078,6 +1174,17 @@ const styles = StyleSheet.create({
   segBtnText: { fontWeight: '700', fontSize: 13, color: C.gray2 },
   segBtnTextActive: { color: C.white },
 
+  // Near Me toggle
+  nearMeRow: { paddingHorizontal: 24, marginTop: 12, flexDirection: 'row' },
+  nearMeChip: {
+    flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 7,
+    borderRadius: 10, borderWidth: 1, borderColor: C.border, backgroundColor: C.surface,
+  },
+  nearMeChipActive: { backgroundColor: C.orange + '20', borderColor: C.orange },
+  nearMeChipDim: { opacity: 0.55 },
+  nearMeChipText: { fontSize: 12, fontWeight: '700', color: C.gray1 },
+  nearMeChipTextActive: { color: C.orange },
+
   // Drag
   topDragRow: { marginHorizontal: 24 },
   rankDragRow: { marginHorizontal: 16, marginBottom: 8 },
@@ -1120,8 +1227,9 @@ const styles = StyleSheet.create({
   topImg: { width: 52, height: 52, borderRadius: 14, backgroundColor: C.bg, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' },
   topImgFallback: { alignItems: 'center', justifyContent: 'center' },
   topEmoji: { fontSize: 22 },
-  topNameWrap: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 },
+  topNameWrap: { flex: 1, justifyContent: 'center' },
   topName: { fontWeight: '700', fontSize: 16, color: C.white, letterSpacing: 0.2, flexShrink: 1 },
+  topDistance: { fontSize: 11, color: C.gray2, marginTop: 2, fontWeight: '500' },
   scoreWrap: { alignItems: 'flex-end', minWidth: 46 },
   topScore: { fontWeight: '800', fontSize: 18, letterSpacing: 0.3 },
   scoreTrack: { width: 48, height: 6, borderRadius: 3, marginTop: 7, backgroundColor: 'rgba(255,255,255,0.08)', overflow: 'hidden' },
@@ -1149,7 +1257,9 @@ const styles = StyleSheet.create({
   rowImg: { width: 44, height: 44, borderRadius: 11, backgroundColor: C.bg },
   rowImgFallback: { alignItems: 'center', justifyContent: 'center' },
   rowEmoji: { fontSize: 20 },
-  rowName: { flex: 1, fontSize: 14, color: C.white, fontWeight: '500', letterSpacing: 0.1 },
+  rowNameWrap: { flex: 1 },
+  rowName: { fontSize: 14, color: C.white, fontWeight: '500', letterSpacing: 0.1 },
+  rowDistance: { fontSize: 10, color: C.gray3, marginTop: 1, fontWeight: '500' },
   rowScore: { fontWeight: '700', fontSize: 14, color: C.gray2 },
 
   // Rank reveal overlay
