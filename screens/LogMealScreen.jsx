@@ -70,6 +70,40 @@ async function compressImage(uri) {
   );
 }
 
+// ─── Meal tag (breakfast / lunch / dinner) ─────────────────────────────────────
+// Auto-guessed from time of day at log time; user can override before saving.
+// Boundaries: before 11am = breakfast, 11am–4pm = lunch, after 4pm = dinner.
+function guessMealTag(date = new Date()) {
+  const hour = date.getHours();
+  if (hour < 11) return 'breakfast';
+  if (hour < 16) return 'lunch';
+  return 'dinner';
+}
+
+const TAG_OPTIONS = [
+  ['breakfast', '🌅', 'Breakfast'],
+  ['lunch', '☀️', 'Lunch'],
+  ['dinner', '🌙', 'Dinner'],
+];
+
+function MealTagPicker({ value, onChange }) {
+  return (
+    <View style={styles.tagPickerWrap}>
+      {TAG_OPTIONS.map(([key, emoji, label]) => (
+        <TouchableOpacity
+          key={key}
+          style={[styles.tagPickerBtn, value === key && styles.tagPickerBtnActive]}
+          onPress={() => onChange(key)}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.tagPickerEmoji}>{emoji}</Text>
+          <Text style={[styles.tagPickerText, value === key && styles.tagPickerTextActive]}>{label}</Text>
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
+}
+
 // ─── Score Slider Input — drag to rate 1.0–10.0 with decimals ─────────────────
 
 const SCORE_MIN = 1;
@@ -247,6 +281,7 @@ export default function LogMealScreen() {
   const [identified, setIdentified] = useState(null); // Claude's response
   const [mealName, setMealName] = useState('');
   const [score, setScore] = useState(5.5);
+  const [mealTag, setMealTag] = useState(() => guessMealTag());
   const [savedMealId, setSavedMealId] = useState(null);
   const [savedPhotoUrl, setSavedPhotoUrl] = useState(null);
   const [shareOpen, setShareOpen] = useState(false);
@@ -536,6 +571,7 @@ export default function LogMealScreen() {
           business_id: sponsored?.id || null,
           ai_confidence: identified?.confidence || null,
           place_id: resolvedPlaceId,
+          tag: mealTag,
         })
         .select('id')
         .single();
@@ -865,6 +901,12 @@ export default function LogMealScreen() {
             <ScoreSlider value={score} onChange={setScore} />
           </View>
 
+          {/* Meal tag — auto-guessed from time of day, overridable */}
+          <View style={styles.fieldGroup}>
+            <Text style={styles.fieldLabel}>When was this?</Text>
+            <MealTagPicker value={mealTag} onChange={setMealTag} />
+          </View>
+
           {/* Notes */}
           <View style={styles.fieldGroup}>
             <Text style={styles.fieldLabel}>Notes <Text style={styles.optional}>(optional)</Text></Text>
@@ -1033,6 +1075,20 @@ const styles = StyleSheet.create({
   fieldGroup: { paddingHorizontal: 24, marginTop: 24 },
   fieldLabel: { fontSize: 13, color: C.gray2, marginBottom: 8, fontWeight: '500' },
   optional: { color: C.gray4, fontWeight: '400' },
+
+  // Meal tag picker
+  tagPickerWrap: {
+    flexDirection: 'row', backgroundColor: C.surface,
+    borderRadius: 12, borderWidth: 1, borderColor: C.border, padding: 3, gap: 3,
+  },
+  tagPickerBtn: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 6, paddingVertical: 10, borderRadius: 10,
+  },
+  tagPickerBtnActive: { backgroundColor: C.orange },
+  tagPickerEmoji: { fontSize: 14 },
+  tagPickerText: { fontWeight: '700', fontSize: 13, color: C.gray2 },
+  tagPickerTextActive: { color: C.white },
   textInput: { backgroundColor: C.inputBg, borderWidth: 0.5, borderColor: C.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: C.white },
   textArea: { height: 88, textAlignVertical: 'top' },
 

@@ -29,6 +29,8 @@ const C = {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 
+const TAG_LABEL = { breakfast: '🌅 Breakfast', lunch: '☀️ Lunch', dinner: '🌙 Dinner' };
+
 function scoreToneColor(score) {
   const n = typeof score === 'number' ? score : Number(score);
   if (n < 3) return '#e5484d';
@@ -211,7 +213,14 @@ function PostCard({ post, currentUserId, currentUsername, onPressUser }) {
           <Text style={styles.caption} numberOfLines={2}>{post.caption}</Text>
         ) : null}
 
-        <Text style={styles.mealName} numberOfLines={1}>{meal.name}</Text>
+        <View style={styles.mealNameRow}>
+          <Text style={styles.mealName} numberOfLines={1}>{meal.name}</Text>
+          {meal.tag && TAG_LABEL[meal.tag] && (
+            <View style={styles.tagPill}>
+              <Text style={styles.tagPillText}>{TAG_LABEL[meal.tag]}</Text>
+            </View>
+          )}
+        </View>
       </View>
       </View>
     </View>
@@ -337,7 +346,7 @@ export default function FeedScreen() {
         .from('posts')
         .select(`
           id, user_id, caption, tier_rank, created_at,
-          meals(id, name, emoji, score, photo_url),
+          meals(id, name, emoji, score, photo_url, tag),
           profiles!posts_user_id_fkey(id, username, display_name, avatar_url),
           post_likes(user_id)
         `)
@@ -723,7 +732,13 @@ const styles = StyleSheet.create({
   caption: {
     fontSize: 13, color: 'rgba(255,255,255,0.88)', lineHeight: 18, marginBottom: 4,
   },
-  mealName: { fontSize: 11, color: 'rgba(255,255,255,0.42)', letterSpacing: 0.2 },
+  mealNameRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  mealName: { fontSize: 11, color: 'rgba(255,255,255,0.42)', letterSpacing: 0.2, flexShrink: 1 },
+  tagPill: {
+    backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 8,
+    paddingHorizontal: 7, paddingVertical: 2,
+  },
+  tagPillText: { fontSize: 10, fontWeight: '600', color: 'rgba(255,255,255,0.72)' },
 
   // Meal picker modal
   pickerOverlay: {

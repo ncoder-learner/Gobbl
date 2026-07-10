@@ -94,6 +94,13 @@ function formatDistance(mi) {
   return `${mi.toFixed(1)} mi`;
 }
 
+// ─── Meal tag (breakfast / lunch / dinner) ─────────────────────────────────────
+const TAG_EMOJI = { breakfast: '🌅', lunch: '☀️', dinner: '🌙' };
+function tagLabel(tag) {
+  if (!tag || !TAG_EMOJI[tag]) return null;
+  return `${TAG_EMOJI[tag]} ${tag[0].toUpperCase()}${tag.slice(1)}`;
+}
+
 // ─── Yearly list builder ──────────────────────────────────────────────────────
 // Pinned items sit at their stored rank. Unpinned slots fill with the highest-
 // scoring remaining year meals. Always returns at most 10 rows.
@@ -330,7 +337,11 @@ function TopCard({ meal, rank, index, isNew, onLanded, isPinned, onTogglePin, di
 
       <View style={styles.topNameWrap}>
         <Text style={styles.topName} numberOfLines={1}>{meal.name}</Text>
-        {distance && <Text style={styles.topDistance} numberOfLines={1}>📍 {distance}</Text>}
+        {(distance || meal.tag) && (
+          <Text style={styles.topDistance} numberOfLines={1}>
+            {[tagLabel(meal.tag), distance && `📍 ${distance}`].filter(Boolean).join('  ·  ')}
+          </Text>
+        )}
       </View>
 
       <View style={styles.scoreWrap}>
@@ -407,7 +418,11 @@ function RankRow({ meal, rank, listIndex, isNew, onLanded, isPinned, onTogglePin
         )}
         <View style={styles.rowNameWrap}>
           <Text style={styles.rowName} numberOfLines={1}>{meal.name}</Text>
-          {distance && <Text style={styles.rowDistance} numberOfLines={1}>📍 {distance}</Text>}
+          {(distance || meal.tag) && (
+            <Text style={styles.rowDistance} numberOfLines={1}>
+              {[tagLabel(meal.tag), distance && `📍 ${distance}`].filter(Boolean).join('  ·  ')}
+            </Text>
+          )}
         </View>
         <Text style={styles.rowScore}>{formatScore(meal.score)}</Text>
         {isNew && (
