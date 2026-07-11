@@ -13,11 +13,12 @@ import ShareBottomSheet from '../components/ShareBottomSheet';
 import CommentSheet from '../components/CommentSheet';
 import { syncStreakRiskNotification, loadNotifPrefs } from '../lib/notifications';
 import { FirstVisitTooltip, useFirstVisit } from '../lib/firstVisit';
+import { fetchPostedMealIds, MEAL_TAGS, TAG_META } from '../lib/postUtils';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const CARD_WIDTH  = SCREEN_WIDTH - 32;
-const CARD_HEIGHT = 340;
-const PAGE_SIZE   = 15;
+const CARD_WIDTH   = SCREEN_WIDTH - 32;
+const MEDIA_HEIGHT = 440; // tall, Shorts-style media box
+const PAGE_SIZE    = 15;
 
 const C = {
   bg: '#0d0d0d', surface: '#1a1a1a', border: '#2a2a2a',
@@ -27,9 +28,6 @@ const C = {
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-
-const TAG_LABEL = { breakfast: '🌅 Breakfast', lunch: '☀️ Lunch', dinner: '🌙 Dinner' };
 
 function scoreToneColor(score) {
   const n = typeof score === 'number' ? score : Number(score);
@@ -78,11 +76,60 @@ function computeStreak(rows) {
 
 // ─── PostCard ─────────────────────────────────────────────────────────────────
 
+// One image within the media box. isPrimary marks the meal that post.meal_id
+// (and therefore post.tier_rank, a single legacy snapshot) points at — that's
+// the only meal we have a stored rank for, so only its image gets a tier
+// ribbon, inline rather than as a card-wide overlay.
+function MediaSlot({ tag, meal, isPrimary, tierRank }) {
+  const color = scoreToneColor(meal.score);
+  const meta = TAG_META[tag];
+  return (
+    <View style={styles.mediaSlot}>
+      {meal.photo_url ? (
+        <Image
+          source={{ uri: meal.photo_url }}
+          style={StyleSheet.absoluteFill}
+          resizeMode="cover"
+          resizeMethod="scale"
+        />
+      ) : (
+        <View style={[StyleSheet.absoluteFill, styles.cardNoPhoto]}>
+          <Text style={styles.cardFallbackEmoji}>{meal.emoji || '🍽️'}</Text>
+        </View>
+      )}
+
+      <LinearGradient
+        colors={['rgba(0,0,0,0.32)', 'transparent', 'rgba(0,0,0,0.4)']}
+        locations={[0, 0.3, 1]}
+        style={StyleSheet.absoluteFill}
+        pointerEvents="none"
+      />
+
+      <View style={styles.slotTagBadge}>
+        <Text style={styles.slotTagEmoji}>{meta.emoji}</Text>
+      </View>
+
+      <View style={[styles.slotScoreBadge, { backgroundColor: color }]}>
+        <Text style={styles.slotScoreText}>{formatScore(meal.score)}</Text>
+      </View>
+
+      {isPrimary && tierRank != null && tierRank <= 10 && (
+        <View style={[styles.slotTierRibbon, { borderColor: color + 'aa' }]}>
+          <Text style={[styles.slotTierText, { color }]}>#{tierRank}</Text>
+        </View>
+      )}
+    </View>
+  );
+}
+
 function PostCard({ post, currentUserId, currentUsername, onPressUser }) {
-  const meal   = post.meals;
   const poster = post.profiles;
-  if (!meal || !poster) return null;
-  const color  = scoreToneColor(meal.score);
+  // Always breakfast → lunch → dinner order, left to right, regardless of
+  // which slots are actually filled (1-3 of them).
+  const images = MEAL_TAGS
+    .map(tag => (post[tag] ? { tag, meal: post[tag] } : null))
+    .filter(Boolean);
+  if (images.length === 0 || !poster) return null;
 
   const likes = post.post_likes || [];
   const [likeCount, setLikeCount]   = useState(likes.length);
@@ -120,108 +167,80 @@ function PostCard({ post, currentUserId, currentUsername, onPressUser }) {
     }
   }
 
+  const mealNames = images.map(i => i.meal.name).join('  ·  ');
+
   return (
     <View style={styles.cardWrap}>
       <View style={styles.card}>
-      {/* Photo background */}
-      {meal.photo_url ? (
-        <Image
-          source={{ uri: meal.photo_url }}
-          style={{ position: 'absolute', width: CARD_WIDTH, height: CARD_HEIGHT }}
-          resizeMode="cover"
-          resizeMethod="scale"
-        />
-      ) : (
-        <View style={[StyleSheet.absoluteFill, styles.cardNoPhoto]}>
-          <Text style={styles.cardFallbackEmoji}>{meal.emoji || '🍽️'}</Text>
-        </View>
-      )}
-
-      {/* Gradient: clear top, soft scrim only at the bottom third */}
-      <LinearGradient
-        colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.08)', 'rgba(0,0,0,0.72)']}
-        locations={[0, 0.52, 1]}
-        style={StyleSheet.absoluteFill}
-        pointerEvents="none"
-      />
-
-      {/* Score badge — top right */}
-      <View style={[styles.scoreBadge, { backgroundColor: color }]}>
-        <Text style={styles.scoreBadgeNum}>{formatScore(meal.score)}</Text>
-        <Text style={styles.scoreBadgeDen}>/10</Text>
-      </View>
-
-      {/* Tier ribbon — top left, only for top-10 meals */}
-      {post.tier_rank != null && post.tier_rank <= 10 && (
-        <View style={[styles.tierRibbon, { borderColor: color + 'aa' }]}>
-          <Text style={[styles.tierText, { color }]}>
-            #{post.tier_rank} · {new Date(post.created_at).getFullYear()}
-          </Text>
-        </View>
-      )}
-
-      {/* Bottom info overlay */}
-      <View style={styles.cardBottom}>
-        <TouchableOpacity
-          style={styles.posterRow}
-          onPress={() => onPressUser(poster.id)}
-          activeOpacity={0.8}
-          hitSlop={{ top: 6, bottom: 6, left: 0, right: 0 }}
-        >
-          <View style={styles.posterAvatar}>
-            <Text style={styles.posterInitial}>
-              {(poster.username?.[0] ?? poster.display_name?.[0] ?? '?').toUpperCase()}
-            </Text>
-          </View>
-          <Text style={styles.posterUsername}>@{poster.username}</Text>
-          <Text style={styles.postTime}>{timeAgo(post.created_at)}</Text>
-          <TouchableOpacity
-            onPress={toggleLike}
-            activeOpacity={0.7}
-            style={styles.likeBtn}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <Ionicons
-              name={isLiked ? 'heart' : 'heart-outline'}
-              size={18}
-              color={isLiked ? '#ff4d6a' : 'rgba(255,255,255,0.55)'}
+        {/* Media box — 1-3 images side by side, Shorts-style, each with its
+            own tag emoji + score badge (and tier badge for the primary meal) */}
+        <View style={styles.mediaRow}>
+          {images.map(({ tag, meal }) => (
+            <MediaSlot
+              key={tag}
+              tag={tag}
+              meal={meal}
+              isPrimary={meal.id === post.meal_id}
+              tierRank={post.tier_rank}
             />
-            {likeCount > 0 && (
-              <Text style={[styles.likeCount, isLiked && { color: '#ff4d6a' }]}>
-                {likeCount}
-              </Text>
-            )}
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => setCommentOpen(true)}
-            activeOpacity={0.7}
-            style={styles.likeBtn}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-          >
-            <Ionicons name="chatbubble-outline" size={16} color="rgba(255,255,255,0.55)" />
-          </TouchableOpacity>
-        </TouchableOpacity>
-
-        <CommentSheet
-          visible={commentOpen}
-          postId={post.id}
-          postOwnerId={post.user_id}
-          onDismiss={() => setCommentOpen(false)}
-        />
-
-        {post.caption ? (
-          <Text style={styles.caption} numberOfLines={2}>{post.caption}</Text>
-        ) : null}
-
-        <View style={styles.mealNameRow}>
-          <Text style={styles.mealName} numberOfLines={1}>{meal.name}</Text>
-          {meal.tag && TAG_LABEL[meal.tag] && (
-            <View style={styles.tagPill}>
-              <Text style={styles.tagPillText}>{TAG_LABEL[meal.tag]}</Text>
-            </View>
-          )}
+          ))}
         </View>
-      </View>
+
+        {/* Info block — normal (non-overlaid) block below the media box */}
+        <View style={styles.infoBlock}>
+          <TouchableOpacity
+            style={styles.posterRow}
+            onPress={() => onPressUser(poster.id)}
+            activeOpacity={0.8}
+            hitSlop={{ top: 6, bottom: 6, left: 0, right: 0 }}
+          >
+            <View style={styles.posterAvatar}>
+              <Text style={styles.posterInitial}>
+                {(poster.username?.[0] ?? poster.display_name?.[0] ?? '?').toUpperCase()}
+              </Text>
+            </View>
+            <Text style={styles.posterUsername}>@{poster.username}</Text>
+            <Text style={styles.postTime}>{timeAgo(post.created_at)}</Text>
+            <TouchableOpacity
+              onPress={toggleLike}
+              activeOpacity={0.7}
+              style={styles.likeBtn}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Ionicons
+                name={isLiked ? 'heart' : 'heart-outline'}
+                size={18}
+                color={isLiked ? '#ff4d6a' : C.gray2}
+              />
+              {likeCount > 0 && (
+                <Text style={[styles.likeCount, isLiked && { color: '#ff4d6a' }]}>
+                  {likeCount}
+                </Text>
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => setCommentOpen(true)}
+              activeOpacity={0.7}
+              style={styles.likeBtn}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Ionicons name="chatbubble-outline" size={16} color={C.gray2} />
+            </TouchableOpacity>
+          </TouchableOpacity>
+
+          <CommentSheet
+            visible={commentOpen}
+            postId={post.id}
+            postOwnerId={post.user_id}
+            onDismiss={() => setCommentOpen(false)}
+          />
+
+          {post.caption ? (
+            <Text style={styles.caption} numberOfLines={2}>{post.caption}</Text>
+          ) : null}
+
+          <Text style={styles.mealName} numberOfLines={1}>{mealNames}</Text>
+        </View>
       </View>
     </View>
   );
@@ -345,8 +364,10 @@ export default function FeedScreen() {
       let postsQuery = supabase
         .from('posts')
         .select(`
-          id, user_id, caption, tier_rank, created_at,
-          meals(id, name, emoji, score, photo_url, tag),
+          id, user_id, caption, tier_rank, created_at, meal_id,
+          breakfast:meals!breakfast_meal_id(id, name, emoji, score, photo_url, tag),
+          lunch:meals!lunch_meal_id(id, name, emoji, score, photo_url, tag),
+          dinner:meals!dinner_meal_id(id, name, emoji, score, photo_url, tag),
           profiles!posts_user_id_fkey(id, username, display_name, avatar_url),
           post_likes(user_id)
         `)
@@ -444,13 +465,18 @@ export default function FeedScreen() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-      const { data } = await supabase
-        .from('meals')
-        .select('id, name, emoji, score, photo_url, posts(id)')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(30);
-      setPickerMeals((data || []).filter(m => !m.posts?.length));
+      // A meal can now be attached to a post via any of the 3 tri-image slot
+      // columns, not just meal_id, so "already posted" needs to check all 4.
+      const [{ data }, postedIds] = await Promise.all([
+        supabase
+          .from('meals')
+          .select('id, name, emoji, score, photo_url, tag, created_at')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false })
+          .limit(30),
+        fetchPostedMealIds(user.id).catch(() => new Set()),
+      ]);
+      setPickerMeals((data || []).filter(m => !postedIds.has(m.id)));
     } catch {
       setPickerMeals([]);
     } finally {
@@ -674,41 +700,54 @@ const styles = StyleSheet.create({
     height: 0.5, backgroundColor: C.border, marginHorizontal: 16, marginBottom: 12,
   },
 
-  // Post card — elevation and overflow:hidden must live on SEPARATE views.
-  // On Android, elevation blocks overflow clipping, so the image bleeds through the rounded corners.
+  // Post card — Shorts-style: a media box on top, a normal (non-overlaid)
+  // info block below. Elevation and overflow:hidden must live on SEPARATE
+  // views — on Android, elevation blocks overflow clipping, so the image
+  // bleeds through the rounded corners otherwise.
   cardWrap: {
     marginBottom: 16, marginHorizontal: 16, borderRadius: 20,
     shadowColor: '#000', shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.45, shadowRadius: 14, elevation: 10,
   },
   card: {
-    width: CARD_WIDTH, height: CARD_HEIGHT,
+    width: CARD_WIDTH,
     borderRadius: 20, overflow: 'hidden',
-    backgroundColor: '#111',
+    backgroundColor: C.surface,
   },
+
+  // Media box — 1-3 image slots side by side
+  mediaRow: {
+    flexDirection: 'row', height: MEDIA_HEIGHT, gap: 2, backgroundColor: '#000',
+  },
+  mediaSlot: { flex: 1, backgroundColor: '#111' },
   cardNoPhoto: { alignItems: 'center', justifyContent: 'center', backgroundColor: '#111' },
-  cardFallbackEmoji: { fontSize: 80 },
+  cardFallbackEmoji: { fontSize: 40 },
 
-  scoreBadge: {
-    position: 'absolute', top: 12, right: 12,
-    width: 58, height: 58, borderRadius: 29,
+  slotTagBadge: {
+    position: 'absolute', top: 10, left: 10,
+    width: 28, height: 28, borderRadius: 14,
     alignItems: 'center', justifyContent: 'center',
-    borderWidth: 2, borderColor: 'rgba(255,255,255,0.22)',
+    backgroundColor: 'rgba(0,0,0,0.55)',
   },
-  scoreBadgeNum: {
-    fontWeight: '800', fontSize: 18, color: '#fff', lineHeight: 20,
-  },
-  scoreBadgeDen: { fontSize: 10, color: 'rgba(255,255,255,0.65)', lineHeight: 12 },
+  slotTagEmoji: { fontSize: 14 },
 
-  tierRibbon: {
-    position: 'absolute', top: 12, left: 12,
+  slotScoreBadge: {
+    position: 'absolute', top: 10, right: 10,
+    borderRadius: 10, paddingHorizontal: 7, paddingVertical: 4,
+    borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.22)',
+  },
+  slotScoreText: { fontWeight: '800', fontSize: 12, color: '#fff' },
+
+  slotTierRibbon: {
+    position: 'absolute', bottom: 10, left: 10,
     backgroundColor: 'rgba(0,0,0,0.68)',
-    borderWidth: 1, borderRadius: 10,
-    paddingHorizontal: 8, paddingVertical: 4,
+    borderWidth: 1, borderRadius: 8,
+    paddingHorizontal: 6, paddingVertical: 3,
   },
-  tierText: { fontSize: 11, fontWeight: '700', letterSpacing: 0.6, textTransform: 'uppercase' },
+  slotTierText: { fontSize: 10, fontWeight: '700', letterSpacing: 0.4 },
 
-  cardBottom: { position: 'absolute', bottom: 14, left: 14, right: 14 },
+  // Info block — normal flow, below the media box
+  infoBlock: { padding: 14 },
   posterRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 7, gap: 7 },
   posterAvatar: {
     width: 28, height: 28, borderRadius: 14,
@@ -716,10 +755,10 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   posterInitial: { fontSize: 12, fontWeight: '700', color: C.purpleText },
-  posterUsername: { fontSize: 14, fontWeight: '700', color: '#fff', flex: 1 },
-  postTime: { fontSize: 11, color: 'rgba(255,255,255,0.45)' },
+  posterUsername: { fontSize: 14, fontWeight: '700', color: C.white, flex: 1 },
+  postTime: { fontSize: 11, color: C.gray2 },
   likeBtn: { flexDirection: 'row', alignItems: 'center', gap: 3, marginLeft: 6 },
-  likeCount: { fontSize: 12, color: 'rgba(255,255,255,0.55)', fontWeight: '600' },
+  likeCount: { fontSize: 12, color: C.gray2, fontWeight: '600' },
 
   // Friend request badge
   badge: {
@@ -732,13 +771,7 @@ const styles = StyleSheet.create({
   caption: {
     fontSize: 13, color: 'rgba(255,255,255,0.88)', lineHeight: 18, marginBottom: 4,
   },
-  mealNameRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  mealName: { fontSize: 11, color: 'rgba(255,255,255,0.42)', letterSpacing: 0.2, flexShrink: 1 },
-  tagPill: {
-    backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 8,
-    paddingHorizontal: 7, paddingVertical: 2,
-  },
-  tagPillText: { fontSize: 10, fontWeight: '600', color: 'rgba(255,255,255,0.72)' },
+  mealName: { fontSize: 12, color: C.gray1, letterSpacing: 0.2 },
 
   // Meal picker modal
   pickerOverlay: {

@@ -167,7 +167,7 @@ export default function MyProfileScreen() {
           .single(),
 
         supabase.from('posts')
-          .select('id, tier_rank, created_at, meals(id, name, emoji, score, photo_url), post_likes(user_id), post_comments(id)')
+          .select('id, tier_rank, created_at, meals!meal_id(id, name, emoji, score, photo_url), post_likes(user_id), post_comments(id)')
           .eq('user_id', user.id)
           .order('created_at', { ascending: false })
           .limit(60),

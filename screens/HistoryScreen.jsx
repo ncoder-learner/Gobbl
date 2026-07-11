@@ -19,7 +19,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
-import { computeTierRank, createPost } from '../lib/postUtils';
+import { computeTierRank, createPost, mealTagSlot } from '../lib/postUtils';
 
 const PAGE_SIZE = 20;
 
@@ -233,8 +233,10 @@ function MealDetailModal({ meal, onClose, onUpdated, onDeleted, onPostChanged })
   const [shareCaption, setShareCaption] = useState('');
   const [shareTierRank, setShareTierRank] = useState(null);
   const [sharingPost, setSharingPost] = useState(false);
-  const [isPosted, setIsPosted] = useState(!!(meal.posts?.length > 0));
-  const [postId, setPostId] = useState(meal.posts?.[0]?.id ?? null);
+  const existingPost = [meal.postsByMealId, meal.postsByBreakfast, meal.postsByLunch, meal.postsByDinner]
+    .flat().filter(Boolean)[0] ?? null;
+  const [isPosted, setIsPosted] = useState(!!existingPost);
+  const [postId, setPostId] = useState(existingPost?.id ?? null);
 
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -254,7 +256,7 @@ function MealDetailModal({ meal, onClose, onUpdated, onDeleted, onPostChanged })
     setSharingPost(true);
     setError(null);
     try {
-      const newPostId = await createPost(meal.id, shareCaption, shareTierRank);
+      const newPostId = await createPost({ [mealTagSlot(meal.tag)]: meal.id }, shareCaption, shareTierRank);
       setIsPosted(true);
       setPostId(newPostId);
       onPostChanged?.(meal.id, newPostId);
@@ -670,9 +672,20 @@ export default function HistoryScreen() {
       const from = pageNum * PAGE_SIZE;
       const to = from + PAGE_SIZE - 1;
 
+      // A meal can now be attached to a post via any of 4 columns (legacy
+      // meal_id, or one of the 3 tri-image slots) — check all 4 so "already
+      // posted" is correct even when this meal was a secondary slot on
+      // someone's multi-meal post rather than the post's primary meal.
       const { data, error: fetchError } = await supabase
         .from('meals')
-        .select('id, name, emoji, score, rating, photo_url, created_at, notes, cuisine, description, businesses(name), posts(id)')
+        .select(`
+          id, name, emoji, score, rating, photo_url, created_at, notes, cuisine, description, tag,
+          businesses(name),
+          postsByMealId:posts!meal_id(id),
+          postsByBreakfast:posts!breakfast_meal_id(id),
+          postsByLunch:posts!lunch_meal_id(id),
+          postsByDinner:posts!dinner_meal_id(id)
+        `)
         .eq('user_id', user.id)
         .order('created_at', { ascending: false })
         .range(from, to);

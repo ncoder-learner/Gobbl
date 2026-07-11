@@ -281,7 +281,7 @@ export default function UserProfileScreen() {
           : Promise.resolve({ value: null }),
 
         supabase.from('posts')
-          .select(`id, tier_rank, created_at, meals(id, name, emoji, score, photo_url)`)
+          .select(`id, tier_rank, created_at, meals!meal_id(id, name, emoji, score, photo_url)`)
           .eq('user_id', userId)
           .order('created_at', { ascending: false })
           .limit(30),

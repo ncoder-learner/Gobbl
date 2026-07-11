@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, Modal, ScrollView, TextInput, TouchableOpacity,
   Image, ActivityIndicator, StyleSheet, KeyboardAvoidingView, Platform, Pressable,
 } from 'react-native';
-import { computeTierRank, createPost } from '../lib/postUtils';
+import { supabase } from '../lib/supabase';
+import { computeTierRank, createPost, fetchPostedMealIds, mealTagSlot, MEAL_TAGS, TAG_META } from '../lib/postUtils';
 
 const C = {
   bg: '#0d0d0d', surface: '#1a1a1a', border: '#2a2a2a',
@@ -25,30 +26,113 @@ function formatScore(score) {
   return isNaN(n) ? '—' : n.toFixed(1);
 }
 
+// ─── Date helpers ───────────────────────────────────────────────────────────
+function isSameDay(a, b) {
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+function startOfDay(d) { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; }
+function addDays(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
+function dateLabel(d) {
+  const today = new Date();
+  if (isSameDay(d, today)) return 'Today';
+  const yesterday = addDays(today, -1);
+  if (isSameDay(d, yesterday)) return 'Yesterday';
+  return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
 // meal: { id, name, emoji, score, photo_url }
 // onPosted(postId): called after successful post
 // onDismiss(): called on cancel or after post
 export default function ShareBottomSheet({ visible, meal, onDismiss, onPosted }) {
   const [caption, setCaption] = useState('');
-  const [tierRank, setTierRank] = useState(null);
   const [posting, setPosting] = useState(false);
   const [error, setError] = useState(null);
 
-  const scoreColor = meal ? scoreToneColor(meal.score) : C.orange;
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [seedDate, setSeedDate] = useState(new Date());
+  const [slots, setSlots] = useState({ breakfast: null, lunch: null, dinner: null });
+  const [slotsLoading, setSlotsLoading] = useState(false);
+
+  const loadSlotsForDate = useCallback(async (date, seedMeal, seedDay) => {
+    setSlotsLoading(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const dayStart = startOfDay(date);
+      const dayEnd = addDays(dayStart, 1);
+
+      const [{ data: dayMeals }, postedIds] = await Promise.all([
+        supabase
+          .from('meals')
+          .select('id, name, emoji, score, photo_url, tag')
+          .eq('user_id', user.id)
+          .gte('created_at', dayStart.toISOString())
+          .lt('created_at', dayEnd.toISOString()),
+        fetchPostedMealIds(user.id).catch(() => new Set()),
+      ]);
+
+      const next = { breakfast: null, lunch: null, dinner: null };
+      for (const tag of MEAL_TAGS) {
+        const found = (dayMeals || []).find(m => m.tag === tag && !postedIds.has(m.id));
+        if (found) next[tag] = found;
+      }
+      // The seed meal (just logged / picked from History) always occupies its
+      // slot on its own day, regardless of whether it turned up in the scan
+      // above (e.g. untagged meals default to breakfast but wouldn't match
+      // `m.tag === 'breakfast'` literally).
+      if (seedMeal && isSameDay(date, seedDay)) {
+        next[mealTagSlot(seedMeal.tag)] = seedMeal;
+      }
+      setSlots(next);
+    } catch {
+      setSlots(seedMeal ? { breakfast: null, lunch: null, dinner: null, [mealTagSlot(seedMeal.tag)]: seedMeal } : { breakfast: null, lunch: null, dinner: null });
+    } finally {
+      setSlotsLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     if (!visible || !meal) return;
     setCaption('');
     setError(null);
-    setTierRank(null);
-    computeTierRank(meal.id).then(setTierRank).catch(() => setTierRank(null));
+    const day = meal.created_at ? new Date(meal.created_at) : new Date();
+    setSeedDate(day);
+    setSelectedDate(day);
+    loadSlotsForDate(day, meal, day);
   }, [visible, meal?.id]);
 
+  function goToDate(newDate) {
+    setSelectedDate(newDate);
+    loadSlotsForDate(newDate, meal, seedDate);
+  }
+
+  function clearSlot(tag) {
+    setSlots(s => ({ ...s, [tag]: null }));
+  }
+
+  const filledCount = MEAL_TAGS.filter(t => slots[t]).length;
+  const isToday = isSameDay(selectedDate, new Date());
+
   async function handlePost() {
+    const primary = slots.breakfast || slots.lunch || slots.dinner;
+    if (!primary) {
+      setError('Pick at least one meal to post.');
+      return;
+    }
     setPosting(true);
     setError(null);
     try {
-      const postId = await createPost(meal.id, caption, tierRank);
+      const tierRank = await computeTierRank(primary.id).catch(() => null);
+      const postId = await createPost(
+        {
+          breakfast: slots.breakfast?.id ?? null,
+          lunch: slots.lunch?.id ?? null,
+          dinner: slots.dinner?.id ?? null,
+        },
+        caption,
+        tierRank,
+      );
       onPosted?.(postId);
       onDismiss();
     } catch (err) {
@@ -90,37 +174,69 @@ export default function ShareBottomSheet({ visible, meal, onDismiss, onPosted })
                 <View style={{ width: 52 }} />
               </View>
 
-              {/* Preview card */}
-              <View style={styles.preview}>
-                {meal.photo_url ? (
-                  <Image
-                    source={{ uri: meal.photo_url }}
-                    style={StyleSheet.absoluteFill}
-                    resizeMode="cover"
-                    resizeMethod="scale"
-                  />
+              {/* Date switcher */}
+              <View style={styles.dateRow}>
+                <TouchableOpacity
+                  onPress={() => goToDate(addDays(selectedDate, -1))}
+                  hitSlop={10}
+                  style={styles.dateArrowBtn}
+                >
+                  <Text style={styles.dateArrow}>‹</Text>
+                </TouchableOpacity>
+                <Text style={styles.dateLabel}>{dateLabel(selectedDate)}</Text>
+                <TouchableOpacity
+                  onPress={() => !isToday && goToDate(addDays(selectedDate, 1))}
+                  hitSlop={10}
+                  disabled={isToday}
+                  style={styles.dateArrowBtn}
+                >
+                  <Text style={[styles.dateArrow, isToday && styles.dateArrowDisabled]}>›</Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* 3 meal slots */}
+              <View style={styles.slotsRow}>
+                {slotsLoading ? (
+                  <View style={styles.slotsLoading}>
+                    <ActivityIndicator color={C.orange} size="small" />
+                  </View>
                 ) : (
-                  <View style={[StyleSheet.absoluteFill, styles.previewFallback]}>
-                    <Text style={{ fontSize: 38 }}>{meal.emoji || '🍽️'}</Text>
-                  </View>
+                  MEAL_TAGS.map(tag => {
+                    const slotMeal = slots[tag];
+                    const meta = TAG_META[tag];
+                    return (
+                      <View key={tag} style={styles.slotCol}>
+                        <Text style={styles.slotLabel}>{meta.emoji} {meta.label}</Text>
+                        {slotMeal ? (
+                          <View style={styles.slotCard}>
+                            {slotMeal.photo_url ? (
+                              <Image source={{ uri: slotMeal.photo_url }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+                            ) : (
+                              <View style={[StyleSheet.absoluteFill, styles.slotFallback]}>
+                                <Text style={{ fontSize: 24 }}>{slotMeal.emoji || '🍽️'}</Text>
+                              </View>
+                            )}
+                            <TouchableOpacity
+                              style={styles.slotClearBtn}
+                              onPress={() => clearSlot(tag)}
+                              hitSlop={8}
+                            >
+                              <Text style={styles.slotClearText}>×</Text>
+                            </TouchableOpacity>
+                            <View style={[styles.slotScoreBadge, { backgroundColor: scoreToneColor(slotMeal.score) }]}>
+                              <Text style={styles.slotScoreText}>{formatScore(slotMeal.score)}</Text>
+                            </View>
+                            <Text style={styles.slotName} numberOfLines={1}>{slotMeal.name}</Text>
+                          </View>
+                        ) : (
+                          <View style={[styles.slotCard, styles.slotEmpty]}>
+                            <Text style={styles.slotEmptyText}>No {tag} meal</Text>
+                          </View>
+                        )}
+                      </View>
+                    );
+                  })
                 )}
-
-                <View style={[styles.scoreBadge, { backgroundColor: scoreColor }]}>
-                  <Text style={styles.scoreBadgeNum}>{formatScore(meal.score)}</Text>
-                  <Text style={styles.scoreBadgeDen}>/10</Text>
-                </View>
-
-                {tierRank != null && (
-                  <View style={[styles.tierRibbon, { borderColor: scoreColor + 'aa' }]}>
-                    <Text style={[styles.tierText, { color: scoreColor }]}>
-                      #{tierRank} · {new Date().getFullYear()}
-                    </Text>
-                  </View>
-                )}
-
-                <View style={styles.previewBottom}>
-                  <Text style={styles.previewName} numberOfLines={1}>{meal.name}</Text>
-                </View>
               </View>
 
               {/* Caption input */}
@@ -148,15 +264,17 @@ export default function ShareBottomSheet({ visible, meal, onDismiss, onPosted })
               ) : null}
 
               <TouchableOpacity
-                style={[styles.postBtn, posting && styles.disabled]}
+                style={[styles.postBtn, (posting || filledCount === 0) && styles.disabled]}
                 onPress={handlePost}
-                disabled={posting}
+                disabled={posting || filledCount === 0}
                 activeOpacity={0.85}
               >
                 {posting ? (
                   <ActivityIndicator color={C.white} />
                 ) : (
-                  <Text style={styles.postBtnText}>Post to feed →</Text>
+                  <Text style={styles.postBtnText}>
+                    {filledCount > 1 ? `Post ${filledCount} meals →` : 'Post to feed →'}
+                  </Text>
                 )}
               </TouchableOpacity>
             </ScrollView>
@@ -188,33 +306,51 @@ const styles = StyleSheet.create({
 
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 24, paddingTop: 20, paddingBottom: 24,
+    paddingHorizontal: 24, paddingTop: 20, paddingBottom: 16,
   },
   title: { fontSize: 17, fontWeight: '700', color: C.white },
   cancelText: { fontSize: 15, color: C.gray2, fontWeight: '500' },
 
-  preview: {
-    marginHorizontal: 24, marginBottom: 20, borderRadius: 16,
-    height: 180, overflow: 'hidden', backgroundColor: '#111',
+  // Date switcher
+  dateRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 20, marginBottom: 16,
   },
-  previewFallback: { alignItems: 'center', justifyContent: 'center', backgroundColor: '#1a1a1a' },
-  scoreBadge: {
-    position: 'absolute', top: 10, right: 10,
-    width: 50, height: 50, borderRadius: 25,
-    alignItems: 'center', justifyContent: 'center',
-    borderWidth: 2, borderColor: 'rgba(255,255,255,0.2)',
+  dateArrowBtn: { padding: 4 },
+  dateArrow: { fontSize: 22, color: C.orange, fontWeight: '700' },
+  dateArrowDisabled: { color: C.gray4 },
+  dateLabel: { fontSize: 14, fontWeight: '700', color: C.white, minWidth: 96, textAlign: 'center' },
+
+  // Meal slots
+  slotsRow: {
+    flexDirection: 'row', gap: 10, marginHorizontal: 24, marginBottom: 20,
   },
-  scoreBadgeNum: { fontSize: 15, fontWeight: '800', color: '#fff', lineHeight: 17 },
-  scoreBadgeDen: { fontSize: 9, color: 'rgba(255,255,255,0.65)', lineHeight: 11 },
-  tierRibbon: {
-    position: 'absolute', top: 10, left: 10,
-    backgroundColor: 'rgba(0,0,0,0.65)',
-    borderWidth: 1, borderRadius: 8,
-    paddingHorizontal: 7, paddingVertical: 3,
+  slotsLoading: { flex: 1, height: 150, alignItems: 'center', justifyContent: 'center' },
+  slotCol: { flex: 1 },
+  slotLabel: { fontSize: 11, color: C.gray2, fontWeight: '600', marginBottom: 6, textAlign: 'center' },
+  slotCard: {
+    height: 130, borderRadius: 14, overflow: 'hidden',
+    backgroundColor: '#111', justifyContent: 'flex-end',
   },
-  tierText: { fontSize: 10, fontWeight: '700', letterSpacing: 0.5, textTransform: 'uppercase' },
-  previewBottom: { position: 'absolute', bottom: 10, left: 12, right: 12 },
-  previewName: { fontSize: 12, color: 'rgba(255,255,255,0.7)', fontWeight: '500' },
+  slotFallback: { alignItems: 'center', justifyContent: 'center', backgroundColor: '#1a1a1a' },
+  slotEmpty: { alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: C.border, borderStyle: 'dashed' },
+  slotEmptyText: { fontSize: 11, color: C.gray4, textAlign: 'center', paddingHorizontal: 6 },
+  slotClearBtn: {
+    position: 'absolute', top: 4, right: 4,
+    width: 20, height: 20, borderRadius: 10,
+    backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center',
+  },
+  slotClearText: { fontSize: 13, color: '#fff', fontWeight: '700', lineHeight: 15 },
+  slotScoreBadge: {
+    position: 'absolute', top: 4, left: 4,
+    borderRadius: 8, paddingHorizontal: 6, paddingVertical: 2,
+  },
+  slotScoreText: { fontSize: 11, fontWeight: '800', color: '#fff' },
+  slotName: {
+    fontSize: 10, color: 'rgba(255,255,255,0.85)', fontWeight: '600',
+    paddingHorizontal: 6, paddingBottom: 5,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+  },
 
   fieldGroup: { paddingHorizontal: 24, marginBottom: 20 },
   fieldLabel: { fontSize: 13, color: C.gray2, marginBottom: 8, fontWeight: '500' },

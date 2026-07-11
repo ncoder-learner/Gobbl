@@ -663,6 +663,8 @@ export default function LogMealScreen() {
       emoji: identified?.emoji || '🍽️',
       score,
       photo_url: savedPhotoUrl,
+      tag: mealTag,
+      created_at: new Date().toISOString(),
     };
     return (
       <SafeAreaView style={styles.safe} edges={['top']}>
