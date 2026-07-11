@@ -23,6 +23,7 @@ import FriendsScreen from './screens/FriendsScreen';
 import UserProfileScreen from './screens/UserProfileScreen';
 import MyProfileScreen from './screens/MyProfileScreen';
 import BlockedUsersScreen from './screens/BlockedUsersScreen';
+import MealDetailScreen from './screens/MealDetailScreen';
 
 const Tab  = createBottomTabNavigator();
 const Root = createNativeStackNavigator();
@@ -137,6 +138,11 @@ function AppNavigator() {
         <Root.Screen
           name="BlockedUsers"
           component={BlockedUsersScreen}
+          options={{ animation: 'slide_from_right' }}
+        />
+        <Root.Screen
+          name="MealDetail"
+          component={MealDetailScreen}
           options={{ animation: 'slide_from_right' }}
         />
       </Root.Navigator>

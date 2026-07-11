@@ -17,7 +17,7 @@ import { fetchPostedMealIds, MEAL_TAGS, TAG_META } from '../lib/postUtils';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_WIDTH   = SCREEN_WIDTH - 32;
-const MEDIA_HEIGHT = 440; // tall, Shorts-style media box
+const MEDIA_HEIGHT = 470; // tall, Shorts-style media box
 const PAGE_SIZE    = 15;
 
 const C = {
@@ -80,11 +80,11 @@ function computeStreak(rows) {
 // (and therefore post.tier_rank, a single legacy snapshot) points at — that's
 // the only meal we have a stored rank for, so only its image gets a tier
 // ribbon, inline rather than as a card-wide overlay.
-function MediaSlot({ tag, meal, isPrimary, tierRank }) {
+function MediaSlot({ tag, meal, isPrimary, tierRank, onPress }) {
   const color = scoreToneColor(meal.score);
   const meta = TAG_META[tag];
   return (
-    <View style={styles.mediaSlot}>
+    <TouchableOpacity style={styles.mediaSlot} onPress={onPress} activeOpacity={0.9}>
       {meal.photo_url ? (
         <Image
           source={{ uri: meal.photo_url }}
@@ -118,11 +118,11 @@ function MediaSlot({ tag, meal, isPrimary, tierRank }) {
           <Text style={[styles.slotTierText, { color }]}>#{tierRank}</Text>
         </View>
       )}
-    </View>
+    </TouchableOpacity>
   );
 }
 
-function PostCard({ post, currentUserId, currentUsername, onPressUser }) {
+function PostCard({ post, currentUserId, currentUsername, onPressUser, onPressMeal }) {
   const poster = post.profiles;
   // Always breakfast → lunch → dinner order, left to right, regardless of
   // which slots are actually filled (1-3 of them).
@@ -182,6 +182,7 @@ function PostCard({ post, currentUserId, currentUsername, onPressUser }) {
               meal={meal}
               isPrimary={meal.id === post.meal_id}
               tierRank={post.tier_rank}
+              onPress={() => onPressMeal(meal.id, post.id)}
             />
           ))}
         </View>
@@ -444,6 +445,10 @@ export default function FeedScreen() {
     navigation.navigate('UserProfile', { userId });
   }
 
+  function handlePressMeal(mealId, postId) {
+    navigation.navigate('MealDetail', { mealId, postId });
+  }
+
   function handleAddFriends() {
     navigation.navigate('Friends');
   }
@@ -618,7 +623,7 @@ export default function FeedScreen() {
         data={posts}
         keyExtractor={item => item.id}
         renderItem={({ item }) => (
-          <PostCard post={item} currentUserId={currentUserId} currentUsername={currentUsername} onPressUser={handlePressUser} />
+          <PostCard post={item} currentUserId={currentUserId} currentUsername={currentUsername} onPressUser={handlePressUser} onPressMeal={handlePressMeal} />
         )}
         ListHeaderComponent={listHeader}
         ListEmptyComponent={
@@ -705,59 +710,68 @@ const styles = StyleSheet.create({
   // views — on Android, elevation blocks overflow clipping, so the image
   // bleeds through the rounded corners otherwise.
   cardWrap: {
-    marginBottom: 16, marginHorizontal: 16, borderRadius: 20,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.45, shadowRadius: 14, elevation: 10,
+    marginBottom: 20, marginHorizontal: 16, borderRadius: 22,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3, shadowRadius: 18, elevation: 8,
   },
   card: {
     width: CARD_WIDTH,
-    borderRadius: 20, overflow: 'hidden',
+    borderRadius: 22, overflow: 'hidden',
     backgroundColor: C.surface,
   },
 
   // Media box — 1-3 image slots side by side
   mediaRow: {
-    flexDirection: 'row', height: MEDIA_HEIGHT, gap: 2, backgroundColor: '#000',
+    flexDirection: 'row', height: MEDIA_HEIGHT, gap: 3, backgroundColor: '#000',
   },
   mediaSlot: { flex: 1, backgroundColor: '#111' },
-  cardNoPhoto: { alignItems: 'center', justifyContent: 'center', backgroundColor: '#111' },
-  cardFallbackEmoji: { fontSize: 40 },
+  cardNoPhoto: { alignItems: 'center', justifyContent: 'center', backgroundColor: '#151515' },
+  cardFallbackEmoji: { fontSize: 36 },
 
   slotTagBadge: {
-    position: 'absolute', top: 10, left: 10,
-    width: 28, height: 28, borderRadius: 14,
+    position: 'absolute', top: 12, left: 12,
+    width: 30, height: 30, borderRadius: 15,
     alignItems: 'center', justifyContent: 'center',
-    backgroundColor: 'rgba(0,0,0,0.55)',
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.16)',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.35, shadowRadius: 4, elevation: 3,
   },
-  slotTagEmoji: { fontSize: 14 },
+  slotTagEmoji: { fontSize: 15 },
 
   slotScoreBadge: {
-    position: 'absolute', top: 10, right: 10,
-    borderRadius: 10, paddingHorizontal: 7, paddingVertical: 4,
-    borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.22)',
+    position: 'absolute', top: 12, right: 12,
+    borderRadius: 12, paddingHorizontal: 9, paddingVertical: 5,
+    borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.28)',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.35, shadowRadius: 4, elevation: 3,
   },
-  slotScoreText: { fontWeight: '800', fontSize: 12, color: '#fff' },
+  slotScoreText: { fontWeight: '800', fontSize: 13, color: '#fff', letterSpacing: 0.2 },
 
   slotTierRibbon: {
-    position: 'absolute', bottom: 10, left: 10,
-    backgroundColor: 'rgba(0,0,0,0.68)',
-    borderWidth: 1, borderRadius: 8,
-    paddingHorizontal: 6, paddingVertical: 3,
+    position: 'absolute', bottom: 12, left: 12,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    borderWidth: 1, borderRadius: 9,
+    paddingHorizontal: 7, paddingVertical: 4,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.35, shadowRadius: 4, elevation: 3,
   },
-  slotTierText: { fontSize: 10, fontWeight: '700', letterSpacing: 0.4 },
+  slotTierText: { fontSize: 11, fontWeight: '800', letterSpacing: 0.3 },
 
-  // Info block — normal flow, below the media box
-  infoBlock: { padding: 14 },
-  posterRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 7, gap: 7 },
+  // Info block — normal flow, below the media box. Typography hierarchy:
+  // username (bold, white, largest) > caption (regular, near-white) >
+  // meal names (small, semibold, muted — metadata, not prose).
+  infoBlock: { paddingHorizontal: 14, paddingTop: 12, paddingBottom: 14 },
+  posterRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 2, gap: 9 },
   posterAvatar: {
-    width: 28, height: 28, borderRadius: 14,
+    width: 30, height: 30, borderRadius: 15,
     backgroundColor: C.purpleDim, borderWidth: 1, borderColor: C.purpleBorder,
     alignItems: 'center', justifyContent: 'center',
   },
   posterInitial: { fontSize: 12, fontWeight: '700', color: C.purpleText },
-  posterUsername: { fontSize: 14, fontWeight: '700', color: C.white, flex: 1 },
-  postTime: { fontSize: 11, color: C.gray2 },
-  likeBtn: { flexDirection: 'row', alignItems: 'center', gap: 3, marginLeft: 6 },
+  posterUsername: { fontSize: 15, fontWeight: '700', color: C.white, letterSpacing: 0.1, flex: 1 },
+  postTime: { fontSize: 12, color: C.gray2 },
+  likeBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, marginLeft: 10 },
   likeCount: { fontSize: 12, color: C.gray2, fontWeight: '600' },
 
   // Friend request badge
@@ -769,9 +783,13 @@ const styles = StyleSheet.create({
   },
   badgeText: { fontSize: 9, fontWeight: '800', color: '#fff' },
   caption: {
-    fontSize: 13, color: 'rgba(255,255,255,0.88)', lineHeight: 18, marginBottom: 4,
+    fontSize: 14, fontWeight: '400', color: 'rgba(255,255,255,0.92)',
+    lineHeight: 19, marginTop: 6,
   },
-  mealName: { fontSize: 12, color: C.gray1, letterSpacing: 0.2 },
+  mealName: {
+    fontSize: 12, fontWeight: '600', color: C.gray1,
+    letterSpacing: 0.15, marginTop: 7,
+  },
 
   // Meal picker modal
   pickerOverlay: {

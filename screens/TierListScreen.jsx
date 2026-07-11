@@ -190,7 +190,7 @@ function DraggableRow({ mealId, draggedIdShared, dragTranslateY, onLayout, onDra
 }
 
 // ─── AnimatedRow ──────────────────────────────────────────────────────────────
-function AnimatedRow({ index, children, style, pressableStyle, isNew }) {
+function AnimatedRow({ index, children, style, pressableStyle, isNew, onPress }) {
   const enter = useRef(new Animated.Value(0)).current;
   const pressScale = useRef(new Animated.Value(1)).current;
 
@@ -223,7 +223,7 @@ function AnimatedRow({ index, children, style, pressableStyle, isNew }) {
         { scale: pressScale },
       ],
     }]}>
-      <Pressable onPressIn={onPressIn} onPressOut={onPressOut} style={pressableStyle}>
+      <Pressable onPress={onPress} onPressIn={onPressIn} onPressOut={onPressOut} style={pressableStyle}>
         {children}
       </Pressable>
     </Animated.View>
@@ -232,7 +232,7 @@ function AnimatedRow({ index, children, style, pressableStyle, isNew }) {
 
 // ─── TopCard ──────────────────────────────────────────────────────────────────
 // isPinned / onTogglePin are yearly-only; undefined on the monthly list.
-function TopCard({ meal, rank, index, isNew, onLanded, isPinned, onTogglePin, distance }) {
+function TopCard({ meal, rank, index, isNew, onLanded, isPinned, onTogglePin, distance, onPress }) {
   const accent = ACCENTS[rank] || DEFAULT_ACCENT;
   const isFirst = rank === 1;
   const targetBarWidth = scoreBarWidth(meal.score);
@@ -301,6 +301,7 @@ function TopCard({ meal, rank, index, isNew, onLanded, isPinned, onTogglePin, di
     <AnimatedRow
       index={index}
       isNew={isNew}
+      onPress={onPress}
       style={[styles.topShadow, { shadowColor: accent }]}
       pressableStyle={[
         styles.topCard,
@@ -358,7 +359,7 @@ function TopCard({ meal, rank, index, isNew, onLanded, isPinned, onTogglePin, di
 
 // ─── RankRow ──────────────────────────────────────────────────────────────────
 // isPinned / onTogglePin are yearly-only; undefined on the monthly list.
-function RankRow({ meal, rank, listIndex, isNew, onLanded, isPinned, onTogglePin, distance }) {
+function RankRow({ meal, rank, listIndex, isNew, onLanded, isPinned, onTogglePin, distance, onPress }) {
   const enter = useRef(new Animated.Value(0)).current;
   const glow = useRef(new Animated.Value(0)).current;
   const badgeIn = useRef(new Animated.Value(0)).current;
@@ -407,7 +408,7 @@ function RankRow({ meal, rank, listIndex, isNew, onLanded, isPinned, onTogglePin
       { opacity: enter, transform: [{ translateY: enter.interpolate({ inputRange: [0, 1], outputRange: [isNew ? -20 : 10, 0] }) }] },
     ]}>
       {isNew && <Animated.View pointerEvents="none" style={[styles.rowGlow, { opacity: glow }]} />}
-      <View style={styles.row}>
+      <Pressable onPress={onPress} style={styles.row}>
         {rankArea}
         {meal.photo_url ? (
           <Image source={{ uri: meal.photo_url }} style={styles.rowImg} resizeMode="cover" />
@@ -430,7 +431,7 @@ function RankRow({ meal, rank, listIndex, isNew, onLanded, isPinned, onTogglePin
             <Text style={styles.rowBadgeText}>NEW</Text>
           </Animated.View>
         )}
-      </View>
+      </Pressable>
     </Animated.View>
   );
 }
@@ -1033,12 +1034,14 @@ export default function TierListScreen() {
               <TopCard meal={meal} rank={rank} index={idx}
                 isNew={meal.id === highlightId}
                 onLanded={() => setHighlightId(cur => cur === meal.id ? null : cur)}
-                distance={distance} />
+                distance={distance}
+                onPress={() => navigation.navigate('MealDetail', { mealId: meal.id })} />
             ) : (
               <RankRow meal={meal} rank={rank} listIndex={idx - 5}
                 isNew={meal.id === highlightId}
                 onLanded={() => setHighlightId(cur => cur === meal.id ? null : cur)}
-                distance={distance} />
+                distance={distance}
+                onPress={() => navigation.navigate('MealDetail', { mealId: meal.id })} />
             )}
           </DraggableRow>
         </Fragment>
@@ -1088,7 +1091,8 @@ export default function TierListScreen() {
           >
             <TopCard meal={meal} rank={rank} index={idx} isNew={false} onLanded={null}
               isPinned={isPinned}
-              onTogglePin={() => handleToggleItemPin(meal.id, rank)} />
+              onTogglePin={() => handleToggleItemPin(meal.id, rank)}
+              onPress={() => navigation.navigate('MealDetail', { mealId: meal.id })} />
           </DraggableRow>
         </Fragment>
       );
