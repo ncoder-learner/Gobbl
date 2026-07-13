@@ -9,6 +9,7 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import CommentSheet from '../components/CommentSheet';
+import { bannerColorHex } from '../lib/profileTheme';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const GRID_COLS  = 2;
@@ -162,7 +163,7 @@ export default function MyProfileScreen() {
 
       const [profileResult, postsResult, mealsResult] = await Promise.allSettled([
         supabase.from('profiles')
-          .select('id, username, display_name, avatar_url')
+          .select('id, username, display_name, avatar_url, bio, banner_color')
           .eq('id', user.id)
           .single(),
 
@@ -204,34 +205,44 @@ export default function MyProfileScreen() {
   }
 
   const initials = (profile?.username?.[0] ?? profile?.display_name?.[0] ?? '?').toUpperCase();
+  const bannerHex = bannerColorHex(profile?.banner_color);
 
   const listHeader = (
     <View style={styles.profileHeader}>
-      {/* Top row: avatar + gear */}
-      <View style={styles.topRow}>
-        <View style={styles.bigAvatar}>
-          <Text style={styles.bigAvatarLetter}>{initials}</Text>
-        </View>
+      <View style={[styles.banner, { backgroundColor: bannerHex }]}>
         <TouchableOpacity
           onPress={() => navigation.navigate('AccountSettings')}
           hitSlop={12}
           style={styles.gearBtn}
         >
-          <Ionicons name="settings-outline" size={22} color={C.gray1} />
+          <Ionicons name="settings-outline" size={22} color="rgba(255,255,255,0.9)" />
         </TouchableOpacity>
       </View>
 
-      {profile?.display_name ? (
-        <Text style={styles.displayName}>{profile.display_name}</Text>
-      ) : null}
-      <Text style={styles.username}>@{profile?.username ?? '…'}</Text>
+      <View style={styles.bigAvatar}>
+        {profile?.avatar_url ? (
+          <Image source={{ uri: profile.avatar_url }} style={styles.bigAvatarImage} />
+        ) : (
+          <Text style={styles.bigAvatarLetter}>{initials}</Text>
+        )}
+      </View>
 
-      <StatsRow totalMeals={totalMeals} avgScore={avgScore} streak={streak} />
+      <View style={styles.profileBody}>
+        {profile?.display_name ? (
+          <Text style={styles.displayName}>{profile.display_name}</Text>
+        ) : null}
+        <Text style={styles.username}>@{profile?.username ?? '…'}</Text>
+        {profile?.bio ? (
+          <Text style={styles.bio} numberOfLines={3}>{profile.bio}</Text>
+        ) : null}
 
-      <View style={styles.postsSectionHeader}>
-        <Text style={styles.postsSectionTitle}>
-          {posts.length} post{posts.length !== 1 ? 's' : ''}
-        </Text>
+        <StatsRow totalMeals={totalMeals} avgScore={avgScore} streak={streak} />
+
+        <View style={styles.postsSectionHeader}>
+          <Text style={styles.postsSectionTitle}>
+            {posts.length} post{posts.length !== 1 ? 's' : ''}
+          </Text>
+        </View>
       </View>
     </View>
   );
@@ -283,21 +294,25 @@ const styles = StyleSheet.create({
   listContent: { paddingBottom: 40 },
 
   profileHeader: {
-    alignItems: 'center', paddingHorizontal: 24, paddingTop: 20, paddingBottom: 4,
+    alignItems: 'center', paddingBottom: 4,
   },
-  topRow: {
-    width: '100%', flexDirection: 'row', alignItems: 'flex-start',
-    justifyContent: 'center', marginBottom: 12,
+  banner: {
+    width: '100%', height: 88, justifyContent: 'flex-start', alignItems: 'flex-end',
+    paddingTop: 10, paddingHorizontal: 16,
   },
+  gearBtn: { padding: 4 },
   bigAvatar: {
     width: 80, height: 80, borderRadius: 40,
-    backgroundColor: C.purpleDim, borderWidth: 2, borderColor: C.purpleBorder,
-    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: C.purpleDim, borderWidth: 3, borderColor: C.bg,
+    alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
+    marginTop: -40,
   },
-  gearBtn: { position: 'absolute', right: 0, top: 0 },
+  bigAvatarImage: { width: '100%', height: '100%' },
   bigAvatarLetter: { fontSize: 30, fontWeight: '800', color: C.purpleText },
+  profileBody: { alignItems: 'center', width: '100%', paddingHorizontal: 24, paddingTop: 10 },
   displayName: { fontSize: 18, fontWeight: '700', color: C.white, marginBottom: 4 },
-  username: { fontSize: 14, color: C.gray1, marginBottom: 20 },
+  username: { fontSize: 14, color: C.gray1, marginBottom: 12 },
+  bio: { fontSize: 13, color: C.gray1, textAlign: 'center', lineHeight: 18, marginTop: -6, marginBottom: 16, paddingHorizontal: 8 },
 
   statsRow: {
     flexDirection: 'row', alignItems: 'center',

@@ -12,11 +12,16 @@ import {
   Modal,
   ActivityIndicator,
   Alert,
+  Image,
+  Platform,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
+import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
+import { decode } from 'base64-arraybuffer';
 import { supabase } from '../lib/supabase';
 import {
   loadNotifPrefs,
@@ -26,6 +31,7 @@ import {
   scheduleDailyReminder,
   getPermissionStatus,
 } from '../lib/notifications';
+import { BANNER_COLORS, bannerColorHex, BIO_MAX_LENGTH } from '../lib/profileTheme';
 
 const C = {
   bg: '#0d0d0d',
@@ -50,15 +56,26 @@ const PROVIDER_LABELS = {
   apple: 'Apple',
 };
 
-function Avatar({ name, email }) {
+function Avatar({ name, email, uri, uploading, onPress }) {
   const initials = name
     ? name.split(' ').map((p) => p[0]).join('').toUpperCase().slice(0, 2)
     : (email?.[0]?.toUpperCase() ?? '?');
 
   return (
-    <View style={styles.avatar}>
-      <Text style={styles.avatarInitials}>{initials}</Text>
-    </View>
+    <TouchableOpacity style={styles.avatar} onPress={onPress} activeOpacity={0.8} disabled={uploading}>
+      {uri ? (
+        <Image source={{ uri }} style={styles.avatarImage} />
+      ) : (
+        <Text style={styles.avatarInitials}>{initials}</Text>
+      )}
+      <View style={styles.avatarEditBadge}>
+        {uploading ? (
+          <ActivityIndicator size="small" color="#fff" />
+        ) : (
+          <Ionicons name="camera" size={14} color="#fff" />
+        )}
+      </View>
+    </TouchableOpacity>
   );
 }
 
@@ -126,8 +143,11 @@ export default function AccountScreen() {
   // Profile editing
   const [editName, setEditName] = useState('');
   const [editCity, setEditCity] = useState('');
+  const [editBio, setEditBio] = useState('');
+  const [editBannerColor, setEditBannerColor] = useState(BANNER_COLORS[0].key);
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileSaved, setProfileSaved] = useState(false);
+  const [avatarUploading, setAvatarUploading] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -143,12 +163,14 @@ export default function AccountScreen() {
         if (u) {
           const { data } = await supabase
             .from('profiles')
-            .select('display_name, username, city')
+            .select('display_name, username, city, bio, banner_color, avatar_url')
             .eq('id', u.id)
             .single();
           setProfile(data);
           setEditName(data?.display_name ?? '');
           setEditCity(data?.city ?? '');
+          setEditBio(data?.bio ?? '');
+          setEditBannerColor(data?.banner_color ?? BANNER_COLORS[0].key);
         }
       } catch (err) {
         setError(err.message || 'Failed to load account info.');
@@ -169,9 +191,17 @@ export default function AccountScreen() {
         id: u.id,
         display_name: editName.trim() || null,
         city: editCity.trim() || null,
+        bio: editBio.trim() || null,
+        banner_color: editBannerColor,
         updated_at: new Date().toISOString(),
       });
-      setProfile(p => ({ ...p, display_name: editName.trim() || null, city: editCity.trim() || null }));
+      setProfile(p => ({
+        ...p,
+        display_name: editName.trim() || null,
+        city: editCity.trim() || null,
+        bio: editBio.trim() || null,
+        banner_color: editBannerColor,
+      }));
       setProfileSaved(true);
       setTimeout(() => setProfileSaved(false), 2000);
     } catch (err) {
@@ -181,9 +211,76 @@ export default function AccountScreen() {
     }
   }
 
+  async function pickAvatar() {
+    if (avatarUploading) return;
+
+    if (Platform.OS === 'android') {
+      const { status, canAskAgain } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        if (!canAskAgain) {
+          Alert.alert(
+            'Permission required',
+            'Open your device settings to allow FoodWrapped to access your photos.',
+            [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Open Settings', onPress: () => Linking.openSettings() },
+            ],
+          );
+        }
+        return;
+      }
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 1,
+    });
+    if (result.canceled) return;
+
+    setAvatarUploading(true);
+    try {
+      const compressed = await manipulateAsync(
+        result.assets[0].uri,
+        [{ resize: { width: 512 } }],
+        { compress: 0.82, format: SaveFormat.JPEG, base64: true },
+      );
+
+      const { data: { user: u } } = await supabase.auth.getUser();
+      if (!u) return;
+
+      // Fixed path per user + upsert: true means re-uploading replaces the
+      // previous pfp in place instead of accumulating orphaned files.
+      const path = `${u.id}/avatar.jpg`;
+      const { error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(path, decode(compressed.base64), { contentType: 'image/jpeg', upsert: true });
+      if (uploadError) throw uploadError;
+
+      const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(path);
+      const bustedUrl = `${publicUrl}?v=${Date.now()}`;
+
+      const { error: updateError } = await supabase.from('profiles').upsert({
+        id: u.id,
+        avatar_url: bustedUrl,
+        updated_at: new Date().toISOString(),
+      });
+      if (updateError) throw updateError;
+
+      setProfile(p => ({ ...p, avatar_url: bustedUrl }));
+    } catch (err) {
+      Alert.alert('Upload failed', err.message || 'Could not update your photo. Try again.');
+    } finally {
+      setAvatarUploading(false);
+    }
+  }
+
   const profileDirty =
     editName.trim() !== (profile?.display_name ?? '') ||
-    editCity.trim() !== (profile?.city ?? '');
+    editCity.trim() !== (profile?.city ?? '') ||
+    editBio.trim() !== (profile?.bio ?? '') ||
+    editBannerColor !== (profile?.banner_color ?? BANNER_COLORS[0].key);
 
   async function handleToggleNotif(value) {
     setNotifLoading(true);
@@ -329,7 +426,13 @@ export default function AccountScreen() {
         {/* Profile card */}
         <View style={styles.card}>
           <View style={styles.profileRow}>
-            <Avatar name={displayName} email={user.email} />
+            <Avatar
+              name={displayName}
+              email={user.email}
+              uri={profile?.avatar_url}
+              uploading={avatarUploading}
+              onPress={pickAvatar}
+            />
             <View style={styles.profileInfo}>
               {displayName ? (
                 <Text style={styles.displayName}>{displayName}</Text>
@@ -367,8 +470,45 @@ export default function AccountScreen() {
               placeholderTextColor={C.gray4}
               autoCapitalize="words"
               returnKeyType="done"
-              onSubmitEditing={profileDirty ? handleSaveProfile : undefined}
             />
+          </View>
+          <View style={styles.rowDivider} />
+          <View style={styles.editField}>
+            <View style={styles.bioLabelRow}>
+              <Text style={styles.editLabel}>Bio</Text>
+              <Text style={styles.bioCounter}>{editBio.length}/{BIO_MAX_LENGTH}</Text>
+            </View>
+            <TextInput
+              style={[styles.editInput, styles.bioInput]}
+              value={editBio}
+              onChangeText={v => { setEditBio(v.slice(0, BIO_MAX_LENGTH)); setProfileSaved(false); }}
+              placeholder="Tell people what you're into"
+              placeholderTextColor={C.gray4}
+              multiline
+              maxLength={BIO_MAX_LENGTH}
+            />
+          </View>
+          <View style={styles.rowDivider} />
+          <View style={styles.editField}>
+            <Text style={styles.editLabel}>Banner color</Text>
+            <View style={styles.swatchRow}>
+              {BANNER_COLORS.map(c => (
+                <TouchableOpacity
+                  key={c.key}
+                  onPress={() => { setEditBannerColor(c.key); setProfileSaved(false); }}
+                  style={[
+                    styles.swatch,
+                    { backgroundColor: c.hex },
+                    editBannerColor === c.key && styles.swatchSelected,
+                  ]}
+                  activeOpacity={0.8}
+                >
+                  {editBannerColor === c.key && (
+                    <Ionicons name="checkmark" size={16} color="#fff" />
+                  )}
+                </TouchableOpacity>
+              ))}
+            </View>
           </View>
           {(profileDirty || profileSaved) && (
             <View style={styles.editActions}>
@@ -571,11 +711,29 @@ const styles = StyleSheet.create({
     borderColor: C.purpleBorder,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  avatarImage: {
+    width: '100%',
+    height: '100%',
   },
   avatarInitials: {
     fontSize: 20,
     fontWeight: '700',
     color: '#cc99ff',
+  },
+  avatarEditBadge: {
+    position: 'absolute',
+    right: -2,
+    bottom: -2,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: C.orange,
+    borderWidth: 2,
+    borderColor: C.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   profileInfo: { flex: 1 },
   displayName: {
@@ -723,6 +881,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
+  bioLabelRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  bioCounter: { fontSize: 11, color: C.gray4 },
+  bioInput: { minHeight: 64, textAlignVertical: 'top' },
+  swatchRow: { flexDirection: 'row', gap: 12, marginTop: 4 },
+  swatch: {
+    width: 32, height: 32, borderRadius: 16,
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 2, borderColor: 'transparent',
+  },
+  swatchSelected: { borderColor: C.white },
   editActions: { paddingHorizontal: 18, paddingBottom: 14, paddingTop: 4 },
   saveBtn: {
     backgroundColor: C.purple,

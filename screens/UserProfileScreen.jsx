@@ -8,6 +8,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
+import { bannerColorHex } from '../lib/profileTheme';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const GRID_COLS  = 2;
@@ -266,7 +267,7 @@ export default function UserProfileScreen() {
 
       const [profileResult, friendResult, postsResult] = await Promise.allSettled([
         supabase.from('profiles')
-          .select('id, username, display_name, avatar_url')
+          .select('id, username, display_name, avatar_url, bio, banner_color')
           .eq('id', userId)
           .maybeSingle(),
 
@@ -321,40 +322,52 @@ export default function UserProfileScreen() {
 
   const isFriend = friendStatus === 'accepted' || isOwnProfile;
   const initials = (profile?.username?.[0] ?? profile?.display_name?.[0] ?? '?').toUpperCase();
+  const bannerHex = bannerColorHex(profile?.banner_color);
 
   const listHeader = (
     <View style={styles.profileHeader}>
+      <View style={[styles.banner, { backgroundColor: bannerHex }]} />
+
       {/* Avatar */}
       <View style={styles.bigAvatar}>
-        <Text style={styles.bigAvatarLetter}>{initials}</Text>
+        {profile?.avatar_url ? (
+          <Image source={{ uri: profile.avatar_url }} style={styles.bigAvatarImage} />
+        ) : (
+          <Text style={styles.bigAvatarLetter}>{initials}</Text>
+        )}
       </View>
 
-      {/* Name info */}
-      {profile?.display_name ? (
-        <Text style={styles.displayName}>{profile.display_name}</Text>
-      ) : null}
-      <Text style={styles.username}>@{profile?.username ?? '…'}</Text>
+      <View style={styles.profileBody}>
+        {/* Name info */}
+        {profile?.display_name ? (
+          <Text style={styles.displayName}>{profile.display_name}</Text>
+        ) : null}
+        <Text style={styles.username}>@{profile?.username ?? '…'}</Text>
+        {profile?.bio ? (
+          <Text style={styles.bio} numberOfLines={3}>{profile.bio}</Text>
+        ) : null}
 
-      {/* Friend button (only for other users) */}
-      {!isOwnProfile && profile && (
-        <FriendButton
-          status={friendStatus}
-          friendshipId={friendshipId}
-          targetId={userId}
-          myId={myId}
-          onStatusChange={(newStatus, newId) => {
-            setFriendStatus(newStatus);
-            setFriendshipId(newId);
-            if (newStatus === 'accepted') loadProfile();
-          }}
-        />
-      )}
+        {/* Friend button (only for other users) */}
+        {!isOwnProfile && profile && (
+          <FriendButton
+            status={friendStatus}
+            friendshipId={friendshipId}
+            targetId={userId}
+            myId={myId}
+            onStatusChange={(newStatus, newId) => {
+              setFriendStatus(newStatus);
+              setFriendshipId(newId);
+              if (newStatus === 'accepted') loadProfile();
+            }}
+          />
+        )}
 
-      {/* Posts section header */}
-      <View style={styles.postsSectionHeader}>
-        <Text style={styles.postsSectionTitle}>
-          {isFriend ? `${posts.length} post${posts.length !== 1 ? 's' : ''}` : 'Posts'}
-        </Text>
+        {/* Posts section header */}
+        <View style={styles.postsSectionHeader}>
+          <Text style={styles.postsSectionTitle}>
+            {isFriend ? `${posts.length} post${posts.length !== 1 ? 's' : ''}` : 'Posts'}
+          </Text>
+        </View>
       </View>
     </View>
   );
@@ -487,16 +500,21 @@ const styles = StyleSheet.create({
   navTitle: { fontSize: 15, fontWeight: '600', color: C.white },
 
   profileHeader: {
-    alignItems: 'center', paddingHorizontal: 24, paddingTop: 12, paddingBottom: 4,
+    alignItems: 'center', paddingBottom: 4,
   },
+  banner: { width: '100%', height: 76 },
   bigAvatar: {
     width: 80, height: 80, borderRadius: 40,
-    backgroundColor: C.purpleDim, borderWidth: 2, borderColor: C.purpleBorder,
-    alignItems: 'center', justifyContent: 'center', marginBottom: 12,
+    backgroundColor: C.purpleDim, borderWidth: 3, borderColor: C.bg,
+    alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
+    marginTop: -40,
   },
+  bigAvatarImage: { width: '100%', height: '100%' },
   bigAvatarLetter: { fontSize: 30, fontWeight: '800', color: C.purpleText },
+  profileBody: { alignItems: 'center', width: '100%', paddingHorizontal: 24, paddingTop: 10 },
   displayName: { fontSize: 18, fontWeight: '700', color: C.white, marginBottom: 4 },
-  username: { fontSize: 14, color: C.gray1, marginBottom: 16 },
+  username: { fontSize: 14, color: C.gray1, marginBottom: 12 },
+  bio: { fontSize: 13, color: C.gray1, textAlign: 'center', lineHeight: 18, marginTop: -6, marginBottom: 16, paddingHorizontal: 8 },
 
   friendBtn: {
     backgroundColor: C.orange, borderRadius: 14,
