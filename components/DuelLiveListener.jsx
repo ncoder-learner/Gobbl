@@ -151,20 +151,31 @@ export default function DuelLiveListener() {
     try {
       const seenAt = await withTimeout(getWinsSeenAt(userId), 6000, 'getWinsSeenAt timed out');
       const now = new Date();
-      if (!seenAt) {
-        // Never seen before — this check sets the baseline, not a
-        // celebration (there's no "previous total" to count up from yet).
-        knownTotalRef.current = await withTimeout(
-          winsForMonth(userId, now.getFullYear(), now.getMonth()), 6000, 'winsForMonth timed out',
-        );
-        await withTimeout(markWinsSeen(userId), 6000, 'markWinsSeen timed out').catch(() => {});
-        return;
-      }
-      const arrived = await withTimeout(newWinsSince(userId, seenAt), 6000, 'newWinsSince timed out');
-      if (arrived.length === 0) return;
       const total = await withTimeout(
         winsForMonth(userId, now.getFullYear(), now.getMonth()), 6000, 'winsForMonth timed out',
       );
+
+      if (!seenAt) {
+        // Never seen before. If wins already exist by this first-ever check
+        // (e.g. voted on before ever opening the app once), that's still
+        // genuinely new information — celebrate counting up from 0 rather
+        // than silently baselining and swallowing it. Only stay silent when
+        // there's truly nothing to show yet.
+        if (total > 0) {
+          const everything = await withTimeout(
+            newWinsSince(userId, new Date(0).toISOString()), 6000, 'newWinsSince timed out',
+          );
+          const voters = [...new Set(everything.map(a => a.voterUsername).filter(Boolean))];
+          celebrate(0, total, voters);
+        } else {
+          knownTotalRef.current = 0;
+        }
+        await withTimeout(markWinsSeen(userId), 6000, 'markWinsSeen timed out').catch(() => {});
+        return;
+      }
+
+      const arrived = await withTimeout(newWinsSince(userId, seenAt), 6000, 'newWinsSince timed out');
+      if (arrived.length === 0) return;
       const from = Math.max(0, total - arrived.length);
       const voters = [...new Set(arrived.map(a => a.voterUsername).filter(Boolean))];
       celebrate(from, total, voters);
