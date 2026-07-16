@@ -1,7 +1,7 @@
-import { useCallback, useState, useRef, useEffect } from 'react';
+import { useCallback, useState } from 'react';
 import {
   View, Text, FlatList, Image, TouchableOpacity, StyleSheet,
-  StatusBar, Dimensions, ActivityIndicator, Animated, Easing,
+  StatusBar, Dimensions, ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -10,8 +10,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import CommentSheet from '../components/CommentSheet';
 import { bannerColorHex } from '../lib/profileTheme';
-import { winsForMonth, getWinsSeenAt, markWinsSeen, newWinsSince } from '../lib/postVotes';
-import { onDuelVoteReceived } from '../lib/duelEvents';
+import { winsForMonth } from '../lib/postVotes';
 import Avatar from '../components/Avatar';
 
 const MONTH_NAMES = [
@@ -201,55 +200,6 @@ export default function MyProfileScreen() {
   const [loading, setLoading]       = useState(true);
   const [selectedPost, setSelectedPost] = useState(null);
 
-  // Count-up-on-open: displayedWins is what's actually rendered, driven by
-  // winsAnim so it can animate from the user's previous total to their new
-  // one (see loadData's wins_seen_at diff) instead of just snapping.
-  const winsAnim = useRef(new Animated.Value(0)).current;
-  const [displayedWins, setDisplayedWins] = useState(0);
-  const [voterReveal, setVoterReveal] = useState([]); // usernames who voted since last seen
-  const voterRevealOpacity = useRef(new Animated.Value(0)).current;
-  const userIdRef = useRef(null);
-
-  useEffect(() => {
-    const id = winsAnim.addListener(({ value }) => setDisplayedWins(Math.round(value)));
-    return () => winsAnim.removeListener(id);
-  }, []);
-
-  function animateWinsTo(from, to) {
-    winsAnim.setValue(from);
-    Animated.timing(winsAnim, {
-      toValue: to, duration: 900, easing: Easing.out(Easing.cubic), useNativeDriver: false,
-    }).start();
-  }
-
-  function revealVoters(usernames) {
-    if (usernames.length === 0) return;
-    setVoterReveal(usernames);
-    voterRevealOpacity.setValue(0);
-    Animated.sequence([
-      Animated.timing(voterRevealOpacity, { toValue: 1, duration: 220, useNativeDriver: true }),
-      Animated.delay(3200),
-      Animated.timing(voterRevealOpacity, { toValue: 0, duration: 260, useNativeDriver: true }),
-    ]).start(() => setVoterReveal([]));
-  }
-
-  // Live voting: a vote landing on one of the user's meals while this
-  // screen is mounted plays the same count-up rather than waiting for the
-  // next cold open. The realtime subscription itself lives in
-  // DuelLiveListener (mounted once at the app root, so it fires regardless
-  // of which tab is active) — this just reacts to what it broadcasts.
-  useEffect(() => {
-    return onDuelVoteReceived(({ voterUsername }) => {
-      setCurrentMonthWins(prev => {
-        const next = prev + 1;
-        animateWinsTo(prev, next);
-        return next;
-      });
-      if (voterUsername) revealVoters([voterUsername]);
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   useFocusEffect(
     useCallback(() => {
       loadData();
@@ -261,7 +211,6 @@ export default function MyProfileScreen() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-      userIdRef.current = user.id;
 
       const [profileResult, postsResult, mealsResult, winsResult] = await Promise.allSettled([
         supabase.from('profiles')
@@ -304,36 +253,8 @@ export default function MyProfileScreen() {
 
       if (winsResult.status === 'fulfilled') {
         const byMonth = winsResult.value;
-        const total = byMonth[0]?.wins ?? 0;
+        setCurrentMonthWins(byMonth[0]?.wins ?? 0);
         setWinsHistory(byMonth.slice(1).filter(m => m.wins > 0));
-
-        try {
-          const seenAt = await getWinsSeenAt(user.id);
-          if (!seenAt) {
-            // Never seen before — this visit sets the baseline, not a
-            // celebration. Show the total statically and record "seen" now.
-            setCurrentMonthWins(total);
-            winsAnim.setValue(total);
-            await markWinsSeen(user.id);
-          } else {
-            const arrived = await newWinsSince(user.id, seenAt);
-            setCurrentMonthWins(total);
-            if (arrived.length > 0) {
-              const from = Math.max(0, total - arrived.length);
-              animateWinsTo(from, total);
-              const usernames = [...new Set(arrived.map(a => a.voterUsername).filter(Boolean))];
-              revealVoters(usernames);
-              await markWinsSeen(user.id);
-            } else {
-              winsAnim.setValue(total);
-            }
-          }
-        } catch (err) {
-          // Non-fatal — still show the total, just without the count-up.
-          setCurrentMonthWins(total);
-          winsAnim.setValue(total);
-          console.warn('[MyProfile] wins-seen tracking failed:', err.message);
-        }
       }
     } catch {
       // Non-fatal
@@ -367,22 +288,13 @@ export default function MyProfileScreen() {
           style={styles.bigAvatar}
           textStyle={styles.bigAvatarLetter}
         />
-        {displayedWins > 0 && (
+        {currentMonthWins > 0 && (
           <View style={styles.avatarWinsBadge}>
             <Ionicons name="trophy" size={10} color="#3a2c00" />
-            <Text style={styles.avatarWinsBadgeText}>{displayedWins}</Text>
+            <Text style={styles.avatarWinsBadgeText}>{currentMonthWins}</Text>
           </View>
         )}
       </View>
-
-      {voterReveal.length > 0 && (
-        <Animated.View style={[styles.voterRevealWrap, { opacity: voterRevealOpacity }]}>
-          <Text style={styles.voterRevealText}>
-            🏆 {voterReveal.slice(0, 2).map(u => `@${u}`).join(', ')}
-            {voterReveal.length > 2 ? ` +${voterReveal.length - 2} more` : ''} voted for you
-          </Text>
-        </Animated.View>
-      )}
 
       <View style={styles.profileBody}>
         {profile?.display_name ? (
@@ -395,7 +307,7 @@ export default function MyProfileScreen() {
 
         <StatsRow totalMeals={totalMeals} avgScore={avgScore} streak={streak} />
 
-        <WinsCard wins={displayedWins} history={winsHistory} />
+        <WinsCard wins={currentMonthWins} history={winsHistory} />
 
         <View style={styles.postsSectionHeader}>
           <Text style={styles.postsSectionTitle}>
@@ -474,11 +386,6 @@ const styles = StyleSheet.create({
   },
   avatarWinsBadgeText: { fontSize: 10, fontWeight: '800', color: '#3a2c00' },
 
-  voterRevealWrap: {
-    marginTop: 8, backgroundColor: C.surface, borderWidth: 0.5, borderColor: C.border,
-    borderRadius: 12, paddingHorizontal: 12, paddingVertical: 6,
-  },
-  voterRevealText: { fontSize: 12, color: C.white, fontWeight: '600' },
   profileBody: { alignItems: 'center', width: '100%', paddingHorizontal: 24, paddingTop: 10 },
   displayName: { fontSize: 18, fontWeight: '700', color: C.white, marginBottom: 4 },
   username: { fontSize: 14, color: C.gray1, marginBottom: 12 },

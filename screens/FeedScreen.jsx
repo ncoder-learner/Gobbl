@@ -4,7 +4,7 @@ import {
   StatusBar, Dimensions, ActivityIndicator, RefreshControl,
   Modal, Pressable, ScrollView, Share,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -348,6 +348,7 @@ function HasFriendsEmptyState() {
 
 export default function FeedScreen() {
   const navigation = useNavigation();
+  const insets = useSafeAreaInsets();
 
   const [posts, setPosts]             = useState([]);
   const [loading, setLoading]         = useState(true);
@@ -665,7 +666,7 @@ export default function FeedScreen() {
                     </Text>
                   </TouchableOpacity>
                 ))}
-                <View style={{ height: 32 }} />
+                <View style={{ height: 32 + insets.bottom }} />
               </ScrollView>
             )}
           </Pressable>

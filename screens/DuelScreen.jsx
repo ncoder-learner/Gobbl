@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import {
-  View, Text, TouchableOpacity, Image, StyleSheet,
-  StatusBar, Dimensions, Animated, Easing,
+  View, Text, TouchableOpacity, Image, FlatList, StyleSheet,
+  StatusBar, Dimensions, Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -10,100 +10,100 @@ import { Ionicons, Feather } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import { TAG_META, TAG_ICON } from '../lib/postUtils';
 import { castVote, tallyMealVotes } from '../lib/postVotes';
+import Avatar from '../components/Avatar';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-
-const WHEEL_SIZE = Math.min(SCREEN_WIDTH * 0.9, 360);
-const PHOTO_SIZE = 76;
-const RADIUS = WHEEL_SIZE / 2 - PHOTO_SIZE / 2 - 6;
-const SPIN_DURATION = 42000; // one full slow revolution — decorative, not dizzying
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 const C = {
   bg: '#000', surface: '#1a1a1a', border: '#2a2a2a',
   orange: '#FF6B3D', gold: '#ffd166', white: '#ffffff', gray1: '#888888', gray2: '#666666',
 };
 
-// One photo riding the wheel. Position is a fixed offset from the wheel's
-// center (computed from its slot index); the *parent* wheel is what
-// actually spins (see DuelScreen) — this just counter-rotates by the same
-// amount so the photo itself stays upright while its position revolves.
-function DuelPhoto({ tile, angle, counterRotate, selected, isMine, voteCount, onPress }) {
-  const x = RADIUS * Math.cos(angle);
-  const y = RADIUS * Math.sin(angle);
+// ─── One meal's page — full-bleed photo, same vertical-pager model as
+// SlotViewerScreen (this *is* that screen's interaction pattern, just with
+// a vote button instead of like/comment). ──────────────────────────────────
+function DuelPage({ tile, selected, voteCount, voting, onVote }) {
   const pop = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     if (!selected) return;
     pop.setValue(1);
     Animated.sequence([
-      Animated.spring(pop, { toValue: 1.3, useNativeDriver: true, speed: 30, bounciness: 14 }),
+      Animated.spring(pop, { toValue: 1.15, useNativeDriver: true, speed: 26, bounciness: 16 }),
       Animated.spring(pop, { toValue: 1, useNativeDriver: true, speed: 18, bounciness: 8 }),
     ]).start();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected]);
 
   return (
-    <Animated.View
-      style={[
-        styles.wheelItem,
-        {
-          left: WHEEL_SIZE / 2 + x - PHOTO_SIZE / 2,
-          top: WHEEL_SIZE / 2 + y - PHOTO_SIZE / 2,
-          transform: [{ rotate: counterRotate }],
-        },
-      ]}
-    >
-      <TouchableOpacity onPress={onPress} disabled={isMine} activeOpacity={0.8} style={styles.wheelItemTouch}>
-        <Animated.View
-          style={[
-            styles.photoRing,
-            selected && styles.photoRingSelected,
-            isMine && styles.photoRingMine,
-            { transform: [{ scale: pop }] },
-          ]}
-        >
-          {tile.meal.photo_url ? (
-            <Image source={{ uri: tile.meal.photo_url }} style={styles.photo} resizeMode="cover" />
-          ) : (
-            <View style={[styles.photo, styles.photoFallback]}>
-              <Text style={{ fontSize: 26 }}>{tile.meal.emoji || '🍽️'}</Text>
-            </View>
-          )}
-          {voteCount > 0 && (
-            <View style={styles.voteBadge}>
-              <Text style={styles.voteBadgeText}>{voteCount}</Text>
-            </View>
-          )}
+    <View style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT }}>
+      {tile.meal.photo_url ? (
+        <Image source={{ uri: tile.meal.photo_url }} style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT }} resizeMode="cover" />
+      ) : (
+        <View style={[{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT }, styles.photoFallback]}>
+          <Text style={styles.photoFallbackEmoji}>{tile.meal.emoji || '🍽️'}</Text>
+        </View>
+      )}
+
+      <View style={styles.bottomOverlay}>
+        <LinearGradient
+          colors={['transparent', 'rgba(0,0,0,0.85)']}
+          style={StyleSheet.absoluteFill}
+          pointerEvents="none"
+        />
+
+        <View style={styles.posterRow}>
+          <Avatar
+            uri={tile.poster?.avatar_url}
+            firstName={tile.poster?.first_name}
+            lastName={tile.poster?.last_name}
+            displayName={tile.poster?.display_name}
+            username={tile.poster?.username}
+            size={30}
+            style={styles.posterAvatar}
+            textStyle={styles.posterInitial}
+          />
+          <Text style={styles.posterUsername}>@{tile.poster?.username ?? 'unknown'}</Text>
+          <View style={styles.voteCountBadge}>
+            <Ionicons name="trophy" size={13} color="#3a2c00" />
+            <Text style={styles.voteCountText}>{voteCount}</Text>
+          </View>
+        </View>
+        <Text style={styles.mealName} numberOfLines={1}>{tile.meal.name}</Text>
+
+        <Animated.View style={{ transform: [{ scale: pop }] }}>
+          <TouchableOpacity
+            style={[styles.voteBtn, selected && styles.voteBtnSelected]}
+            onPress={onVote}
+            disabled={voting}
+            activeOpacity={0.85}
+          >
+            <Ionicons name={selected ? 'trophy' : 'trophy-outline'} size={20} color={selected ? '#3a2c00' : C.white} />
+            <Text style={[styles.voteBtnText, selected && styles.voteBtnTextSelected]}>
+              {selected ? 'Your vote' : 'Vote for this'}
+            </Text>
+          </TouchableOpacity>
         </Animated.View>
-        <Text style={styles.photoUsername} numberOfLines={1}>
-          {isMine ? 'You' : `@${tile.poster?.username ?? '?'}`}
-        </Text>
-      </TouchableOpacity>
-    </Animated.View>
+      </View>
+    </View>
   );
 }
 
 export default function DuelScreen() {
   const navigation = useNavigation();
   const route = useRoute();
-  const { tag, day, people = [] } = route.params || {};
+  const { tag, day, people: allPeople = [] } = route.params || {};
   const meta = TAG_META[tag] || { label: tag };
 
+  // Own meal never appears in the deck — there's nothing to vote for there.
+  const people = allPeople.filter(p => !p.isMine);
+
+  const [activeIndex, setActiveIndex] = useState(0);
   const [currentUserId, setCurrentUserId] = useState(null);
   const [voteCounts, setVoteCounts] = useState({});     // mealId -> count
   const [myVoteMealId, setMyVoteMealId] = useState(null);
   const [voting, setVoting] = useState(false);
   const [error, setError] = useState(null);
-
-  const spin = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    Animated.loop(
-      Animated.timing(spin, { toValue: 1, duration: SPIN_DURATION, easing: Easing.linear, useNativeDriver: true })
-    ).start();
-  }, []);
-  const wheelRotate = spin.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
-  const counterRotate = spin.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '-360deg'] });
 
   useEffect(() => {
     (async () => {
@@ -126,7 +126,7 @@ export default function DuelScreen() {
   }, [tag, day]);
 
   // Live tally — anyone else voting (or moving their vote) while this
-  // screen is open updates the wheel immediately. RLS (friends_can_see_votes,
+  // screen is open updates the deck immediately. RLS (friends_can_see_votes,
   // 019) already scopes what this channel delivers to what the viewer may
   // see, so nothing further to filter client-side beyond the slot/day match.
   useEffect(() => {
@@ -191,12 +191,61 @@ export default function DuelScreen() {
     }
   }
 
+  function onMomentumEnd(e) {
+    const idx = Math.round(e.nativeEvent.contentOffset.y / SCREEN_HEIGHT);
+    setActiveIndex(idx);
+  }
+
+  if (people.length === 0) {
+    return (
+      <SafeAreaView style={styles.safe} edges={['top']}>
+        <StatusBar barStyle="light-content" backgroundColor={C.bg} />
+        <TouchableOpacity style={styles.emptyBackBtn} onPress={() => navigation.goBack()} hitSlop={12}>
+          <Ionicons name="chevron-back" size={26} color={C.white} />
+        </TouchableOpacity>
+        <View style={styles.center}>
+          <Text style={styles.emptyText}>Nothing to vote on.</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <View style={styles.safe}>
       <StatusBar barStyle="light-content" backgroundColor={C.bg} />
-      <LinearGradient colors={['#1a1206', C.bg]} locations={[0, 0.5]} style={StyleSheet.absoluteFill} pointerEvents="none" />
 
-      <SafeAreaView style={{ flex: 1 }} edges={['top', 'bottom']}>
+      <FlatList
+        data={people}
+        keyExtractor={t => t.mealId}
+        pagingEnabled
+        showsVerticalScrollIndicator={false}
+        getItemLayout={(_, i) => ({ length: SCREEN_HEIGHT, offset: SCREEN_HEIGHT * i, index: i })}
+        onMomentumScrollEnd={onMomentumEnd}
+        renderItem={({ item }) => (
+          <DuelPage
+            tile={item}
+            selected={myVoteMealId === item.mealId}
+            voteCount={voteCounts[item.mealId] || 0}
+            voting={voting}
+            onVote={() => handleVote(item)}
+          />
+        )}
+      />
+
+      <SafeAreaView style={styles.topOverlay} edges={['top']} pointerEvents="box-none">
+        <LinearGradient
+          colors={['rgba(0,0,0,0.7)', 'transparent']}
+          style={StyleSheet.absoluteFill}
+          pointerEvents="none"
+        />
+        {/* Position across the meals in this duel — the one progress axis
+            that exists here (each meal is a single full-bleed page, so
+            there's no per-photo sub-bar the way SlotViewerScreen has). */}
+        <View style={styles.segmentRow}>
+          {people.map((_, i) => (
+            <View key={i} style={[styles.segment, i <= activeIndex && styles.segmentActive]} />
+          ))}
+        </View>
         <View style={styles.topRow}>
           <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={12}>
             <Ionicons name="chevron-back" size={26} color={C.white} />
@@ -207,82 +256,69 @@ export default function DuelScreen() {
           </View>
           <View style={{ width: 26 }} />
         </View>
-        <Text style={styles.subtitle}>
-          {myVoteMealId ? 'Tap another photo to change your vote' : 'Tap your favorite to vote'}
-        </Text>
-
-        <View style={styles.wheelWrap}>
-          <Animated.View style={[styles.wheel, { transform: [{ rotate: wheelRotate }] }]}>
-            {people.map((tile, i) => (
-              <DuelPhoto
-                key={tile.mealId}
-                tile={tile}
-                angle={(i / people.length) * 2 * Math.PI - Math.PI / 2}
-                counterRotate={counterRotate}
-                selected={myVoteMealId === tile.mealId}
-                isMine={tile.isMine}
-                voteCount={voteCounts[tile.mealId] || 0}
-                onPress={() => handleVote(tile)}
-              />
-            ))}
-          </Animated.View>
-          <View style={styles.wheelCenter} pointerEvents="none">
-            <Ionicons name="trophy" size={26} color={C.gold} />
-          </View>
-        </View>
-
-        {error ? <Text style={styles.errorText}>{error}</Text> : null}
-
-        <Text style={styles.footerHint}>
-          Can't vote for your own meal · one vote per day, changeable anytime
-        </Text>
       </SafeAreaView>
+
+      {error ? (
+        <View style={styles.errorBanner} pointerEvents="none">
+          <Text style={styles.errorText}>{error}</Text>
+        </View>
+      ) : null}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: C.bg },
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  emptyText: { fontSize: 14, color: C.gray1 },
+  emptyBackBtn: { padding: 16 },
+
+  // Top overlay
+  topOverlay: { position: 'absolute', top: 0, left: 0, right: 0 },
+  segmentRow: { flexDirection: 'row', gap: 4, paddingHorizontal: 16, paddingTop: 10 },
+  segment: { flex: 1, height: 3, borderRadius: 1.5, backgroundColor: 'rgba(255,255,255,0.25)' },
+  segmentActive: { backgroundColor: C.gold },
   topRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 16, paddingTop: 4, paddingBottom: 4,
+    paddingHorizontal: 16, paddingTop: 6, paddingBottom: 10,
   },
   titleWrap: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  title: { fontSize: 16, fontWeight: '700', color: C.white },
-  subtitle: { fontSize: 13, color: C.gray1, textAlign: 'center', marginTop: 6 },
+  title: { fontSize: 14, fontWeight: '700', color: C.white },
 
-  wheelWrap: {
-    flex: 1, alignItems: 'center', justifyContent: 'center',
-  },
-  wheel: { width: WHEEL_SIZE, height: WHEEL_SIZE },
-  wheelCenter: {
-    position: 'absolute', width: 56, height: 56, borderRadius: 28,
-    backgroundColor: 'rgba(255,209,102,0.12)', borderWidth: 1, borderColor: C.gold + '55',
-    alignItems: 'center', justifyContent: 'center',
-  },
+  // Photo
+  photoFallback: { alignItems: 'center', justifyContent: 'center', backgroundColor: '#151515' },
+  photoFallbackEmoji: { fontSize: 64 },
 
-  wheelItem: { position: 'absolute', width: PHOTO_SIZE, alignItems: 'center' },
-  wheelItemTouch: { alignItems: 'center', gap: 5 },
-  photoRing: {
-    width: PHOTO_SIZE, height: PHOTO_SIZE, borderRadius: PHOTO_SIZE / 2,
-    borderWidth: 2, borderColor: C.border, overflow: 'hidden',
-    backgroundColor: '#111',
+  // Bottom overlay
+  bottomOverlay: {
+    position: 'absolute', left: 0, right: 0, bottom: 0,
+    paddingHorizontal: 16, paddingTop: 40, paddingBottom: 28,
   },
-  photoRingSelected: { borderColor: C.gold, borderWidth: 3 },
-  photoRingMine: { opacity: 0.55, borderColor: C.border },
-  photo: { width: '100%', height: '100%' },
-  photoFallback: { alignItems: 'center', justifyContent: 'center' },
-  photoUsername: { fontSize: 11, fontWeight: '600', color: C.white, maxWidth: PHOTO_SIZE + 14 },
-
-  voteBadge: {
-    position: 'absolute', bottom: -4, right: -4,
+  posterRow: { flexDirection: 'row', alignItems: 'center', gap: 9, marginBottom: 6 },
+  posterAvatar: { borderWidth: 1, borderColor: C.border },
+  posterInitial: { color: C.white },
+  posterUsername: { fontSize: 15, fontWeight: '700', color: C.white, flex: 1 },
+  voteCountBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
     backgroundColor: C.gold, borderRadius: 10,
-    minWidth: 20, height: 20, paddingHorizontal: 4,
-    alignItems: 'center', justifyContent: 'center',
-    borderWidth: 2, borderColor: C.bg,
+    paddingHorizontal: 8, paddingVertical: 4,
   },
-  voteBadgeText: { fontSize: 10, fontWeight: '800', color: '#3a2c00' },
+  voteCountText: { fontSize: 12, fontWeight: '800', color: '#3a2c00' },
+  mealName: { fontSize: 17, fontWeight: '700', color: C.white, marginBottom: 16 },
 
-  errorText: { fontSize: 12, color: '#ff6b6b', textAlign: 'center', marginBottom: 8 },
-  footerHint: { fontSize: 11, color: C.gray2, textAlign: 'center', paddingBottom: 14, paddingHorizontal: 24 },
+  voteBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: 'rgba(255,255,255,0.14)', borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.3)',
+    borderRadius: 16, paddingVertical: 15,
+  },
+  voteBtnSelected: { backgroundColor: C.gold, borderColor: C.gold },
+  voteBtnText: { fontSize: 15, fontWeight: '700', color: C.white },
+  voteBtnTextSelected: { color: '#3a2c00' },
+
+  errorBanner: {
+    position: 'absolute', bottom: 110, left: 16, right: 16,
+    backgroundColor: 'rgba(42,10,10,0.9)', borderWidth: 0.5, borderColor: '#5a1a1a',
+    borderRadius: 10, padding: 12,
+  },
+  errorText: { fontSize: 13, color: '#ff6b6b', lineHeight: 18, textAlign: 'center' },
 });

@@ -4,6 +4,7 @@ import {
   Image, ActivityIndicator, StyleSheet, KeyboardAvoidingView, Platform, Pressable,
   Animated, Easing, Dimensions,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../lib/supabase';
 import { computeTierRank, createPost, fetchPostedMealIds, mealTagSlot, MEAL_TAGS, TAG_META } from '../lib/postUtils';
 
@@ -75,6 +76,14 @@ function dateLabel(d) {
 // onPosted(postId): called after successful post
 // onDismiss(): called on cancel or after post
 export default function ShareBottomSheet({ visible, meal, onDismiss, onPosted }) {
+  // Modal renders as its own native window on Android — `statusBarTranslucent`
+  // makes it extend edge-to-edge, so the sheet's `bottom: 0` positioner sits
+  // flush against the physical screen edge, behind the system nav bar, not
+  // above it. react-native-safe-area-context's insets still resolve
+  // correctly inside a Modal (it reads native window insets, not the JS view
+  // tree), so padding the sheet's bottom by insets.bottom pushes its content
+  // — specifically the post button — back above the nav bar.
+  const insets = useSafeAreaInsets();
   const [caption, setCaption] = useState('');
   const [posting, setPosting] = useState(false);
   const [error, setError] = useState(null);
@@ -224,7 +233,7 @@ export default function ShareBottomSheet({ visible, meal, onDismiss, onPosted })
 
             <ScrollView
               showsVerticalScrollIndicator={false}
-              contentContainerStyle={{ paddingBottom: 40 }}
+              contentContainerStyle={{ paddingBottom: 40 + insets.bottom }}
               keyboardShouldPersistTaps="handled"
             >
               {/* Header */}

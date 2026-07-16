@@ -17,6 +17,7 @@ import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import { supabase } from '../lib/supabase';
+import { withTimeout } from '../lib/withTimeout';
 
 const TERMS_URL = 'https://ncoder-learner.github.io/gobbl-legal/terms.html';
 const PRIVACY_URL = 'https://ncoder-learner.github.io/gobbl-legal/privacy.html';
@@ -36,9 +37,18 @@ const C = {
 };
 
 async function handleOAuthCallback(url) {
+  // This runs the instant the browser session closes and control returns to
+  // the app — exactly the moment a supabase-js client can deadlock on its
+  // internal session lock if a sign-out happened earlier in the same
+  // session. Unlike the browser step before it, there's no user-facing UI
+  // here to "hang" — it would just silently never resolve, leaving
+  // googleLoading stuck true with the button spinner spinning forever.
   const codeMatch = url.match(/[?&]code=([^&]+)/);
   if (codeMatch) {
-    await supabase.auth.exchangeCodeForSession(codeMatch[1]);
+    await withTimeout(
+      supabase.auth.exchangeCodeForSession(codeMatch[1]),
+      15000, 'Signing you in is taking too long. Please try again.',
+    );
     return;
   }
   const hashMatch = url.match(/#(.+)/);
@@ -47,7 +57,10 @@ async function handleOAuthCallback(url) {
     const access_token = params.get('access_token');
     const refresh_token = params.get('refresh_token');
     if (access_token && refresh_token) {
-      await supabase.auth.setSession({ access_token, refresh_token });
+      await withTimeout(
+        supabase.auth.setSession({ access_token, refresh_token }),
+        15000, 'Signing you in is taking too long. Please try again.',
+      );
     }
   }
 }
@@ -90,10 +103,27 @@ export default function AuthScreen() {
       const redirectUri = Linking.createURL('/');
       const { data, error: oauthError } = await supabase.auth.signInWithOAuth({
         provider: 'google',
-        options: { redirectTo: redirectUri, skipBrowserRedirect: true },
+        options: {
+          redirectTo: redirectUri,
+          skipBrowserRedirect: true,
+          // Without this, the Custom Tab can silently reuse whatever
+          // Google session is already cached in the browser instead of
+          // showing the account picker — the exact "switching accounts
+          // hangs" symptom, since the flow may never present the UI you're
+          // expecting to interact with.
+          queryParams: { prompt: 'select_account' },
+        },
       });
       if (oauthError) throw oauthError;
-      const result = await WebBrowser.openAuthSessionAsync(data.url, redirectUri);
+
+      // If the redirect never lands correctly (e.g. a redirect-URL mismatch
+      // in the Supabase Google provider config), this promise has no other
+      // way to ever resolve — the Google button would spin forever with no
+      // way to recover short of force-closing the app.
+      const result = await withTimeout(
+        WebBrowser.openAuthSessionAsync(data.url, redirectUri),
+        60000, 'Google sign-in is taking too long. Please try again.',
+      );
       if (result.type === 'success') {
         await handleOAuthCallback(result.url);
       }

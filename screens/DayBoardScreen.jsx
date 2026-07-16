@@ -3,7 +3,7 @@ import {
   View, Text, Image, ScrollView, TouchableOpacity, StyleSheet,
   StatusBar, ActivityIndicator, Modal, Pressable, Dimensions, Animated,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { Ionicons, Feather } from '@expo/vector-icons';
@@ -332,6 +332,7 @@ function DayTrailCard({ images, locatedImages, avgScore, totalDistance, delay, o
 
 export default function DayBoardScreen() {
   const navigation = useNavigation();
+  const insets = useSafeAreaInsets();
   const [loading, setLoading] = useState(true);
   const [posts, setPosts] = useState([]);
   const [currentUserId, setCurrentUserId] = useState(null);
@@ -637,7 +638,7 @@ export default function DayBoardScreen() {
                     </Text>
                   </TouchableOpacity>
                 ))}
-                <View style={{ height: 32 }} />
+                <View style={{ height: 32 + insets.bottom }} />
               </ScrollView>
             )}
           </Pressable>
