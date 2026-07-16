@@ -9,6 +9,7 @@ import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/nativ
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import { bannerColorHex } from '../lib/profileTheme';
+import Avatar from '../components/Avatar';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const GRID_COLS  = 2;
@@ -267,7 +268,7 @@ export default function UserProfileScreen() {
 
       const [profileResult, friendResult, postsResult] = await Promise.allSettled([
         supabase.from('profiles')
-          .select('id, username, display_name, avatar_url, bio, banner_color')
+          .select('id, username, first_name, last_name, display_name, avatar_url, bio, banner_color')
           .eq('id', userId)
           .maybeSingle(),
 
@@ -321,7 +322,6 @@ export default function UserProfileScreen() {
   }
 
   const isFriend = friendStatus === 'accepted' || isOwnProfile;
-  const initials = (profile?.username?.[0] ?? profile?.display_name?.[0] ?? '?').toUpperCase();
   const bannerHex = bannerColorHex(profile?.banner_color);
 
   const listHeader = (
@@ -329,13 +329,16 @@ export default function UserProfileScreen() {
       <View style={[styles.banner, { backgroundColor: bannerHex }]} />
 
       {/* Avatar */}
-      <View style={styles.bigAvatar}>
-        {profile?.avatar_url ? (
-          <Image source={{ uri: profile.avatar_url }} style={styles.bigAvatarImage} />
-        ) : (
-          <Text style={styles.bigAvatarLetter}>{initials}</Text>
-        )}
-      </View>
+      <Avatar
+        uri={profile?.avatar_url}
+        firstName={profile?.first_name}
+        lastName={profile?.last_name}
+        displayName={profile?.display_name}
+        username={profile?.username}
+        size={80}
+        style={styles.bigAvatar}
+        textStyle={styles.bigAvatarLetter}
+      />
 
       <View style={styles.profileBody}>
         {/* Name info */}
@@ -504,13 +507,10 @@ const styles = StyleSheet.create({
   },
   banner: { width: '100%', height: 76 },
   bigAvatar: {
-    width: 80, height: 80, borderRadius: 40,
     backgroundColor: C.purpleDim, borderWidth: 3, borderColor: C.bg,
-    alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
     marginTop: -40,
   },
-  bigAvatarImage: { width: '100%', height: '100%' },
-  bigAvatarLetter: { fontSize: 30, fontWeight: '800', color: C.purpleText },
+  bigAvatarLetter: { color: C.purpleText },
   profileBody: { alignItems: 'center', width: '100%', paddingHorizontal: 24, paddingTop: 10 },
   displayName: { fontSize: 18, fontWeight: '700', color: C.white, marginBottom: 4 },
   username: { fontSize: 14, color: C.gray1, marginBottom: 12 },

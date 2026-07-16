@@ -1,7 +1,7 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useState, useRef, useEffect } from 'react';
 import {
   View, Text, FlatList, Image, TouchableOpacity, StyleSheet,
-  StatusBar, Dimensions, ActivityIndicator,
+  StatusBar, Dimensions, ActivityIndicator, Animated, Easing,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -10,6 +10,27 @@ import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import CommentSheet from '../components/CommentSheet';
 import { bannerColorHex } from '../lib/profileTheme';
+import { winsForMonth, getWinsSeenAt, markWinsSeen, newWinsSince } from '../lib/postVotes';
+import { onDuelVoteReceived } from '../lib/duelEvents';
+import Avatar from '../components/Avatar';
+
+const MONTH_NAMES = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+// Wins are derived (COUNT(*) of post_votes on a user's meals), never
+// stored — this walks back `monthsBack` months from `now` and queries each
+// independently rather than reading any counter column.
+async function loadWinsByMonth(userId, now, monthsBack = 6) {
+  const months = [];
+  for (let i = 0; i <= monthsBack; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    months.push({ year: d.getFullYear(), month: d.getMonth() });
+  }
+  const counts = await Promise.all(months.map(({ year, month }) => winsForMonth(userId, year, month)));
+  return months.map((m, i) => ({ ...m, wins: counts[i] }));
+}
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const GRID_COLS  = 2;
@@ -136,6 +157,35 @@ function StatsRow({ totalMeals, avgScore, streak }) {
   );
 }
 
+// ─── Wins card ────────────────────────────────────────────────────────────────
+// Tier Duel wins: current month shown prominently, past months (with any
+// wins) listed below as history — nothing to show below that just renders
+// nothing, since a 0-win history row isn't meaningful.
+
+function WinsCard({ wins, history }) {
+  const now = new Date();
+  return (
+    <View style={styles.winsCard}>
+      <View style={styles.winsHeaderRow}>
+        <Ionicons name="trophy" size={18} color="#ffd166" />
+        <Text style={styles.winsHeaderLabel}>{MONTH_NAMES[now.getMonth()]} wins</Text>
+      </View>
+      <Text style={styles.winsCurrentValue}>{wins}</Text>
+
+      {history.length > 0 && (
+        <View style={styles.winsHistoryList}>
+          {history.map(h => (
+            <View key={`${h.year}-${h.month}`} style={styles.winsHistoryRow}>
+              <Text style={styles.winsHistoryMonth}>{MONTH_NAMES[h.month]} {h.year}</Text>
+              <Text style={styles.winsHistoryCount}>{h.wins} win{h.wins !== 1 ? 's' : ''}</Text>
+            </View>
+          ))}
+        </View>
+      )}
+    </View>
+  );
+}
+
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
 export default function MyProfileScreen() {
@@ -146,8 +196,59 @@ export default function MyProfileScreen() {
   const [totalMeals, setTotalMeals] = useState(0);
   const [avgScore, setAvgScore]     = useState(null);
   const [streak, setStreak]         = useState(0);
+  const [currentMonthWins, setCurrentMonthWins] = useState(0);
+  const [winsHistory, setWinsHistory] = useState([]);
   const [loading, setLoading]       = useState(true);
   const [selectedPost, setSelectedPost] = useState(null);
+
+  // Count-up-on-open: displayedWins is what's actually rendered, driven by
+  // winsAnim so it can animate from the user's previous total to their new
+  // one (see loadData's wins_seen_at diff) instead of just snapping.
+  const winsAnim = useRef(new Animated.Value(0)).current;
+  const [displayedWins, setDisplayedWins] = useState(0);
+  const [voterReveal, setVoterReveal] = useState([]); // usernames who voted since last seen
+  const voterRevealOpacity = useRef(new Animated.Value(0)).current;
+  const userIdRef = useRef(null);
+
+  useEffect(() => {
+    const id = winsAnim.addListener(({ value }) => setDisplayedWins(Math.round(value)));
+    return () => winsAnim.removeListener(id);
+  }, []);
+
+  function animateWinsTo(from, to) {
+    winsAnim.setValue(from);
+    Animated.timing(winsAnim, {
+      toValue: to, duration: 900, easing: Easing.out(Easing.cubic), useNativeDriver: false,
+    }).start();
+  }
+
+  function revealVoters(usernames) {
+    if (usernames.length === 0) return;
+    setVoterReveal(usernames);
+    voterRevealOpacity.setValue(0);
+    Animated.sequence([
+      Animated.timing(voterRevealOpacity, { toValue: 1, duration: 220, useNativeDriver: true }),
+      Animated.delay(3200),
+      Animated.timing(voterRevealOpacity, { toValue: 0, duration: 260, useNativeDriver: true }),
+    ]).start(() => setVoterReveal([]));
+  }
+
+  // Live voting: a vote landing on one of the user's meals while this
+  // screen is mounted plays the same count-up rather than waiting for the
+  // next cold open. The realtime subscription itself lives in
+  // DuelLiveListener (mounted once at the app root, so it fires regardless
+  // of which tab is active) — this just reacts to what it broadcasts.
+  useEffect(() => {
+    return onDuelVoteReceived(({ voterUsername }) => {
+      setCurrentMonthWins(prev => {
+        const next = prev + 1;
+        animateWinsTo(prev, next);
+        return next;
+      });
+      if (voterUsername) revealVoters([voterUsername]);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -160,10 +261,11 @@ export default function MyProfileScreen() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
+      userIdRef.current = user.id;
 
-      const [profileResult, postsResult, mealsResult] = await Promise.allSettled([
+      const [profileResult, postsResult, mealsResult, winsResult] = await Promise.allSettled([
         supabase.from('profiles')
-          .select('id, username, display_name, avatar_url, bio, banner_color')
+          .select('id, username, first_name, last_name, display_name, avatar_url, bio, banner_color')
           .eq('id', user.id)
           .single(),
 
@@ -178,6 +280,8 @@ export default function MyProfileScreen() {
           .eq('user_id', user.id)
           .order('created_at', { ascending: false })
           .limit(500),
+
+        loadWinsByMonth(user.id, new Date()),
       ]);
 
       if (profileResult.status === 'fulfilled') {
@@ -197,6 +301,40 @@ export default function MyProfileScreen() {
         }
         setStreak(computeStreak(meals));
       }
+
+      if (winsResult.status === 'fulfilled') {
+        const byMonth = winsResult.value;
+        const total = byMonth[0]?.wins ?? 0;
+        setWinsHistory(byMonth.slice(1).filter(m => m.wins > 0));
+
+        try {
+          const seenAt = await getWinsSeenAt(user.id);
+          if (!seenAt) {
+            // Never seen before — this visit sets the baseline, not a
+            // celebration. Show the total statically and record "seen" now.
+            setCurrentMonthWins(total);
+            winsAnim.setValue(total);
+            await markWinsSeen(user.id);
+          } else {
+            const arrived = await newWinsSince(user.id, seenAt);
+            setCurrentMonthWins(total);
+            if (arrived.length > 0) {
+              const from = Math.max(0, total - arrived.length);
+              animateWinsTo(from, total);
+              const usernames = [...new Set(arrived.map(a => a.voterUsername).filter(Boolean))];
+              revealVoters(usernames);
+              await markWinsSeen(user.id);
+            } else {
+              winsAnim.setValue(total);
+            }
+          }
+        } catch (err) {
+          // Non-fatal — still show the total, just without the count-up.
+          setCurrentMonthWins(total);
+          winsAnim.setValue(total);
+          console.warn('[MyProfile] wins-seen tracking failed:', err.message);
+        }
+      }
     } catch {
       // Non-fatal
     } finally {
@@ -204,7 +342,6 @@ export default function MyProfileScreen() {
     }
   }
 
-  const initials = (profile?.username?.[0] ?? profile?.display_name?.[0] ?? '?').toUpperCase();
   const bannerHex = bannerColorHex(profile?.banner_color);
 
   const listHeader = (
@@ -219,13 +356,33 @@ export default function MyProfileScreen() {
         </TouchableOpacity>
       </View>
 
-      <View style={styles.bigAvatar}>
-        {profile?.avatar_url ? (
-          <Image source={{ uri: profile.avatar_url }} style={styles.bigAvatarImage} />
-        ) : (
-          <Text style={styles.bigAvatarLetter}>{initials}</Text>
+      <View style={styles.avatarWrap}>
+        <Avatar
+          uri={profile?.avatar_url}
+          firstName={profile?.first_name}
+          lastName={profile?.last_name}
+          displayName={profile?.display_name}
+          username={profile?.username}
+          size={80}
+          style={styles.bigAvatar}
+          textStyle={styles.bigAvatarLetter}
+        />
+        {displayedWins > 0 && (
+          <View style={styles.avatarWinsBadge}>
+            <Ionicons name="trophy" size={10} color="#3a2c00" />
+            <Text style={styles.avatarWinsBadgeText}>{displayedWins}</Text>
+          </View>
         )}
       </View>
+
+      {voterReveal.length > 0 && (
+        <Animated.View style={[styles.voterRevealWrap, { opacity: voterRevealOpacity }]}>
+          <Text style={styles.voterRevealText}>
+            🏆 {voterReveal.slice(0, 2).map(u => `@${u}`).join(', ')}
+            {voterReveal.length > 2 ? ` +${voterReveal.length - 2} more` : ''} voted for you
+          </Text>
+        </Animated.View>
+      )}
 
       <View style={styles.profileBody}>
         {profile?.display_name ? (
@@ -237,6 +394,8 @@ export default function MyProfileScreen() {
         ) : null}
 
         <StatsRow totalMeals={totalMeals} avgScore={avgScore} streak={streak} />
+
+        <WinsCard wins={displayedWins} history={winsHistory} />
 
         <View style={styles.postsSectionHeader}>
           <Text style={styles.postsSectionTitle}>
@@ -301,14 +460,25 @@ const styles = StyleSheet.create({
     paddingTop: 10, paddingHorizontal: 16,
   },
   gearBtn: { padding: 4 },
+  avatarWrap: { marginTop: -40 },
   bigAvatar: {
-    width: 80, height: 80, borderRadius: 40,
     backgroundColor: C.purpleDim, borderWidth: 3, borderColor: C.bg,
-    alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
-    marginTop: -40,
   },
-  bigAvatarImage: { width: '100%', height: '100%' },
-  bigAvatarLetter: { fontSize: 30, fontWeight: '800', color: C.purpleText },
+  bigAvatarLetter: { color: C.purpleText },
+  avatarWinsBadge: {
+    position: 'absolute', bottom: -2, right: -2,
+    flexDirection: 'row', alignItems: 'center', gap: 3,
+    backgroundColor: '#ffd166', borderRadius: 10,
+    minWidth: 22, height: 20, paddingHorizontal: 5,
+    borderWidth: 2, borderColor: C.bg,
+  },
+  avatarWinsBadgeText: { fontSize: 10, fontWeight: '800', color: '#3a2c00' },
+
+  voterRevealWrap: {
+    marginTop: 8, backgroundColor: C.surface, borderWidth: 0.5, borderColor: C.border,
+    borderRadius: 12, paddingHorizontal: 12, paddingVertical: 6,
+  },
+  voterRevealText: { fontSize: 12, color: C.white, fontWeight: '600' },
   profileBody: { alignItems: 'center', width: '100%', paddingHorizontal: 24, paddingTop: 10 },
   displayName: { fontSize: 18, fontWeight: '700', color: C.white, marginBottom: 4 },
   username: { fontSize: 14, color: C.gray1, marginBottom: 12 },
@@ -325,6 +495,24 @@ const styles = StyleSheet.create({
   statValue: { fontSize: 20, fontWeight: '800', color: C.white, marginBottom: 2 },
   statLabel: { fontSize: 11, color: C.gray2, fontWeight: '500', textTransform: 'uppercase', letterSpacing: 0.5 },
   statDivider: { width: 0.5, height: 32, backgroundColor: C.border },
+
+  winsCard: {
+    backgroundColor: C.surface, borderRadius: 16,
+    paddingVertical: 16, paddingHorizontal: 16,
+    marginBottom: 24, width: '100%',
+    borderWidth: 0.5, borderColor: C.border,
+  },
+  winsHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
+  winsHeaderLabel: { fontSize: 12, color: C.gray1, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 },
+  winsCurrentValue: { fontSize: 30, fontWeight: '800', color: C.white },
+  winsHistoryList: {
+    marginTop: 14, paddingTop: 12,
+    borderTopWidth: 0.5, borderTopColor: C.border,
+    gap: 8,
+  },
+  winsHistoryRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  winsHistoryMonth: { fontSize: 13, color: C.gray1 },
+  winsHistoryCount: { fontSize: 13, color: C.white, fontWeight: '600' },
 
   postsSectionHeader: {
     width: '100%', paddingBottom: 12, borderBottomWidth: 0.5, borderBottomColor: C.border,

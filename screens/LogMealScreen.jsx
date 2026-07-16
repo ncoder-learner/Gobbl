@@ -18,6 +18,7 @@ import {
   Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
@@ -954,22 +955,30 @@ export default function LogMealScreen() {
             <View style={{ width: 32 }} />
           </View>
 
-          {/* Photo thumbnail */}
-          <View style={styles.thumbRow}>
-            <Image source={{ uri: imageUri }} style={styles.thumb} resizeMode="cover" />
+          {/* Photo — the hero of this screen, not a small side thumbnail */}
+          <View style={styles.heroPhotoWrap}>
+            <Image source={{ uri: imageUri }} style={styles.heroPhoto} resizeMode="cover" />
             {identified && (
-              <View style={styles.identifiedBadge}>
-                <Text style={styles.identifiedEmoji}>{identified.emoji}</Text>
-                <View style={styles.identifiedText}>
-                  <Text style={styles.identifiedName}>{identified.name}</Text>
-                  {identified.cuisine ? (
-                    <Text style={styles.identifiedCuisine}>{identified.cuisine}</Text>
-                  ) : null}
-                  {identified.confidence === 'low' && (
-                    <Text style={styles.identifiedLow}>Low confidence — check the name</Text>
-                  )}
+              <>
+                <LinearGradient
+                  colors={['transparent', 'rgba(0,0,0,0.88)']}
+                  locations={[0.35, 1]}
+                  style={StyleSheet.absoluteFill}
+                  pointerEvents="none"
+                />
+                <View style={styles.heroIdentifiedOverlay}>
+                  <Text style={styles.identifiedEmoji}>{identified.emoji}</Text>
+                  <View style={styles.identifiedText}>
+                    <Text style={styles.identifiedName}>{identified.name}</Text>
+                    {identified.cuisine ? (
+                      <Text style={styles.identifiedCuisine}>{identified.cuisine}</Text>
+                    ) : null}
+                    {identified.confidence === 'low' && (
+                      <Text style={styles.identifiedLow}>Low confidence — check the name</Text>
+                    )}
+                  </View>
                 </View>
-              </View>
+              </>
             )}
           </View>
 
@@ -994,49 +1003,15 @@ export default function LogMealScreen() {
           {/* Business tag */}
           <BusinessTag business={sponsored} />
 
-          {/* Name input */}
-          <View style={styles.fieldGroup}>
-            <Text style={styles.fieldLabel}>Meal name</Text>
-            <TextInput
-              style={styles.textInput}
-              value={mealName}
-              onChangeText={setMealName}
-              placeholder="e.g. Spicy tuna roll"
-              placeholderTextColor={C.gray4}
-              returnKeyType="done"
-            />
-          </View>
-
-          {/* Rating */}
-          <View style={styles.fieldGroup}>
-            <Text style={styles.fieldLabel}>Your rating</Text>
-            <ScoreSlider value={score} onChange={setScore} />
-          </View>
-
-          {/* Meal tag — auto-guessed from time of day, overridable */}
-          <View style={styles.fieldGroup}>
-            <Text style={styles.fieldLabel}>When was this?</Text>
-            <MealTagPicker value={mealTag} onChange={setMealTag} />
-          </View>
-
-          {/* Notes */}
-          <View style={styles.fieldGroup}>
-            <Text style={styles.fieldLabel}>Notes <Text style={styles.optional}>(optional)</Text></Text>
-            <TextInput
-              style={[styles.textInput, styles.textArea]}
-              value={notes}
-              onChangeText={setNotes}
-              placeholder="Any thoughts?"
-              placeholderTextColor={C.gray4}
-              multiline
-              numberOfLines={3}
-              returnKeyType="done"
-            />
-          </View>
-
-          {/* Place / location */}
-          <View style={styles.fieldGroup}>
-            <Text style={styles.fieldLabel}>Where'd you get it? <Text style={styles.optional}>(optional)</Text></Text>
+          {/* Location — a core feature alongside the photo, so it gets its
+              own emphasized card right up top rather than living as just
+              another buried optional field. */}
+          <View style={styles.locationSection}>
+            <View style={styles.locationHeaderRow}>
+              <Ionicons name="location" size={18} color={C.orange} />
+              <Text style={styles.locationSectionLabel}>Location</Text>
+              <Text style={styles.optional}>(optional)</Text>
+            </View>
             {selectedPlace ? (
               <View style={styles.placeChip}>
                 <Ionicons name="location" size={16} color={C.orange} style={{ marginTop: 1 }} />
@@ -1097,6 +1072,46 @@ export default function LogMealScreen() {
                 )}
               </>
             )}
+          </View>
+
+          {/* Name input */}
+          <View style={styles.fieldGroup}>
+            <Text style={styles.fieldLabel}>Meal name</Text>
+            <TextInput
+              style={styles.textInput}
+              value={mealName}
+              onChangeText={setMealName}
+              placeholder="e.g. Spicy tuna roll"
+              placeholderTextColor={C.gray4}
+              returnKeyType="done"
+            />
+          </View>
+
+          {/* Rating */}
+          <View style={styles.fieldGroup}>
+            <Text style={styles.fieldLabel}>Your rating</Text>
+            <ScoreSlider value={score} onChange={setScore} />
+          </View>
+
+          {/* Meal tag — auto-guessed from time of day, overridable */}
+          <View style={styles.fieldGroup}>
+            <Text style={styles.fieldLabel}>When was this?</Text>
+            <MealTagPicker value={mealTag} onChange={setMealTag} />
+          </View>
+
+          {/* Notes */}
+          <View style={styles.fieldGroup}>
+            <Text style={styles.fieldLabel}>Notes <Text style={styles.optional}>(optional)</Text></Text>
+            <TextInput
+              style={[styles.textInput, styles.textArea]}
+              value={notes}
+              onChangeText={setNotes}
+              placeholder="Any thoughts?"
+              placeholderTextColor={C.gray4}
+              multiline
+              numberOfLines={3}
+              returnKeyType="done"
+            />
           </View>
 
           {/* Save button */}
@@ -1176,13 +1191,22 @@ const styles = StyleSheet.create({
   confirmHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 24, paddingTop: 16, paddingBottom: 8 },
   backArrow: { fontSize: 22, color: C.gray1 },
   confirmTitle: { fontWeight: '700', fontSize: 18, color: C.white },
-  thumbRow: { margin: 24, marginBottom: 0, flexDirection: 'row', gap: 14, alignItems: 'center' },
-  thumb: { width: 80, height: 80, borderRadius: 14, backgroundColor: C.surface },
-  identifiedBadge: { flex: 1, backgroundColor: C.surface, borderWidth: 0.5, borderColor: C.border, borderRadius: 14, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  // Photo — enlarged into a hero card (was a small 80x80 side thumbnail)
+  // since it's a core feature of logging a meal, not incidental metadata.
+  heroPhotoWrap: {
+    margin: 24, marginBottom: 0, borderRadius: 20, overflow: 'hidden',
+    backgroundColor: C.surface, position: 'relative',
+  },
+  heroPhoto: { width: '100%', height: 220 },
+  heroIdentifiedOverlay: {
+    position: 'absolute', left: 0, right: 0, bottom: 0,
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingHorizontal: 16, paddingVertical: 14,
+  },
   identifiedEmoji: { fontSize: 28 },
   identifiedText: { flex: 1 },
-  identifiedName: { fontSize: 14, fontWeight: '500', color: C.white, marginBottom: 2 },
-  identifiedCuisine: { fontSize: 12, color: C.gray2 },
+  identifiedName: { fontSize: 16, fontWeight: '700', color: C.white, marginBottom: 2 },
+  identifiedCuisine: { fontSize: 13, color: 'rgba(255,255,255,0.7)' },
   identifiedLow: { fontSize: 11, color: C.orange, marginTop: 2 },
 
   // Business tag
@@ -1313,6 +1337,17 @@ const styles = StyleSheet.create({
   sharePromptDismissText: { fontSize: 18, color: C.gray4, fontWeight: '600' },
   sharePromptCheckEmoji: { fontSize: 16, color: '#00c896', fontWeight: '800' },
   sharePromptPostedText: { fontSize: 14, fontWeight: '600', color: '#00c896' },
+
+  // Location section — a core feature, so it gets its own bordered card and
+  // a bolder, icon-led label instead of the plain gray fieldLabel used by
+  // secondary fields like Notes.
+  locationSection: {
+    marginHorizontal: 24, marginTop: 24,
+    backgroundColor: C.surface, borderWidth: 0.5, borderColor: C.border,
+    borderRadius: 16, padding: 14,
+  },
+  locationHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 10 },
+  locationSectionLabel: { fontSize: 15, fontWeight: '700', color: C.white },
 
   // Place field
   placeChip: {

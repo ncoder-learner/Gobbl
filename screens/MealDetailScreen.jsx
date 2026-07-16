@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, Text, Image, ScrollView, FlatList, TouchableOpacity, StyleSheet,
-  StatusBar, ActivityIndicator, Dimensions, Alert, Platform, Linking, Animated,
+  StatusBar, ActivityIndicator, Dimensions, Alert, Platform, Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -15,7 +15,6 @@ import CommentSheet from '../components/CommentSheet';
 import DayTrail from '../components/DayTrail';
 import { MEAL_TAGS, TAG_META } from '../lib/postUtils';
 import { mappableCoords, displayPlaceName, isHomeMeal } from '../lib/homePrivacy';
-import { castVote, tallyVotes, VOTE_COLORS, voteSummary, voteCaption } from '../lib/postVotes';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CAROUSEL_HEIGHT = SCREEN_WIDTH * 1.15;
@@ -87,79 +86,6 @@ function CarouselProgress({ count, activeIndex }) {
   );
 }
 
-// ─── Tier Duel — pick which meal on a 2-3 image post you'd want ──────────────
-// Mirrors FeedScreen's tap-a-photo-to-vote interaction (scale pulse +
-// persistent highlight ring, flame badge) but as a labeled row of pills,
-// since this screen shows one meal at a time rather than all images side by
-// side — there's no single "photo" per slot to tap here.
-function DuelPill({ tag, meal, count, active, canVote, onVote }) {
-  const meta = TAG_META[tag];
-  const scale = useRef(new Animated.Value(1)).current;
-
-  function handlePress() {
-    Animated.sequence([
-      Animated.timing(scale, { toValue: 0.94, duration: 90, useNativeDriver: true }),
-      Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 18, bounciness: 8 }),
-    ]).start();
-    onVote(tag);
-  }
-
-  const Wrapper = canVote ? TouchableOpacity : View;
-  return (
-    <Animated.View style={{ flex: 1, transform: [{ scale }] }}>
-      <Wrapper
-        style={[styles.duelPill, active && styles.duelPillActive]}
-        {...(canVote ? { onPress: handlePress, activeOpacity: 0.75 } : {})}
-      >
-        <Text style={styles.duelPillEmoji}>{meta.emoji}</Text>
-        <Text style={[styles.duelPillName, active && styles.duelPillNameActive]} numberOfLines={1}>
-          {meal.name}
-        </Text>
-        <View style={[styles.duelCountBadge, active && styles.duelCountBadgeActive]}>
-          <Ionicons name="flame" size={11} color={active ? '#fff' : '#ffb84d'} />
-          <Text style={[styles.duelCountText, active && styles.duelCountTextActive]}>{count}</Text>
-        </View>
-      </Wrapper>
-    </Animated.View>
-  );
-}
-
-function TierDuelRow({ images, counts, myVote, canVote, onVote }) {
-  if (images.length < 2) return null;
-  const summary = voteSummary(images, counts);
-  const caption = voteCaption(summary, { canVote });
-
-  return (
-    <View style={styles.duelRow}>
-      <Text style={styles.duelLabel}>Tier Duel</Text>
-      <View style={styles.duelPills}>
-        {images.map(({ tag, meal }) => (
-          <DuelPill
-            key={tag}
-            tag={tag}
-            meal={meal}
-            count={counts[tag] || 0}
-            active={myVote === tag}
-            canVote={canVote}
-            onVote={onVote}
-          />
-        ))}
-      </View>
-      <View style={styles.voteBarTrack}>
-        {summary.total === 0 ? (
-          <View style={[styles.voteBarSeg, { flex: 1, backgroundColor: '#2a2a2a' }]} />
-        ) : (
-          images.map(({ tag }) => {
-            const c = counts[tag] || 0;
-            if (c === 0) return null;
-            return <View key={tag} style={[styles.voteBarSeg, { flex: c, backgroundColor: VOTE_COLORS[tag] }]} />;
-          })
-        )}
-      </View>
-      <Text style={styles.voteBarCaption}>{caption}</Text>
-    </View>
-  );
-}
 
 // ─── Main screen ────────────────────────────────────────────────────────────
 export default function MealDetailScreen() {
@@ -175,18 +101,12 @@ export default function MealDetailScreen() {
   const [currentUserId, setCurrentUserId] = useState(null);
 
   const [post, setPost] = useState(null); // null if this meal was never shared
-  const [trailImages, setTrailImages] = useState([]); // [{tag, meal}] for the post's Day Trail + Tier Duel
+  const [trailImages, setTrailImages] = useState([]); // [{tag, meal}] for the post's Day Trail
   const [likeCount, setLikeCount] = useState(0);
   const [isLiked, setIsLiked] = useState(false);
   const [liking, setLiking] = useState(false);
   const [commentCount, setCommentCount] = useState(0);
   const [commentOpen, setCommentOpen] = useState(false);
-
-  // Tier Duel — same voting mechanic as FeedScreen's PostCard, reusing the
-  // post's breakfast/lunch/dinner slots already fetched for Day Trail.
-  const [voteCounts, setVoteCounts] = useState({ breakfast: 0, lunch: 0, dinner: 0 });
-  const [myVote, setMyVote] = useState(null);
-  const [voting, setVoting] = useState(false);
 
   const [userCoords, setUserCoords] = useState(null);
   const [uploading, setUploading] = useState(false);
@@ -228,7 +148,7 @@ export default function MealDetailScreen() {
       // posted). The same breakfast/lunch/dinner + places(lat,lng,name) join
       // FeedScreen uses is included here so DayTrail can render identically.
       const POST_FIELDS = `
-        id, user_id, caption, post_votes(voter_id, slot),
+        id, user_id, caption,
         breakfast:meals!breakfast_meal_id(id, name, emoji, score, photo_url, tag, place_id, places(lat, lng, name)),
         lunch:meals!lunch_meal_id(id, name, emoji, score, photo_url, tag, place_id, places(lat, lng, name)),
         dinner:meals!dinner_meal_id(id, name, emoji, score, photo_url, tag, place_id, places(lat, lng, name))
@@ -256,13 +176,8 @@ export default function MealDetailScreen() {
         setTrailImages(
           MEAL_TAGS.map(tag => (resolvedPost[tag] ? { tag, meal: resolvedPost[tag] } : null)).filter(Boolean)
         );
-        const tally = tallyVotes(resolvedPost.post_votes, user?.id ?? null);
-        setVoteCounts(tally.counts);
-        setMyVote(tally.myVote);
       } else {
         setTrailImages([]);
-        setVoteCounts({ breakfast: 0, lunch: 0, dinner: 0 });
-        setMyVote(null);
       }
     } catch (err) {
       setError(err.message || 'Failed to load meal.');
@@ -305,28 +220,6 @@ export default function MealDetailScreen() {
       setLikeCount(c => next ? Math.max(0, c - 1) : c + 1);
     } finally {
       setLiking(false);
-    }
-  }
-
-  async function handleVote(tag) {
-    if (!post || voting || !currentUserId || post.user_id === currentUserId) return;
-    const prevMyVote = myVote;
-    const prevCounts = voteCounts;
-    const nextMyVote = myVote === tag ? null : tag;
-
-    const nextCounts = { ...voteCounts };
-    if (prevMyVote) nextCounts[prevMyVote] = Math.max(0, nextCounts[prevMyVote] - 1);
-    if (nextMyVote) nextCounts[nextMyVote] = (nextCounts[nextMyVote] || 0) + 1;
-    setVoteCounts(nextCounts);
-    setMyVote(nextMyVote);
-    setVoting(true);
-    try {
-      await castVote(post.id, tag, prevMyVote);
-    } catch {
-      setVoteCounts(prevCounts);
-      setMyVote(prevMyVote);
-    } finally {
-      setVoting(false);
     }
   }
 
@@ -504,14 +397,6 @@ export default function MealDetailScreen() {
 
           <DayTrail images={trailImages} isOwner={isOwner} />
 
-          <TierDuelRow
-            images={trailImages}
-            counts={voteCounts}
-            myVote={myVote}
-            canVote={!isOwner}
-            onVote={handleVote}
-          />
-
           {isOwner && (
             <TouchableOpacity
               style={[styles.addPhotoBtn, uploading && styles.addPhotoBtnDisabled]}
@@ -633,39 +518,6 @@ const styles = StyleSheet.create({
   distanceText: { fontSize: 12, fontWeight: '600', color: C.gray1 },
 
   caption: { fontSize: 15, color: 'rgba(255,255,255,0.9)', lineHeight: 21, marginBottom: 16 },
-
-  // Tier Duel
-  duelRow: { marginTop: 6, marginBottom: 16 },
-  duelLabel: {
-    fontSize: 11, fontWeight: '700', color: C.gray2,
-    textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 8,
-  },
-  duelPills: { flexDirection: 'row', gap: 8, marginBottom: 10 },
-  duelPill: {
-    flex: 1, flexDirection: 'row', alignItems: 'center', gap: 5,
-    backgroundColor: C.surface, borderWidth: 2, borderColor: C.border,
-    borderRadius: 12, paddingHorizontal: 10, paddingVertical: 8,
-  },
-  duelPillActive: { borderColor: C.orange, backgroundColor: C.orange + '22' },
-  duelPillEmoji: { fontSize: 13 },
-  duelPillName: { flex: 1, fontSize: 12, fontWeight: '600', color: C.gray1 },
-  duelPillNameActive: { color: C.white },
-  duelCountBadge: {
-    flexDirection: 'row', alignItems: 'center', gap: 3,
-    minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 5,
-    backgroundColor: '#111',
-  },
-  duelCountBadgeActive: { backgroundColor: C.orange },
-  duelCountText: { fontSize: 10, fontWeight: '800', color: C.gray1 },
-  duelCountTextActive: { color: C.white },
-
-  // Vote-share bar — shared visual language with FeedScreen's VoteBar
-  voteBarTrack: {
-    flexDirection: 'row', height: 6, borderRadius: 3, overflow: 'hidden',
-    backgroundColor: '#1a1a1a',
-  },
-  voteBarSeg: { height: '100%' },
-  voteBarCaption: { fontSize: 12, color: C.gray2, fontWeight: '500', marginTop: 6 },
 
   addPhotoBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7,

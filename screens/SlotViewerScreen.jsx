@@ -11,6 +11,7 @@ import { supabase } from '../lib/supabase';
 import CommentSheet from '../components/CommentSheet';
 import { TAG_META, TAG_ICON } from '../lib/postUtils';
 import { displayPlaceName } from '../lib/homePrivacy';
+import Avatar from '../components/Avatar';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -33,9 +34,8 @@ function formatScore(score) {
 }
 
 // ─── One person's page — a vertical photo pager with fixed overlay chrome ──
-function PersonPage({ person, data, likeInfo, commentCount, onLike, onSubmitComment, onOpenComments }) {
+function PersonPage({ person, data, likeInfo, commentCount, onLike, onSubmitComment, onOpenComments, onPhotoIndexChange }) {
   const { meal, poster } = person;
-  const [photoIndex, setPhotoIndex] = useState(0);
   const [commentText, setCommentText] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -71,19 +71,12 @@ function PersonPage({ person, data, likeInfo, commentCount, onLike, onSubmitComm
             </View>
           )
         )}
+        horizontal
         pagingEnabled
-        showsVerticalScrollIndicator={false}
-        onMomentumScrollEnd={e => setPhotoIndex(Math.round(e.nativeEvent.contentOffset.y / SCREEN_HEIGHT))}
-        getItemLayout={(_, i) => ({ length: SCREEN_HEIGHT, offset: SCREEN_HEIGHT * i, index: i })}
+        showsHorizontalScrollIndicator={false}
+        onMomentumScrollEnd={e => onPhotoIndexChange(Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH))}
+        getItemLayout={(_, i) => ({ length: SCREEN_WIDTH, offset: SCREEN_WIDTH * i, index: i })}
       />
-
-      {photos.length > 1 && (
-        <View style={styles.dotCol} pointerEvents="none">
-          {photos.map((_, i) => (
-            <View key={i} style={[styles.dot, i === photoIndex && styles.dotActive]} />
-          ))}
-        </View>
-      )}
 
       <KeyboardAvoidingView
         style={styles.bottomOverlay}
@@ -96,13 +89,16 @@ function PersonPage({ person, data, likeInfo, commentCount, onLike, onSubmitComm
         />
 
         <View style={styles.posterRow}>
-          <View style={styles.posterAvatar}>
-            {poster?.avatar_url ? (
-              <Image source={{ uri: poster.avatar_url }} style={styles.posterAvatarImage} />
-            ) : (
-              <Text style={styles.posterInitial}>{(poster?.username?.[0] ?? '?').toUpperCase()}</Text>
-            )}
-          </View>
+          <Avatar
+            uri={poster?.avatar_url}
+            firstName={poster?.first_name}
+            lastName={poster?.last_name}
+            displayName={poster?.display_name}
+            username={poster?.username}
+            size={30}
+            style={styles.posterAvatar}
+            textStyle={styles.posterInitial}
+          />
           <Text style={styles.posterUsername}>@{poster?.username ?? 'unknown'}</Text>
           {score != null && (
             <View style={[styles.scoreBadge, { backgroundColor: color }]}>
@@ -155,6 +151,7 @@ export default function SlotViewerScreen() {
   const meta = TAG_META[tag] || { emoji: '📍', label: tag };
 
   const [activeIndex, setActiveIndex] = useState(initialIndex);
+  const [photoIndexByMeal, setPhotoIndexByMeal] = useState({}); // mealId -> active photo index, for the top segment bar
   const [mealData, setMealData] = useState({});     // mealId -> {score, placeName, photos}
   const [likeState, setLikeState] = useState({});   // postId -> {count, isLiked}
   const [commentCounts, setCommentCounts] = useState({}); // postId -> count
@@ -245,9 +242,13 @@ export default function SlotViewerScreen() {
   }
 
   function onOuterMomentumEnd(e) {
-    const idx = Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH);
+    const idx = Math.round(e.nativeEvent.contentOffset.y / SCREEN_HEIGHT);
     setActiveIndex(idx);
   }
+
+  const activePerson = people[activeIndex];
+  const activePhotoCount = activePerson ? (mealData[activePerson.mealId]?.photos?.length ?? 1) : 0;
+  const activePhotoIndex = activePerson ? (photoIndexByMeal[activePerson.mealId] ?? 0) : 0;
 
   if (people.length === 0) {
     return (
@@ -271,11 +272,10 @@ export default function SlotViewerScreen() {
         ref={outerListRef}
         data={people}
         keyExtractor={p => p.mealId}
-        horizontal
         pagingEnabled
-        showsHorizontalScrollIndicator={false}
+        showsVerticalScrollIndicator={false}
         initialScrollIndex={initialIndex}
-        getItemLayout={(_, i) => ({ length: SCREEN_WIDTH, offset: SCREEN_WIDTH * i, index: i })}
+        getItemLayout={(_, i) => ({ length: SCREEN_HEIGHT, offset: SCREEN_HEIGHT * i, index: i })}
         onMomentumScrollEnd={onOuterMomentumEnd}
         renderItem={({ item }) => (
           <PersonPage
@@ -286,6 +286,7 @@ export default function SlotViewerScreen() {
             onLike={() => toggleLike(item.mealId, item.postId)}
             onSubmitComment={text => submitComment(item.mealId, item.postId, text)}
             onOpenComments={() => setCommentSheetTarget({ postId: item.postId, mealId: item.mealId, posterId: item.poster?.id })}
+            onPhotoIndexChange={idx => setPhotoIndexByMeal(m => ({ ...m, [item.mealId]: idx }))}
           />
         )}
       />
@@ -296,6 +297,16 @@ export default function SlotViewerScreen() {
           style={StyleSheet.absoluteFill}
           pointerEvents="none"
         />
+        {/* Story-style segment bar — tracks the *current person's* photos,
+            not position across people (there's no indicator for that at
+            all; vertical swiping between people is undecorated). Resets
+            implicitly per person since photoIndexByMeal defaults to 0 for
+            any meal not yet visited. */}
+        <View style={styles.segmentRow}>
+          {Array.from({ length: activePhotoCount }).map((_, i) => (
+            <View key={i} style={[styles.segment, i <= activePhotoIndex && styles.segmentActive]} />
+          ))}
+        </View>
         <View style={styles.topRow}>
           <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={12}>
             <Ionicons name="chevron-back" size={26} color={C.white} />
@@ -305,14 +316,8 @@ export default function SlotViewerScreen() {
               {TAG_ICON[tag] && <Feather name={TAG_ICON[tag]} size={14} color={C.white} />}
               <Text style={styles.slotLabelText}>{meta.label}</Text>
             </View>
-            <Text style={styles.positionText}>{activeIndex + 1} of {people.length}</Text>
           </View>
           <View style={{ width: 26 }} />
-        </View>
-        <View style={styles.segmentRow}>
-          {people.map((_, i) => (
-            <View key={i} style={[styles.segment, i <= activeIndex && styles.segmentActive]} />
-          ))}
         </View>
       </SafeAreaView>
 
@@ -343,13 +348,14 @@ const styles = StyleSheet.create({
   topOverlay: { position: 'absolute', top: 0, left: 0, right: 0 },
   topRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 16, paddingTop: 8, paddingBottom: 10,
+    paddingHorizontal: 16, paddingTop: 6, paddingBottom: 10,
   },
   slotLabelWrap: { alignItems: 'center' },
   slotLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   slotLabelText: { fontSize: 14, fontWeight: '700', color: C.white },
-  positionText: { fontSize: 11, color: 'rgba(255,255,255,0.7)', marginTop: 1 },
-  segmentRow: { flexDirection: 'row', gap: 4, paddingHorizontal: 16 },
+  // Story-style bar — tracks the current person's photos, sits above the
+  // back button/label row (classic IG-stories ordering).
+  segmentRow: { flexDirection: 'row', gap: 4, paddingHorizontal: 16, paddingTop: 10 },
   segment: { flex: 1, height: 3, borderRadius: 1.5, backgroundColor: 'rgba(255,255,255,0.25)' },
   segmentActive: { backgroundColor: C.orange },
 
@@ -362,27 +368,14 @@ const styles = StyleSheet.create({
   photoFallback: { alignItems: 'center', justifyContent: 'center', backgroundColor: '#151515' },
   photoFallbackEmoji: { fontSize: 64 },
 
-  // Vertical dot row — indicates position among this person's photos
-  dotCol: {
-    position: 'absolute', right: 10, top: '38%',
-    alignItems: 'center', gap: 5,
-  },
-  dot: { width: 5, height: 5, borderRadius: 2.5, backgroundColor: 'rgba(255,255,255,0.4)' },
-  dotActive: { backgroundColor: C.white, width: 6, height: 6, borderRadius: 3 },
-
   // Bottom overlay
   bottomOverlay: {
     position: 'absolute', left: 0, right: 0, bottom: 0,
     paddingHorizontal: 16, paddingTop: 40, paddingBottom: 18,
   },
   posterRow: { flexDirection: 'row', alignItems: 'center', gap: 9, marginBottom: 6 },
-  posterAvatar: {
-    width: 30, height: 30, borderRadius: 15,
-    backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
-    alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
-  },
-  posterAvatarImage: { width: '100%', height: '100%' },
-  posterInitial: { fontSize: 12, fontWeight: '700', color: C.white },
+  posterAvatar: { borderWidth: 1, borderColor: C.border },
+  posterInitial: { color: C.white },
   posterUsername: { fontSize: 15, fontWeight: '700', color: C.white, flex: 1 },
   scoreBadge: { borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3 },
   scoreBadgeText: { fontSize: 12, fontWeight: '800', color: '#fff' },

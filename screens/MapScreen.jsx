@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  View, Text, Image, TouchableOpacity, StyleSheet, StatusBar,
+  View, Text, TouchableOpacity, StyleSheet, StatusBar,
   ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -10,6 +10,7 @@ import * as Location from 'expo-location';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import { mappableCoords, displayPlaceName } from '../lib/homePrivacy';
+import Avatar from '../components/Avatar';
 
 const C = {
   bg: '#0d0d0d', surface: '#1a1a1a', border: '#2a2a2a',
@@ -57,7 +58,7 @@ function toPin(meal, { isOwner, poster } = {}) {
     emoji: TAG_EMOJI[meal.tag] || meal.emoji || '📍',
     name: meal.name,
     place: displayPlaceName(meal),
-    poster: poster || null, // {username, avatar_url} — friends-mode pins only
+    poster: poster || null, // {username, first_name, last_name, display_name, avatar_url} — friends-mode pins only
   };
 }
 
@@ -85,7 +86,7 @@ async function loadFriendMealPins(userId) {
     .from('posts')
     .select(`
       user_id,
-      profiles!posts_user_id_fkey(username, avatar_url),
+      profiles!posts_user_id_fkey(username, first_name, last_name, display_name, avatar_url),
       legacy:meals!meal_id(${MEAL_FIELDS}),
       breakfast:meals!breakfast_meal_id(${MEAL_FIELDS}),
       lunch:meals!lunch_meal_id(${MEAL_FIELDS}),
@@ -119,6 +120,47 @@ function regionFromPins(pins) {
     latitudeDelta: Math.max(maxLat - minLat, 0.05) * 1.6,
     longitudeDelta: Math.max(maxLng - minLng, 0.05) * 1.6,
   };
+}
+
+// react-native-maps rasterizes a custom Marker's children into a static
+// image and, by default, only re-snapshots while `tracksViewChanges` is
+// true. A remote avatar Image loads asynchronously *after* that first
+// snapshot, so without this the marker gets frozen as a blank/black bubble
+// forever. Keep tracking until the photo (or its absence) has actually
+// rendered once, then switch it off so markers aren't re-rasterized every
+// frame (expensive, and the usual reason people avoid this prop).
+function PinMarker({ pin, onPress }) {
+  // Only a remote avatar photo loads asynchronously — initials and the
+  // plain emoji pin both render synchronously on first paint, so only the
+  // photo case needs to keep tracking past the initial snapshot.
+  const [tracking, setTracking] = useState(!!pin.poster?.avatar_url);
+  return (
+    <Marker
+      coordinate={{ latitude: pin.lat, longitude: pin.lng }}
+      title={pin.poster?.username ? `@${pin.poster.username}` : pin.name}
+      description={pin.place}
+      onPress={onPress}
+      tracksViewChanges={tracking}
+    >
+      <View style={styles.pinBubble}>
+        {pin.poster ? (
+          <Avatar
+            uri={pin.poster.avatar_url}
+            firstName={pin.poster.first_name}
+            lastName={pin.poster.last_name}
+            displayName={pin.poster.display_name}
+            username={pin.poster.username}
+            size={34}
+            style={styles.pinAvatarWrap}
+            textStyle={styles.pinInitial}
+            onLoadEnd={() => setTracking(false)}
+          />
+        ) : (
+          <Text style={styles.pinEmoji}>{pin.emoji}</Text>
+        )}
+      </View>
+    </Marker>
+  );
 }
 
 function ModeToggle({ mode, onChange }) {
@@ -230,23 +272,11 @@ export default function MapScreen() {
           showsMyLocationButton
         >
           {pins.map(pin => (
-            <Marker
+            <PinMarker
               key={pin.id}
-              coordinate={{ latitude: pin.lat, longitude: pin.lng }}
-              title={pin.poster?.username ? `@${pin.poster.username}` : pin.name}
-              description={pin.place}
+              pin={pin}
               onPress={() => navigation.navigate('MealDetail', { mealId: pin.id })}
-            >
-              <View style={styles.pinBubble}>
-                {pin.poster?.avatar_url ? (
-                  <Image source={{ uri: pin.poster.avatar_url }} style={styles.pinAvatar} />
-                ) : pin.poster ? (
-                  <Text style={styles.pinInitial}>{(pin.poster.username?.[0] ?? '?').toUpperCase()}</Text>
-                ) : (
-                  <Text style={styles.pinEmoji}>{pin.emoji}</Text>
-                )}
-              </View>
-            </Marker>
+            />
           ))}
         </MapView>
 
@@ -301,7 +331,7 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
   },
   pinEmoji: { fontSize: 16 },
-  pinAvatar: { width: '100%', height: '100%' },
+  pinAvatarWrap: { backgroundColor: C.surface },
   pinInitial: { fontSize: 14, fontWeight: '700', color: C.purple },
 
   overlay: {

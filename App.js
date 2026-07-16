@@ -17,6 +17,7 @@ import AccountScreen from './screens/AccountScreen';
 import HistoryScreen from './screens/HistoryScreen';
 import AuthScreen from './screens/AuthScreen';
 import OnboardingScreen from './screens/OnboardingScreen';
+import ProfileInfoScreen from './screens/ProfileInfoScreen';
 import UsernamePromptScreen from './screens/UsernamePromptScreen';
 import FriendsScreen from './screens/FriendsScreen';
 import UserProfileScreen from './screens/UserProfileScreen';
@@ -27,6 +28,8 @@ import MapScreen from './screens/MapScreen';
 import DayTrailDetailScreen from './screens/DayTrailDetailScreen';
 import DayBoardScreen from './screens/DayBoardScreen';
 import SlotViewerScreen from './screens/SlotViewerScreen';
+import DuelScreen from './screens/DuelScreen';
+import DuelLiveListener from './components/DuelLiveListener';
 
 const Tab  = createBottomTabNavigator();
 const Root = createNativeStackNavigator();
@@ -121,6 +124,7 @@ function TabNavigator() {
 function AppNavigator() {
   return (
     <NavigationContainer theme={NAV_THEME}>
+      <DuelLiveListener />
       <Root.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#0d0d0d' } }}>
         <Root.Screen name="Tabs" component={TabNavigator} />
         <Root.Screen
@@ -163,6 +167,11 @@ function AppNavigator() {
           component={SlotViewerScreen}
           options={{ animation: 'fade' }}
         />
+        <Root.Screen
+          name="Duel"
+          component={DuelScreen}
+          options={{ animation: 'slide_from_bottom' }}
+        />
       </Root.Navigator>
     </NavigationContainer>
   );
@@ -172,6 +181,10 @@ function AppNavigator() {
 
 function onboardingKey(userId) {
   return `onboarding_done_${userId}`;
+}
+
+function profileInfoKey(userId) {
+  return `profile_info_done_${userId}`;
 }
 
 async function registerPushToken(userId) {
@@ -189,6 +202,7 @@ async function registerPushToken(userId) {
 export default function App() {
   const [session, setSession]               = useState(undefined);
   const [onboardingDone, setOnboardingDone] = useState(undefined);
+  const [hasProfileInfo, setHasProfileInfo] = useState(undefined);
   const [hasUsername, setHasUsername]       = useState(undefined);
   const lastCheckedUserRef                  = useRef(null);
 
@@ -196,12 +210,29 @@ export default function App() {
     if (lastCheckedUserRef.current === userId) return;
     lastCheckedUserRef.current = userId;
 
-    // AsyncStorage is the primary source of truth for onboarding.
+    // AsyncStorage is the primary source of truth for onboarding/profile-info.
     // It persists even when DB writes fail (RLS, network, migration not run, etc.).
-    const localDone = await AsyncStorage.getItem(onboardingKey(userId)).catch(() => null);
+    const [localOnboardingDone, localProfileInfoDone] = await Promise.all([
+      AsyncStorage.getItem(onboardingKey(userId)).catch(() => null),
+      AsyncStorage.getItem(profileInfoKey(userId)).catch(() => null),
+    ]);
 
-    if (localDone === 'true') {
+    if (localOnboardingDone === 'true') {
       setOnboardingDone(true);
+      if (localProfileInfoDone === 'true') {
+        setHasProfileInfo(true);
+      } else {
+        try {
+          const { data } = await supabase
+            .from('profiles')
+            .select('profile_details_completed')
+            .eq('id', userId)
+            .maybeSingle();
+          setHasProfileInfo(data?.profile_details_completed === true);
+        } catch {
+          setHasProfileInfo(false);
+        }
+      }
       try {
         const { data } = await supabase
           .from('profiles')
@@ -215,36 +246,57 @@ export default function App() {
       return;
     }
 
-    // First launch for this user on this device — check DB.
+    // First launch for this user on this device — check DB. Column sets
+    // fall back progressively in case a migration hasn't landed on this
+    // environment yet (mirrors the pre-existing username fallback below).
     try {
       const { data } = await supabase
         .from('profiles')
-        .select('onboarding_completed, username')
+        .select('onboarding_completed, profile_details_completed, username')
         .eq('id', userId)
         .maybeSingle();
 
       const done = data?.onboarding_completed === true;
       setOnboardingDone(done);
+      setHasProfileInfo(data?.profile_details_completed === true);
       setHasUsername(!!(data?.username));
 
       if (done) await AsyncStorage.setItem(onboardingKey(userId), 'true').catch(() => {});
     } catch {
-      // username column might not exist yet — fall back to onboarding_completed only.
       try {
         const { data } = await supabase
           .from('profiles')
-          .select('onboarding_completed')
+          .select('onboarding_completed, username')
           .eq('id', userId)
           .maybeSingle();
 
         const done = data?.onboarding_completed === true;
         setOnboardingDone(done);
-        setHasUsername(false);
+        setHasProfileInfo(false);
+        setHasUsername(!!(data?.username));
 
         if (done) await AsyncStorage.setItem(onboardingKey(userId), 'true').catch(() => {});
       } catch {
-        setOnboardingDone(false);
-        setHasUsername(false);
+        // username/profile_details_completed columns might not exist yet —
+        // fall back to onboarding_completed only.
+        try {
+          const { data } = await supabase
+            .from('profiles')
+            .select('onboarding_completed')
+            .eq('id', userId)
+            .maybeSingle();
+
+          const done = data?.onboarding_completed === true;
+          setOnboardingDone(done);
+          setHasProfileInfo(false);
+          setHasUsername(false);
+
+          if (done) await AsyncStorage.setItem(onboardingKey(userId), 'true').catch(() => {});
+        } catch {
+          setOnboardingDone(false);
+          setHasProfileInfo(false);
+          setHasUsername(false);
+        }
       }
     }
   }
@@ -263,11 +315,13 @@ export default function App() {
           registerPushToken(session.user.id);
         } else {
           setOnboardingDone(false);
+          setHasProfileInfo(false);
           setHasUsername(false);
         }
       } else if (event === 'SIGNED_OUT') {
         lastCheckedUserRef.current = null;
         setOnboardingDone(false);
+        setHasProfileInfo(false);
         setHasUsername(false);
       }
     });
@@ -283,6 +337,14 @@ export default function App() {
     } catch { /* non-fatal */ }
   }
 
+  async function handleProfileInfoDone() {
+    setHasProfileInfo(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) await AsyncStorage.setItem(profileInfoKey(user.id), 'true');
+    } catch { /* non-fatal */ }
+  }
+
   function handleUsernameDone() {
     setHasUsername(true);
   }
@@ -290,7 +352,8 @@ export default function App() {
   const isLoading =
     session === undefined ||
     (session !== null && onboardingDone === undefined) ||
-    (session !== null && onboardingDone === true && hasUsername === undefined);
+    (session !== null && onboardingDone === true && hasProfileInfo === undefined) ||
+    (session !== null && onboardingDone === true && hasProfileInfo === true && hasUsername === undefined);
 
   // Single render tree — no separate early return for loading state.
   // This prevents the GestureHandlerRootView + SafeAreaProvider from unmounting
@@ -306,6 +369,8 @@ export default function App() {
           <AuthScreen />
         ) : !onboardingDone ? (
           <OnboardingScreen onDone={handleOnboardingDone} />
+        ) : !hasProfileInfo ? (
+          <ProfileInfoScreen onDone={handleProfileInfoDone} />
         ) : !hasUsername ? (
           <UsernamePromptScreen onDone={handleUsernameDone} />
         ) : (

@@ -12,6 +12,7 @@ import ShareBottomSheet from '../components/ShareBottomSheet';
 import DayTrail from '../components/DayTrail';
 import { fetchPostedMealIds, MEAL_TAGS, TAG_META, TAG_ICON } from '../lib/postUtils';
 import { displayPlaceName } from '../lib/homePrivacy';
+import { isDuelUnlocked } from '../lib/postVotes';
 
 const C = {
   bg: '#0d0d0d', surface: '#1a1a1a', border: '#2a2a2a',
@@ -128,12 +129,17 @@ function FadeScaleIn({ delay = 0, style, children }) {
 // overflow:hidden (needed to round the photo's corners) would otherwise
 // clip the shadow itself, especially on Android where elevation and
 // overflow:hidden fight each other on the same view.
-function BoardTile({ tile, onPress, delay, onFire, likeCount, commentCount }) {
+function BoardTile({ tile, onPress, delay, onFire, likeCount, commentCount, isLeader }) {
   const { meal, poster, isMine } = tile;
   const showBadge = likeCount > 0 || commentCount > 0;
   return (
     <FadeScaleIn delay={delay} style={styles.tileShadowWrap}>
       <TouchableOpacity style={[styles.tile, isMine && styles.tileMine]} onPress={onPress} activeOpacity={0.85}>
+        {isLeader && (
+          <View style={styles.tileCrownBadge}>
+            <Ionicons name="trophy" size={13} color="#3a2c00" />
+          </View>
+        )}
         {meal.photo_url ? (
           <Image source={{ uri: meal.photo_url }} style={StyleSheet.absoluteFill} resizeMode="cover" />
         ) : (
@@ -192,7 +198,7 @@ function YouEmptyTile({ onPress, delay }) {
 const STAGGER_SECTION = 110;
 const STAGGER_TILE = 55;
 
-function BoardSection({ tag, sectionIndex, tiles, onPressTile, onPressYou, onFire, likeCounts, commentCounts }) {
+function BoardSection({ tag, sectionIndex, tiles, onPressTile, onPressYou, onFire, likeCounts, commentCounts, leaderMealIds, duelUnlocked, duelVoted, onPressDuel }) {
   const meta = TAG_META[tag];
   const mineTile = tiles.find(t => t.isMine);
   const othersTiles = tiles.filter(t => !t.isMine);
@@ -226,6 +232,7 @@ function BoardSection({ tag, sectionIndex, tiles, onPressTile, onPressYou, onFir
             onFire={onFire}
             likeCount={likeCounts[mineTile.mealId] || 0}
             commentCount={commentCounts[mineTile.mealId] || 0}
+            isLeader={leaderMealIds.includes(mineTile.mealId)}
             onPress={() => onPressTile(tag, orderedTiles, 0)}
           />
         ) : (
@@ -238,11 +245,46 @@ function BoardSection({ tag, sectionIndex, tiles, onPressTile, onPressYou, onFir
             delay={sectionDelay + (i + 1) * STAGGER_TILE}
             likeCount={likeCounts[tile.mealId] || 0}
             commentCount={commentCounts[tile.mealId] || 0}
+            isLeader={leaderMealIds.includes(tile.mealId)}
             onPress={() => onPressTile(tag, orderedTiles, mineTile ? i + 1 : i)}
           />
         ))}
       </ScrollView>
+
+      {duelUnlocked && (
+        <DuelCard
+          tag={tag}
+          voted={duelVoted}
+          delay={sectionDelay + (othersTiles.length + 1) * STAGGER_TILE}
+          onPress={onPressDuel}
+        />
+      )}
     </View>
+  );
+}
+
+// ─── Tier Duel card — a scheduled event, not an always-open vote. Only
+// renders once the slot's window has closed (see isDuelUnlocked) and at
+// least 2 people posted (a 1-photo "duel" isn't votable). Swaps to a result
+// state once the viewer has voted, rather than disappearing — the duel
+// stays checkable/changeable for the rest of the day. ──────────────────────
+function DuelCard({ tag, voted, delay, onPress }) {
+  const meta = TAG_META[tag];
+  return (
+    <FadeScaleIn delay={delay} style={styles.duelCardWrap}>
+      <TouchableOpacity style={styles.duelCard} onPress={onPress} activeOpacity={0.85}>
+        <View style={styles.duelIconWrap}>
+          <Ionicons name={voted ? 'trophy' : 'trophy-outline'} size={18} color={voted ? '#3a2c00' : C.orange} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.duelTitle}>{voted ? 'You voted' : 'Tier Duel is ready'}</Text>
+          <Text style={styles.duelSub}>
+            {voted ? `See how ${meta.label.toLowerCase()}'s duel is going` : `Pick your favorite ${meta.label.toLowerCase()}`}
+          </Text>
+        </View>
+        <Ionicons name="chevron-forward" size={18} color={C.gray2} />
+      </TouchableOpacity>
+    </FadeScaleIn>
   );
 }
 
@@ -299,6 +341,8 @@ export default function DayBoardScreen() {
   const [loggedToday, setLoggedToday] = useState(false);
   const [likeCounts, setLikeCounts] = useState({});    // mealId -> count
   const [commentCounts, setCommentCounts] = useState({}); // mealId -> count
+  const [voteCounts, setVoteCounts] = useState({});    // mealId -> Tier Duel vote count
+  const [myVoteMealIdByTag, setMyVoteMealIdByTag] = useState({}); // tag -> mealId the viewer voted for today, or undefined
 
   // Compose / meal picker — ported verbatim from FeedScreen.jsx
   const [pickerVisible, setPickerVisible] = useState(false);
@@ -328,7 +372,7 @@ export default function DayBoardScreen() {
             breakfast:meals!breakfast_meal_id(id, name, photo_url, emoji, score, place_id, places(lat, lng, name)),
             lunch:meals!lunch_meal_id(id, name, photo_url, emoji, score, place_id, places(lat, lng, name)),
             dinner:meals!dinner_meal_id(id, name, photo_url, emoji, score, place_id, places(lat, lng, name)),
-            profiles!posts_user_id_fkey(id, username, avatar_url)
+            profiles!posts_user_id_fkey(id, username, first_name, last_name, display_name, avatar_url)
           `)
           .gte('created_at', dayStart)
           .lt('created_at', dayEnd),
@@ -357,10 +401,15 @@ export default function DayBoardScreen() {
       const mealIds = (data || [])
         .flatMap(p => [p.breakfast?.id, p.lunch?.id, p.dinner?.id])
         .filter(Boolean);
+      const todayKey = localDateKey(now);
       if (mealIds.length > 0) {
-        const [{ data: likeRows }, { data: commentRows }] = await Promise.all([
+        const [{ data: likeRows }, { data: commentRows }, { data: voteRows }] = await Promise.all([
           supabase.from('post_likes').select('meal_id').in('meal_id', mealIds),
           supabase.from('post_comments').select('meal_id').in('meal_id', mealIds),
+          // Scoped by slot+day (not meal_id) so this doubles as the source
+          // for "did I already vote in this slot today" — friends_can_see_votes
+          // (019) already limits what comes back to what the viewer may see.
+          supabase.from('post_votes').select('voter_id, meal_id, slot').eq('day', todayKey),
         ]);
         const nextLikeCounts = {};
         for (const row of likeRows || []) nextLikeCounts[row.meal_id] = (nextLikeCounts[row.meal_id] || 0) + 1;
@@ -368,9 +417,19 @@ export default function DayBoardScreen() {
         const nextCommentCounts = {};
         for (const row of commentRows || []) nextCommentCounts[row.meal_id] = (nextCommentCounts[row.meal_id] || 0) + 1;
         setCommentCounts(nextCommentCounts);
+        const nextVoteCounts = {};
+        const nextMyVoteByTag = {};
+        for (const row of voteRows || []) {
+          nextVoteCounts[row.meal_id] = (nextVoteCounts[row.meal_id] || 0) + 1;
+          if (row.voter_id === user.id) nextMyVoteByTag[row.slot] = row.meal_id;
+        }
+        setVoteCounts(nextVoteCounts);
+        setMyVoteMealIdByTag(nextMyVoteByTag);
       } else {
         setLikeCounts({});
         setCommentCounts({});
+        setVoteCounts({});
+        setMyVoteMealIdByTag({});
       }
     } catch (e) {
       setError(e.message || "Failed to load today's board.");
@@ -398,6 +457,27 @@ export default function DayBoardScreen() {
   }
 
   const tilesByTag = Object.fromEntries(MEAL_TAGS.map(tag => [tag, tilesForTag(tag)]));
+
+  // Tier Duel crown — whichever meal(s) currently lead a slot's vote count.
+  // Ties are all crowned rather than picking one arbitrarily. A slot with
+  // zero votes has no leader at all (nothing to crown yet).
+  const leaderMealIdsByTag = Object.fromEntries(
+    MEAL_TAGS.map(tag => {
+      const tiles = tilesByTag[tag];
+      const max = Math.max(0, ...tiles.map(t => voteCounts[t.mealId] || 0));
+      const leaders = max > 0 ? tiles.filter(t => (voteCounts[t.mealId] || 0) === max).map(t => t.mealId) : [];
+      return [tag, leaders];
+    })
+  );
+
+  // Tier Duel unlock — a scheduled event per slot, not always-open. Opens
+  // once that slot's window has closed (same boundaries as LogMealScreen's
+  // auto-guessed tag), and only if 2+ people posted in it — a lone photo
+  // isn't votable.
+  const todayKey = localDateKey(new Date());
+  const duelUnlockedByTag = Object.fromEntries(
+    MEAL_TAGS.map(tag => [tag, isDuelUnlocked(todayKey, tag) && tilesByTag[tag].length >= 2])
+  );
 
   const friendsEatingCount = new Set(
     MEAL_TAGS.flatMap(tag => tilesByTag[tag])
@@ -451,6 +531,10 @@ export default function DayBoardScreen() {
 
   function handlePressYou(tag) {
     navigation.navigate('LogMeal', { forceTag: tag });
+  }
+
+  function handlePressDuel(tag) {
+    navigation.navigate('Duel', { tag, day: todayKey, people: tilesByTag[tag] });
   }
 
   function handleAddFriends() {
@@ -627,6 +711,10 @@ export default function DayBoardScreen() {
               onFire={streak > 0}
               likeCounts={likeCounts}
               commentCounts={commentCounts}
+              leaderMealIds={leaderMealIdsByTag[tag]}
+              duelUnlocked={duelUnlockedByTag[tag]}
+              duelVoted={myVoteMealIdByTag[tag] != null}
+              onPressDuel={() => handlePressDuel(tag)}
             />
           ))}
 
@@ -753,6 +841,22 @@ const styles = StyleSheet.create({
 
   tileRow: { paddingHorizontal: 20, gap: TILE_GAP },
 
+  // Tier Duel card — a scheduled-event prompt, not a persistent stat, so it
+  // gets a warm gold accent (matches the trophy/crown) rather than the
+  // neutral surface used by the footer stat card.
+  duelCardWrap: { marginHorizontal: 20, marginTop: 12 },
+  duelCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: '#2a2107', borderWidth: 1, borderColor: '#ffd16655',
+    borderRadius: 16, padding: 14,
+  },
+  duelIconWrap: {
+    width: 34, height: 34, borderRadius: 17,
+    backgroundColor: '#ffd166', alignItems: 'center', justifyContent: 'center',
+  },
+  duelTitle: { fontSize: 14, fontWeight: '700', color: C.white },
+  duelSub: { fontSize: 12, color: C.gray1, marginTop: 1 },
+
   // Shadow lives here, separate from `tile`'s overflow:hidden (see
   // BoardTile's comment) — gives every tile real depth instead of a flat
   // bordered square.
@@ -786,6 +890,14 @@ const styles = StyleSheet.create({
   },
   tileEngageItem: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   tileEngageText: { fontSize: 9, fontWeight: '700', color: '#fff' },
+
+  // Tier Duel crown — top-left, opposite the like/comment badge, marking
+  // the meal currently leading its slot's vote count.
+  tileCrownBadge: {
+    position: 'absolute', top: 6, left: 6, zIndex: 1,
+    backgroundColor: '#ffd166', borderRadius: 8,
+    width: 22, height: 22, alignItems: 'center', justifyContent: 'center',
+  },
 
   // A dashed outline reads as a placeholder, not a solid raised object — a
   // heavy black drop shadow (right for photo tiles) looked wrong here. A

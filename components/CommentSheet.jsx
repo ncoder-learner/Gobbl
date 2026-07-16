@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import {
   Modal, View, Text, TextInput, TouchableOpacity, FlatList,
   StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator,
-  Pressable, Image,
+  Pressable,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
+import Avatar from './Avatar';
 
 const C = {
   bg: '#0d0d0d', surface: '#1a1a1a', border: '#2a2a2a',
@@ -26,17 +27,19 @@ function timeAgo(iso) {
 function CommentRow({ comment, myId, onDelete }) {
   const profile = comment.profiles;
   const isOwn = comment.user_id === myId;
-  const initial = (profile?.username?.[0] ?? '?').toUpperCase();
 
   return (
     <View style={styles.commentRow}>
-      <View style={styles.commentAvatar}>
-        {profile?.avatar_url ? (
-          <Image source={{ uri: profile.avatar_url }} style={styles.commentAvatarImage} />
-        ) : (
-          <Text style={styles.commentAvatarLetter}>{initial}</Text>
-        )}
-      </View>
+      <Avatar
+        uri={profile?.avatar_url}
+        firstName={profile?.first_name}
+        lastName={profile?.last_name}
+        displayName={profile?.display_name}
+        username={profile?.username}
+        size={30}
+        style={styles.commentAvatar}
+        textStyle={styles.commentAvatarLetter}
+      />
       <View style={styles.commentBody}>
         <View style={styles.commentMeta}>
           <Text style={styles.commentUsername}>@{profile?.username ?? '…'}</Text>
@@ -84,7 +87,7 @@ export default function CommentSheet({ visible, postId, mealId, postOwnerId, onD
 
       let query = supabase
         .from('post_comments')
-        .select('id, user_id, content, created_at, profiles!post_comments_user_id_fkey(username, avatar_url)')
+        .select('id, user_id, content, created_at, profiles!post_comments_user_id_fkey(username, first_name, last_name, display_name, avatar_url)')
         .order('created_at', { ascending: true })
         .limit(100);
       query = mealId ? query.eq('meal_id', mealId) : query.eq('post_id', postId);
@@ -106,7 +109,7 @@ export default function CommentSheet({ visible, postId, mealId, postOwnerId, onD
       const { data, error } = await supabase
         .from('post_comments')
         .insert({ post_id: postId, meal_id: mealId, user_id: myId, content: trimmed })
-        .select('id, user_id, content, created_at, profiles!post_comments_user_id_fkey(username, avatar_url)')
+        .select('id, user_id, content, created_at, profiles!post_comments_user_id_fkey(username, first_name, last_name, display_name, avatar_url)')
         .single();
 
       if (error) throw error;
@@ -244,13 +247,10 @@ const styles = StyleSheet.create({
     borderBottomWidth: 0.5, borderBottomColor: C.border,
   },
   commentAvatar: {
-    width: 30, height: 30, borderRadius: 15,
     backgroundColor: C.purpleDim, borderWidth: 1, borderColor: C.purpleBorder,
-    alignItems: 'center', justifyContent: 'center', marginRight: 10, marginTop: 1,
-    overflow: 'hidden',
+    marginRight: 10, marginTop: 1,
   },
-  commentAvatarImage: { width: '100%', height: '100%' },
-  commentAvatarLetter: { fontSize: 12, fontWeight: '700', color: C.purpleText },
+  commentAvatarLetter: { color: C.purpleText },
   commentBody: { flex: 1 },
   commentMeta: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 3 },
   commentUsername: { fontSize: 12, fontWeight: '700', color: C.white },
