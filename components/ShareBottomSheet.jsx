@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View, Text, Modal, ScrollView, TextInput, TouchableOpacity,
   Image, ActivityIndicator, StyleSheet, KeyboardAvoidingView, Platform, Pressable,
+  Animated, Easing, Dimensions,
 } from 'react-native';
 import { supabase } from '../lib/supabase';
 import { computeTierRank, createPost, fetchPostedMealIds, mealTagSlot, MEAL_TAGS, TAG_META } from '../lib/postUtils';
@@ -26,6 +27,36 @@ function formatScore(score) {
   return isNaN(n) ? '—' : n.toFixed(1);
 }
 
+const SCREEN_HEIGHT = Dimensions.get('window').height;
+
+// Pops a slot card in with a quick scale+flash whenever its content changes
+// (fills, or swaps to a different meal) — keyed by the caller on meal id so
+// React remounts this on every such change, re-triggering the animation.
+function SlotFillPop({ children, filled }) {
+  const scale = useRef(new Animated.Value(filled ? 0.86 : 1)).current;
+  const flash = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (!filled) return;
+    Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 18, bounciness: 10 }).start();
+    Animated.sequence([
+      Animated.timing(flash, { toValue: 1, duration: 120, useNativeDriver: true }),
+      Animated.timing(flash, { toValue: 0, duration: 320, delay: 220, useNativeDriver: true }),
+    ]).start();
+  }, []);
+
+  return (
+    <Animated.View style={{ transform: [{ scale }] }}>
+      {children}
+      {filled && (
+        <Animated.View pointerEvents="none" style={[styles.fillFlash, { opacity: flash }]}>
+          <Text style={styles.fillFlashCheck}>✓</Text>
+        </Animated.View>
+      )}
+    </Animated.View>
+  );
+}
+
 // ─── Date helpers ───────────────────────────────────────────────────────────
 function isSameDay(a, b) {
   return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
@@ -47,6 +78,30 @@ export default function ShareBottomSheet({ visible, meal, onDismiss, onPosted })
   const [caption, setCaption] = useState('');
   const [posting, setPosting] = useState(false);
   const [error, setError] = useState(null);
+
+  // Custom open/close transition — Modal's own `visible` is delayed on close
+  // until the exit animation finishes, so the sheet slides/fades out instead
+  // of just vanishing when the parent flips `visible` to false.
+  const [shown, setShown] = useState(visible);
+  const backdropOpacity = useRef(new Animated.Value(0)).current;
+  const sheetY = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
+
+  useEffect(() => {
+    if (visible) {
+      setShown(true);
+      requestAnimationFrame(() => {
+        Animated.parallel([
+          Animated.timing(backdropOpacity, { toValue: 1, duration: 220, useNativeDriver: true }),
+          Animated.spring(sheetY, { toValue: 0, useNativeDriver: true, speed: 16, bounciness: 6 }),
+        ]).start();
+      });
+    } else {
+      Animated.parallel([
+        Animated.timing(backdropOpacity, { toValue: 0, duration: 180, easing: Easing.in(Easing.cubic), useNativeDriver: true }),
+        Animated.timing(sheetY, { toValue: SCREEN_HEIGHT, duration: 220, easing: Easing.in(Easing.cubic), useNativeDriver: true }),
+      ]).start(() => setShown(false));
+    }
+  }, [visible]);
 
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [seedDate, setSeedDate] = useState(new Date());
@@ -146,9 +201,9 @@ export default function ShareBottomSheet({ visible, meal, onDismiss, onPosted })
 
   return (
     <Modal
-      visible={visible}
+      visible={shown}
       transparent
-      animationType="slide"
+      animationType="none"
       statusBarTranslucent
       onRequestClose={onDismiss}
     >
@@ -156,7 +211,14 @@ export default function ShareBottomSheet({ visible, meal, onDismiss, onPosted })
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
-        <Pressable style={styles.overlay} onPress={onDismiss}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onDismiss}>
+          <Animated.View style={[styles.backdrop, { opacity: backdropOpacity }]} />
+        </Pressable>
+
+        <Animated.View
+          style={[styles.sheetPositioner, { transform: [{ translateY: sheetY }] }]}
+          pointerEvents="box-none"
+        >
           <Pressable style={styles.sheet} onPress={() => {}}>
             <View style={styles.handle} />
 
@@ -208,26 +270,28 @@ export default function ShareBottomSheet({ visible, meal, onDismiss, onPosted })
                       <View key={tag} style={styles.slotCol}>
                         <Text style={styles.slotLabel}>{meta.emoji} {meta.label}</Text>
                         {slotMeal ? (
-                          <View style={styles.slotCard}>
-                            {slotMeal.photo_url ? (
-                              <Image source={{ uri: slotMeal.photo_url }} style={StyleSheet.absoluteFill} resizeMode="cover" />
-                            ) : (
-                              <View style={[StyleSheet.absoluteFill, styles.slotFallback]}>
-                                <Text style={{ fontSize: 24 }}>{slotMeal.emoji || '🍽️'}</Text>
+                          <SlotFillPop key={`${tag}-${slotMeal.id}`} filled>
+                            <View style={styles.slotCard}>
+                              {slotMeal.photo_url ? (
+                                <Image source={{ uri: slotMeal.photo_url }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+                              ) : (
+                                <View style={[StyleSheet.absoluteFill, styles.slotFallback]}>
+                                  <Text style={{ fontSize: 24 }}>{slotMeal.emoji || '🍽️'}</Text>
+                                </View>
+                              )}
+                              <TouchableOpacity
+                                style={styles.slotClearBtn}
+                                onPress={() => clearSlot(tag)}
+                                hitSlop={8}
+                              >
+                                <Text style={styles.slotClearText}>×</Text>
+                              </TouchableOpacity>
+                              <View style={[styles.slotScoreBadge, { backgroundColor: scoreToneColor(slotMeal.score) }]}>
+                                <Text style={styles.slotScoreText}>{formatScore(slotMeal.score)}</Text>
                               </View>
-                            )}
-                            <TouchableOpacity
-                              style={styles.slotClearBtn}
-                              onPress={() => clearSlot(tag)}
-                              hitSlop={8}
-                            >
-                              <Text style={styles.slotClearText}>×</Text>
-                            </TouchableOpacity>
-                            <View style={[styles.slotScoreBadge, { backgroundColor: scoreToneColor(slotMeal.score) }]}>
-                              <Text style={styles.slotScoreText}>{formatScore(slotMeal.score)}</Text>
+                              <Text style={styles.slotName} numberOfLines={1}>{slotMeal.name}</Text>
                             </View>
-                            <Text style={styles.slotName} numberOfLines={1}>{slotMeal.name}</Text>
-                          </View>
+                          </SlotFillPop>
                         ) : (
                           <View style={[styles.slotCard, styles.slotEmpty]}>
                             <Text style={styles.slotEmptyText}>No {tag} meal</Text>
@@ -279,16 +343,19 @@ export default function ShareBottomSheet({ visible, meal, onDismiss, onPosted })
               </TouchableOpacity>
             </ScrollView>
           </Pressable>
-        </Pressable>
+        </Animated.View>
       </KeyboardAvoidingView>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.6)',
+  },
+  sheetPositioner: {
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
     justifyContent: 'flex-end',
   },
   sheet: {
@@ -351,6 +418,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6, paddingBottom: 5,
     backgroundColor: 'rgba(0,0,0,0.35)',
   },
+  fillFlash: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 14, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: 'rgba(0,200,150,0.32)',
+  },
+  fillFlashCheck: { fontSize: 26, color: '#fff', fontWeight: '800' },
 
   fieldGroup: { paddingHorizontal: 24, marginBottom: 20 },
   fieldLabel: { fontSize: 13, color: C.gray2, marginBottom: 8, fontWeight: '500' },

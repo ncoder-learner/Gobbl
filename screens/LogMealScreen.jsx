@@ -29,6 +29,7 @@ import { FirstVisitTooltip, useFirstVisit } from '../lib/firstVisit';
 import ShareBottomSheet from '../components/ShareBottomSheet';
 import * as Location from 'expo-location';
 import * as Crypto from 'expo-crypto';
+import { isHomeMeal } from '../lib/homePrivacy';
 
 // ─── Theme (matches HomeScreen) ───────────────────────────────────────────────
 const C = {
@@ -263,12 +264,77 @@ function DoneCelebration({ emoji, mealName, score, onFinished }) {
   );
 }
 
+// ─── Share prompt — a light, dismissible "Post this?" suggestion, not a
+// blocking choice. Slides in a beat after the celebration settles so it reads
+// as a follow-up nudge rather than a form the user must resolve. ─────────────
+
+function SharePromptCard({ meal, posted, onShare }) {
+  const [dismissed, setDismissed] = useState(false);
+  const cardIn = useRef(new Animated.Value(0)).current;
+  const confirmPop = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      Animated.spring(cardIn, { toValue: 1, useNativeDriver: true, speed: 14, bounciness: 9 }).start();
+    }, 220);
+    return () => clearTimeout(t);
+  }, []);
+
+  useEffect(() => {
+    if (!posted) return;
+    confirmPop.setValue(0.7);
+    Animated.spring(confirmPop, { toValue: 1, useNativeDriver: true, speed: 20, bounciness: 14 }).start();
+  }, [posted]);
+
+  function dismiss() {
+    Animated.timing(cardIn, {
+      toValue: 0, duration: 180, easing: Easing.in(Easing.cubic), useNativeDriver: true,
+    }).start(() => setDismissed(true));
+  }
+
+  if (dismissed) return null;
+
+  const translateY = cardIn.interpolate({ inputRange: [0, 1], outputRange: [14, 0] });
+
+  return (
+    <Animated.View style={[styles.sharePromptCard, { opacity: cardIn, transform: [{ translateY }] }]}>
+      {posted ? (
+        <Animated.View style={[styles.sharePromptRow, styles.sharePromptRowCenter, { transform: [{ scale: confirmPop }] }]}>
+          <Text style={styles.sharePromptCheckEmoji}>✓</Text>
+          <Text style={styles.sharePromptPostedText}>Shared to your feed</Text>
+        </Animated.View>
+      ) : (
+        <View style={styles.sharePromptRow}>
+          <View style={styles.sharePromptThumb}>
+            {meal.photo_url ? (
+              <Image source={{ uri: meal.photo_url }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+            ) : (
+              <Text style={styles.sharePromptThumbEmoji}>{meal.emoji}</Text>
+            )}
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.sharePromptTitle}>Post this?</Text>
+            <Text style={styles.sharePromptSub}>Share it to your friends' feed</Text>
+          </View>
+          <TouchableOpacity style={styles.sharePromptBtn} onPress={onShare} activeOpacity={0.85} hitSlop={6}>
+            <Text style={styles.sharePromptBtnText}>Share</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.sharePromptDismiss} onPress={dismiss} hitSlop={10}>
+            <Text style={styles.sharePromptDismissText}>×</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+    </Animated.View>
+  );
+}
+
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
 export default function LogMealScreen() {
   const navigation = useNavigation();
   const route = useRoute();
   const sponsored = route.params?.sponsored ?? null; // passed from HomeScreen sponsored ad
+  const forceTag = route.params?.forceTag ?? null; // passed from DayBoardScreen's empty "you" tile
 
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef(null);
@@ -281,7 +347,15 @@ export default function LogMealScreen() {
   const [identified, setIdentified] = useState(null); // Claude's response
   const [mealName, setMealName] = useState('');
   const [score, setScore] = useState(5.5);
-  const [mealTag, setMealTag] = useState(() => guessMealTag());
+  const [mealTag, setMealTag] = useState(() => forceTag || guessMealTag());
+
+  // Consume forceTag once — otherwise it'd linger in this route's params
+  // (React Navigation keeps params until overwritten) and silently force
+  // the same tag on a later, unrelated visit via the bottom tab icon.
+  useEffect(() => {
+    if (forceTag) navigation.setParams({ forceTag: undefined });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [savedMealId, setSavedMealId] = useState(null);
   const [savedPhotoUrl, setSavedPhotoUrl] = useState(null);
   const [shareOpen, setShareOpen] = useState(false);
@@ -298,8 +372,56 @@ export default function LogMealScreen() {
   const [selectedPlace, setSelectedPlace] = useState(null); // {place_id, name, address, lat, lng}
   const [placeSearching, setPlaceSearching] = useState(false);
   const [userCoords, setUserCoords]       = useState(null); // {lat, lng} — null if permission denied
+  const [homeLocation, setHomeLocation]   = useState(null); // {lat, lng, name} from profiles, or null
+  const currentUserIdRef = useRef(null);
   const placeSessionRef  = useRef(null); // UUID reused across AC keystrokes + final details call
   const placeDebounceRef = useRef(null);
+
+  // Load the user's saved home location (if any) so "This was at home" can
+  // be offered as a one-tap alternative to searching.
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+        currentUserIdRef.current = user.id;
+        const { data, error: homeErr } = await supabase
+          .from('profiles')
+          .select('home_lat, home_lng, home_place_name')
+          .eq('id', user.id)
+          .single();
+        if (homeErr) throw homeErr;
+        if (data?.home_lat != null && data?.home_lng != null) {
+          setHomeLocation({ lat: data.home_lat, lng: data.home_lng, name: data.home_place_name || 'Home' });
+        }
+      } catch (err) {
+        // non-fatal — quick option just won't be offered, but log so a
+        // schema-cache miss (PostgREST hasn't picked up a new column yet —
+        // see migration 012's note) or RLS denial is visible instead of
+        // silently leaving the chip missing with no trace.
+        console.warn('[LogMeal] failed to load home location:', err?.message ?? err);
+      }
+    })();
+  }, []);
+
+  // "This was at home" — synthesizes a place_id from the user + coordinates
+  // (not just the user) since the `places` table is an immutable INSERT-only
+  // cache (no UPDATE policy — see migration 004). Keying off coordinates
+  // means repeated home-tagged meals share one row while a changed home
+  // address in AccountScreen naturally lands on a fresh row instead of
+  // silently failing to update a stale one.
+  function selectHome() {
+    if (!homeLocation || !currentUserIdRef.current) return;
+    const latKey = homeLocation.lat.toFixed(5);
+    const lngKey = homeLocation.lng.toFixed(5);
+    setSelectedPlace({
+      place_id: `home:${currentUserIdRef.current}:${latKey}:${lngKey}`,
+      name: homeLocation.name,
+      address: null,
+      lat: homeLocation.lat,
+      lng: homeLocation.lng,
+    });
+  }
 
   // Request foreground location as soon as the log flow starts (mount), so coords
   // are usually ready well before the user reaches place search at the confirm stage.
@@ -359,7 +481,7 @@ export default function LogMealScreen() {
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       quality: 1,
     });
 
@@ -673,31 +795,19 @@ export default function LogMealScreen() {
           <Text style={styles.doneTitle}>Logged!</Text>
           <Text style={styles.doneSub} numberOfLines={1}>{mealName}</Text>
 
-          <View style={styles.doneOptionsRow}>
-            {sharePosted ? (
-              <View style={styles.doneSharedBadge}>
-                <Text style={styles.doneSharedText}>✓ Shared to feed</Text>
-              </View>
-            ) : (
-              <TouchableOpacity
-                style={styles.doneShareBtn}
-                onPress={() => setShareOpen(true)}
-                activeOpacity={0.85}
-              >
-                <Text style={styles.doneShareBtnText}>Share to feed →</Text>
-              </TouchableOpacity>
-            )}
+          <SharePromptCard
+            meal={shareMeal}
+            posted={sharePosted}
+            onShare={() => setShareOpen(true)}
+          />
 
-            <TouchableOpacity
-              style={styles.doneContinueBtn}
-              onPress={handleFinish}
-              activeOpacity={0.85}
-            >
-              <Text style={styles.doneContinueBtnText}>
-                {sharePosted ? 'Continue →' : 'Skip · Go to tier list'}
-              </Text>
-            </TouchableOpacity>
-          </View>
+          <TouchableOpacity
+            style={styles.doneContinueBtn}
+            onPress={handleFinish}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.doneContinueBtnText}>Continue →</Text>
+          </TouchableOpacity>
         </View>
 
         <ShareBottomSheet
@@ -931,8 +1041,10 @@ export default function LogMealScreen() {
               <View style={styles.placeChip}>
                 <Ionicons name="location" size={16} color={C.orange} style={{ marginTop: 1 }} />
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.placeChipName} numberOfLines={1}>{selectedPlace.name}</Text>
-                  {selectedPlace.address ? (
+                  <Text style={styles.placeChipName} numberOfLines={1}>
+                    {isHomeMeal(selectedPlace) ? 'Home' : selectedPlace.name}
+                  </Text>
+                  {(!isHomeMeal(selectedPlace) && selectedPlace.address) ? (
                     <Text style={styles.placeChipAddr} numberOfLines={1}>{selectedPlace.address}</Text>
                   ) : null}
                 </View>
@@ -942,6 +1054,12 @@ export default function LogMealScreen() {
               </View>
             ) : (
               <>
+                {homeLocation && (
+                  <TouchableOpacity style={styles.homeChip} onPress={selectHome} activeOpacity={0.75}>
+                    <Ionicons name="home" size={14} color={C.orange} />
+                    <Text style={styles.homeChipText}>This was at home</Text>
+                  </TouchableOpacity>
+                )}
                 <View style={styles.placeInputRow}>
                   <Ionicons name="search" size={16} color={C.gray3} style={{ marginLeft: 12 }} />
                   <TextInput
@@ -1163,22 +1281,38 @@ const styles = StyleSheet.create({
   doneHint: { fontSize: 13, color: C.gray2, marginTop: 28 },
 
   // Done-options stage
-  doneOptionsRow: { width: '100%', marginTop: 36, gap: 12 },
-  doneShareBtn: {
-    backgroundColor: '#8855cc', borderRadius: 16,
-    paddingVertical: 16, alignItems: 'center',
-  },
-  doneShareBtnText: { fontSize: 16, fontWeight: '700', color: C.white },
   doneContinueBtn: {
+    width: '100%', marginTop: 16,
     backgroundColor: C.surface, borderWidth: 0.5, borderColor: C.border,
     borderRadius: 16, paddingVertical: 16, alignItems: 'center',
   },
   doneContinueBtnText: { fontSize: 15, fontWeight: '500', color: C.gray1 },
-  doneSharedBadge: {
-    backgroundColor: '#1a2a1a', borderWidth: 0.5, borderColor: '#2a5a2a',
-    borderRadius: 16, paddingVertical: 16, alignItems: 'center',
+
+  // Share prompt card — a light, dismissible suggestion rather than a
+  // full-weight decision the user has to make before moving on.
+  sharePromptCard: {
+    width: '100%', marginTop: 36,
+    backgroundColor: C.surface, borderWidth: 0.5, borderColor: C.border,
+    borderRadius: 16, paddingVertical: 12, paddingHorizontal: 14,
   },
-  doneSharedText: { fontSize: 15, fontWeight: '600', color: '#00c896' },
+  sharePromptRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  sharePromptRowCenter: { justifyContent: 'center' },
+  sharePromptThumb: {
+    width: 40, height: 40, borderRadius: 10, overflow: 'hidden',
+    backgroundColor: '#111', alignItems: 'center', justifyContent: 'center',
+  },
+  sharePromptThumbEmoji: { fontSize: 20 },
+  sharePromptTitle: { fontSize: 14, fontWeight: '700', color: C.white },
+  sharePromptSub: { fontSize: 12, color: C.gray2, marginTop: 1 },
+  sharePromptBtn: {
+    backgroundColor: '#8855cc', borderRadius: 10,
+    paddingHorizontal: 14, paddingVertical: 8,
+  },
+  sharePromptBtnText: { fontSize: 13, fontWeight: '700', color: C.white },
+  sharePromptDismiss: { padding: 2, marginLeft: 2 },
+  sharePromptDismissText: { fontSize: 18, color: C.gray4, fontWeight: '600' },
+  sharePromptCheckEmoji: { fontSize: 16, color: '#00c896', fontWeight: '800' },
+  sharePromptPostedText: { fontSize: 14, fontWeight: '600', color: '#00c896' },
 
   // Place field
   placeChip: {
@@ -1193,6 +1327,12 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   placeChipName: { fontSize: 14, fontWeight: '500', color: C.white, marginBottom: 1 },
+  homeChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start',
+    backgroundColor: C.inputBg, borderWidth: 0.5, borderColor: C.orange,
+    borderRadius: 20, paddingHorizontal: 12, paddingVertical: 7, marginBottom: 10,
+  },
+  homeChipText: { fontSize: 13, fontWeight: '600', color: C.orange },
   placeChipAddr: { fontSize: 12, color: C.gray2 },
   placeInputRow: {
     flexDirection: 'row',

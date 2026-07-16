@@ -15,8 +15,6 @@ import {
   Pressable,
   TouchableOpacity,
   LayoutAnimation,
-  UIManager,
-  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import RAnimated, {
@@ -29,10 +27,6 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import * as Location from 'expo-location';
 import { supabase } from '../lib/supabase';
 import { FirstVisitTooltip, useFirstVisit } from '../lib/firstVisit';
-
-if (Platform.OS === 'android') {
-  UIManager.setLayoutAnimationEnabledExperimental?.(true);
-}
 
 const C = {
   bg: '#0d0d0d',

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   Modal, View, Text, TextInput, TouchableOpacity, FlatList,
   StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator,
-  Pressable,
+  Pressable, Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
@@ -31,7 +31,11 @@ function CommentRow({ comment, myId, onDelete }) {
   return (
     <View style={styles.commentRow}>
       <View style={styles.commentAvatar}>
-        <Text style={styles.commentAvatarLetter}>{initial}</Text>
+        {profile?.avatar_url ? (
+          <Image source={{ uri: profile.avatar_url }} style={styles.commentAvatarImage} />
+        ) : (
+          <Text style={styles.commentAvatarLetter}>{initial}</Text>
+        )}
       </View>
       <View style={styles.commentBody}>
         <View style={styles.commentMeta}>
@@ -74,7 +78,7 @@ export default function CommentSheet({ visible, postId, postOwnerId, onDismiss }
 
       const { data } = await supabase
         .from('post_comments')
-        .select('id, user_id, content, created_at, profiles!post_comments_user_id_fkey(username)')
+        .select('id, user_id, content, created_at, profiles!post_comments_user_id_fkey(username, avatar_url)')
         .eq('post_id', postId)
         .order('created_at', { ascending: true })
         .limit(100);
@@ -95,7 +99,7 @@ export default function CommentSheet({ visible, postId, postOwnerId, onDismiss }
       const { data, error } = await supabase
         .from('post_comments')
         .insert({ post_id: postId, user_id: myId, content: trimmed })
-        .select('id, user_id, content, created_at, profiles!post_comments_user_id_fkey(username)')
+        .select('id, user_id, content, created_at, profiles!post_comments_user_id_fkey(username, avatar_url)')
         .single();
 
       if (error) throw error;
@@ -235,7 +239,9 @@ const styles = StyleSheet.create({
     width: 30, height: 30, borderRadius: 15,
     backgroundColor: C.purpleDim, borderWidth: 1, borderColor: C.purpleBorder,
     alignItems: 'center', justifyContent: 'center', marginRight: 10, marginTop: 1,
+    overflow: 'hidden',
   },
+  commentAvatarImage: { width: '100%', height: '100%' },
   commentAvatarLetter: { fontSize: 12, fontWeight: '700', color: C.purpleText },
   commentBody: { flex: 1 },
   commentMeta: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 3 },

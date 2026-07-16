@@ -56,7 +56,9 @@
           "photosPermission": "FoodWrapped accesses your photo library so you can log meals from existing photos."
         }
       ],
-      "expo-font"
+      "expo-font",
+      "expo-splash-screen",
+      "react-native-maps"
     ]
   }
 }

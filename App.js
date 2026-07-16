@@ -10,7 +10,6 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { supabase } from './lib/supabase';
 import { setupNotificationHandler } from './lib/notifications';
 import * as Notifications from 'expo-notifications';
-import FeedScreen from './screens/FeedScreen';
 import LogMealScreen from './screens/LogMealScreen';
 import RecapsScreen from './screens/RecapsScreen';
 import TierListScreen from './screens/TierListScreen';
@@ -24,6 +23,10 @@ import UserProfileScreen from './screens/UserProfileScreen';
 import MyProfileScreen from './screens/MyProfileScreen';
 import BlockedUsersScreen from './screens/BlockedUsersScreen';
 import MealDetailScreen from './screens/MealDetailScreen';
+import MapScreen from './screens/MapScreen';
+import DayTrailDetailScreen from './screens/DayTrailDetailScreen';
+import DayBoardScreen from './screens/DayBoardScreen';
+import SlotViewerScreen from './screens/SlotViewerScreen';
 
 const Tab  = createBottomTabNavigator();
 const Root = createNativeStackNavigator();
@@ -63,7 +66,7 @@ function TabNavigator() {
     >
       <Tab.Screen
         name="Feed"
-        component={FeedScreen}
+        component={DayBoardScreen}
         options={{
           tabBarLabel: 'Feed',
           tabBarIcon: ({ color, size }) => <Ionicons name="people-outline" size={size} color={color} />,
@@ -144,6 +147,21 @@ function AppNavigator() {
           name="MealDetail"
           component={MealDetailScreen}
           options={{ animation: 'slide_from_right' }}
+        />
+        <Root.Screen
+          name="Map"
+          component={MapScreen}
+          options={{ animation: 'slide_from_right' }}
+        />
+        <Root.Screen
+          name="DayTrailDetail"
+          component={DayTrailDetailScreen}
+          options={{ animation: 'slide_from_bottom' }}
+        />
+        <Root.Screen
+          name="SlotViewer"
+          component={SlotViewerScreen}
+          options={{ animation: 'fade' }}
         />
       </Root.Navigator>
     </NavigationContainer>

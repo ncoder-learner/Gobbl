@@ -1,8 +1,8 @@
-import { useCallback, useState, useRef } from 'react';
+import { useCallback, useState, useRef, useMemo } from 'react';
 import {
   View, Text, FlatList, Image, TouchableOpacity, StyleSheet,
   StatusBar, Dimensions, ActivityIndicator, RefreshControl,
-  Modal, Pressable, ScrollView, Share,
+  Modal, Pressable, ScrollView, Share, Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -11,9 +11,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import ShareBottomSheet from '../components/ShareBottomSheet';
 import CommentSheet from '../components/CommentSheet';
+import DayTrail from '../components/DayTrail';
 import { syncStreakRiskNotification, loadNotifPrefs } from '../lib/notifications';
 import { FirstVisitTooltip, useFirstVisit } from '../lib/firstVisit';
 import { fetchPostedMealIds, MEAL_TAGS, TAG_META } from '../lib/postUtils';
+import { castVote, tallyVotes, VOTE_COLORS, voteSummary, voteCaption } from '../lib/postVotes';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_WIDTH   = SCREEN_WIDTH - 32;
@@ -59,6 +61,26 @@ function localDateKey(date) {
   return `${y}-${m}-${d}`;
 }
 
+// 'Today' / 'Yesterday' / a full weekday date for anything older — the
+// section header label shown above each day's group of posts.
+function dayHeaderLabel(dateKey) {
+  const todayKey = localDateKey(new Date());
+  const yesterdayKey = localDateKey(new Date(Date.now() - 86400000));
+  if (dateKey === todayKey) return 'Today';
+  if (dateKey === yesterdayKey) return 'Yesterday';
+  const [y, m, d] = dateKey.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString([], { weekday: 'long', month: 'short', day: 'numeric' });
+}
+
+function DayHeader({ label }) {
+  return (
+    <View style={styles.dayHeaderRow}>
+      <Text style={styles.dayHeaderText}>{label}</Text>
+      <View style={styles.dayHeaderLine} />
+    </View>
+  );
+}
+
 function computeStreak(rows) {
   if (!rows?.length) return { streak: 0, loggedToday: false };
   const dateSet = new Set(rows.map(r => localDateKey(new Date(r.created_at))));
@@ -80,45 +102,99 @@ function computeStreak(rows) {
 // (and therefore post.tier_rank, a single legacy snapshot) points at — that's
 // the only meal we have a stored rank for, so only its image gets a tier
 // ribbon, inline rather than as a card-wide overlay.
-function MediaSlot({ tag, meal, isPrimary, tierRank, onPress }) {
+//
+// Tier Duel takes over the tap target when voting is live (canVote): tapping
+// the photo casts/changes/undoes your vote instead of opening the meal
+// detail screen, with a quick scale-down pulse and a persistent highlight
+// ring on your current pick. When you can't vote (you're the owner, or the
+// post only has 1 slot), tapping behaves as before — opens the meal detail.
+function MediaSlot({ tag, meal, isPrimary, tierRank, onPress, showVotes, canVote, voteCount, isMyVote, onVote }) {
   const color = scoreToneColor(meal.score);
   const meta = TAG_META[tag];
+  const scale = useRef(new Animated.Value(1)).current;
+
+  function handlePress() {
+    if (canVote) {
+      Animated.sequence([
+        Animated.timing(scale, { toValue: 0.94, duration: 90, useNativeDriver: true }),
+        Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 18, bounciness: 8 }),
+      ]).start();
+      onVote(tag);
+    } else {
+      onPress();
+    }
+  }
+
   return (
-    <TouchableOpacity style={styles.mediaSlot} onPress={onPress} activeOpacity={0.9}>
-      {meal.photo_url ? (
-        <Image
-          source={{ uri: meal.photo_url }}
+    <Animated.View style={[styles.mediaSlot, isMyVote && styles.mediaSlotVoted, { transform: [{ scale }] }]}>
+      <TouchableOpacity style={styles.mediaSlotTouchable} onPress={handlePress} activeOpacity={0.9}>
+        {meal.photo_url ? (
+          <Image
+            source={{ uri: meal.photo_url }}
+            style={StyleSheet.absoluteFill}
+            resizeMode="cover"
+            resizeMethod="scale"
+          />
+        ) : (
+          <View style={[StyleSheet.absoluteFill, styles.cardNoPhoto]}>
+            <Text style={styles.cardFallbackEmoji}>{meal.emoji || '🍽️'}</Text>
+          </View>
+        )}
+
+        <LinearGradient
+          colors={['rgba(0,0,0,0.32)', 'transparent', 'rgba(0,0,0,0.4)']}
+          locations={[0, 0.3, 1]}
           style={StyleSheet.absoluteFill}
-          resizeMode="cover"
-          resizeMethod="scale"
+          pointerEvents="none"
         />
-      ) : (
-        <View style={[StyleSheet.absoluteFill, styles.cardNoPhoto]}>
-          <Text style={styles.cardFallbackEmoji}>{meal.emoji || '🍽️'}</Text>
+
+        <View style={styles.slotTagBadge}>
+          <Text style={styles.slotTagEmoji}>{meta.emoji}</Text>
         </View>
-      )}
 
-      <LinearGradient
-        colors={['rgba(0,0,0,0.32)', 'transparent', 'rgba(0,0,0,0.4)']}
-        locations={[0, 0.3, 1]}
-        style={StyleSheet.absoluteFill}
-        pointerEvents="none"
-      />
-
-      <View style={styles.slotTagBadge}>
-        <Text style={styles.slotTagEmoji}>{meta.emoji}</Text>
-      </View>
-
-      <View style={[styles.slotScoreBadge, { backgroundColor: color }]}>
-        <Text style={styles.slotScoreText}>{formatScore(meal.score)}</Text>
-      </View>
-
-      {isPrimary && tierRank != null && tierRank <= 10 && (
-        <View style={[styles.slotTierRibbon, { borderColor: color + 'aa' }]}>
-          <Text style={[styles.slotTierText, { color }]}>#{tierRank}</Text>
+        <View style={[styles.slotScoreBadge, { backgroundColor: color }]}>
+          <Text style={styles.slotScoreText}>{formatScore(meal.score)}</Text>
         </View>
-      )}
-    </TouchableOpacity>
+
+        {isPrimary && tierRank != null && tierRank <= 10 && (
+          <View style={[styles.slotTierRibbon, { borderColor: color + 'aa' }]}>
+            <Text style={[styles.slotTierText, { color }]}>#{tierRank}</Text>
+          </View>
+        )}
+
+        {showVotes && (
+          <View style={[styles.slotVoteBadge, isMyVote && styles.slotVoteBadgeActive]}>
+            <Ionicons name="flame" size={12} color={isMyVote ? '#fff' : '#ffb84d'} />
+            <Text style={styles.slotVoteCount}>{voteCount}</Text>
+          </View>
+        )}
+      </TouchableOpacity>
+    </Animated.View>
+  );
+}
+
+// Segmented bar showing each slot's share of the post's votes, plus a
+// summary caption — rendered directly under the media row.
+function VoteBar({ images, counts, canVote }) {
+  if (images.length < 2) return null;
+  const summary = voteSummary(images, counts);
+  const caption = voteCaption(summary, { canVote });
+
+  return (
+    <View style={styles.voteBarWrap}>
+      <View style={styles.voteBarTrack}>
+        {summary.total === 0 ? (
+          <View style={[styles.voteBarSeg, { flex: 1, backgroundColor: '#2a2a2a' }]} />
+        ) : (
+          images.map(({ tag }) => {
+            const c = counts[tag] || 0;
+            if (c === 0) return null;
+            return <View key={tag} style={[styles.voteBarSeg, { flex: c, backgroundColor: VOTE_COLORS[tag] }]} />;
+          })
+        )}
+      </View>
+      <Text style={styles.voteBarCaption}>{caption}</Text>
+    </View>
   );
 }
 
@@ -136,6 +212,38 @@ function PostCard({ post, currentUserId, currentUsername, onPressUser, onPressMe
   const [isLiked, setIsLiked]       = useState(likes.some(l => l.user_id === currentUserId));
   const [liking, setLiking]         = useState(false);
   const [commentOpen, setCommentOpen] = useState(false);
+
+  // Tier Duel — friends tap a slot on a 2-3 image post to pick which meal
+  // they'd want; owner can see the tally but can't vote on their own post.
+  const isOwner = post.user_id === currentUserId;
+  const showVotes = images.length >= 2;
+  const canVote = showVotes && !isOwner;
+  const initialTally = tallyVotes(post.post_votes, currentUserId);
+  const [voteCounts, setVoteCounts] = useState(initialTally.counts);
+  const [myVote, setMyVote]         = useState(initialTally.myVote);
+  const [voting, setVoting]         = useState(false);
+
+  async function handleVote(tag) {
+    if (!canVote || voting || !currentUserId) return;
+    const prevMyVote = myVote;
+    const prevCounts = voteCounts;
+    const nextMyVote = myVote === tag ? null : tag;
+
+    const nextCounts = { ...voteCounts };
+    if (prevMyVote) nextCounts[prevMyVote] = Math.max(0, nextCounts[prevMyVote] - 1);
+    if (nextMyVote) nextCounts[nextMyVote] = (nextCounts[nextMyVote] || 0) + 1;
+    setVoteCounts(nextCounts);
+    setMyVote(nextMyVote);
+    setVoting(true);
+    try {
+      await castVote(post.id, tag, prevMyVote);
+    } catch {
+      setVoteCounts(prevCounts);
+      setMyVote(prevMyVote);
+    } finally {
+      setVoting(false);
+    }
+  }
 
   async function toggleLike() {
     if (liking || !currentUserId) return;
@@ -183,9 +291,16 @@ function PostCard({ post, currentUserId, currentUsername, onPressUser, onPressMe
               isPrimary={meal.id === post.meal_id}
               tierRank={post.tier_rank}
               onPress={() => onPressMeal(meal.id, post.id)}
+              showVotes={showVotes}
+              canVote={canVote}
+              voteCount={voteCounts[tag] || 0}
+              isMyVote={myVote === tag}
+              onVote={handleVote}
             />
           ))}
         </View>
+
+        <VoteBar images={images} counts={voteCounts} canVote={canVote} />
 
         {/* Info block — normal (non-overlaid) block below the media box */}
         <View style={styles.infoBlock}>
@@ -196,9 +311,13 @@ function PostCard({ post, currentUserId, currentUsername, onPressUser, onPressMe
             hitSlop={{ top: 6, bottom: 6, left: 0, right: 0 }}
           >
             <View style={styles.posterAvatar}>
-              <Text style={styles.posterInitial}>
-                {(poster.username?.[0] ?? poster.display_name?.[0] ?? '?').toUpperCase()}
-              </Text>
+              {poster.avatar_url ? (
+                <Image source={{ uri: poster.avatar_url }} style={styles.posterAvatarImage} />
+              ) : (
+                <Text style={styles.posterInitial}>
+                  {(poster.username?.[0] ?? poster.display_name?.[0] ?? '?').toUpperCase()}
+                </Text>
+              )}
             </View>
             <Text style={styles.posterUsername}>@{poster.username}</Text>
             <Text style={styles.postTime}>{timeAgo(post.created_at)}</Text>
@@ -239,6 +358,8 @@ function PostCard({ post, currentUserId, currentUsername, onPressUser, onPressMe
           {post.caption ? (
             <Text style={styles.caption} numberOfLines={2}>{post.caption}</Text>
           ) : null}
+
+          <DayTrail images={images} isOwner={post.user_id === currentUserId} />
 
           <Text style={styles.mealName} numberOfLines={1}>{mealNames}</Text>
         </View>
@@ -365,14 +486,15 @@ export default function FeedScreen() {
       let postsQuery = supabase
         .from('posts')
         .select(`
-          id, user_id, caption, tier_rank, created_at, meal_id,
-          breakfast:meals!breakfast_meal_id(id, name, emoji, score, photo_url, tag),
-          lunch:meals!lunch_meal_id(id, name, emoji, score, photo_url, tag),
-          dinner:meals!dinner_meal_id(id, name, emoji, score, photo_url, tag),
+          id, user_id, caption, tier_rank, created_at, last_updated_at, meal_id,
+          breakfast:meals!breakfast_meal_id(id, name, emoji, score, photo_url, tag, place_id, places(lat, lng, name)),
+          lunch:meals!lunch_meal_id(id, name, emoji, score, photo_url, tag, place_id, places(lat, lng, name)),
+          dinner:meals!dinner_meal_id(id, name, emoji, score, photo_url, tag, place_id, places(lat, lng, name)),
           profiles!posts_user_id_fkey(id, username, display_name, avatar_url),
-          post_likes(user_id)
+          post_likes(user_id),
+          post_votes(voter_id, slot)
         `)
-        .order('created_at', { ascending: false })
+        .order('last_updated_at', { ascending: false })
         .range(from, to);
 
       if (fCount >= 3) {
@@ -441,6 +563,24 @@ export default function FeedScreen() {
     loadData(page + 1, false);
   }
 
+  // Flattened [{type:'header', id, label} | {type:'post', id, post}] list —
+  // a day-section header is inserted whenever the post's local calendar day
+  // changes, so pagination (which only ever appends to `posts`) keeps
+  // working unmodified while this just re-derives the grouped view.
+  const feedItems = useMemo(() => {
+    const items = [];
+    let lastKey = null;
+    for (const post of posts) {
+      const key = localDateKey(new Date(post.created_at));
+      if (key !== lastKey) {
+        items.push({ type: 'header', id: `header-${key}`, label: dayHeaderLabel(key) });
+        lastKey = key;
+      }
+      items.push({ type: 'post', id: post.id, post });
+    }
+    return items;
+  }, [posts]);
+
   function handlePressUser(userId) {
     navigation.navigate('UserProfile', { userId });
   }
@@ -495,6 +635,12 @@ export default function FeedScreen() {
       <View style={styles.pageHeader}>
         <Text style={styles.pageTitle}>FoodWrapped</Text>
         <View style={styles.headerActions}>
+          <TouchableOpacity
+            onPress={() => navigation.navigate('Map')}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Ionicons name="map-outline" size={24} color={C.orange} />
+          </TouchableOpacity>
           <TouchableOpacity
             onPress={handleCompose}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
@@ -620,10 +766,20 @@ export default function FeedScreen() {
       />
 
       <FlatList
-        data={posts}
+        data={feedItems}
         keyExtractor={item => item.id}
         renderItem={({ item }) => (
-          <PostCard post={item} currentUserId={currentUserId} currentUsername={currentUsername} onPressUser={handlePressUser} onPressMeal={handlePressMeal} />
+          item.type === 'header' ? (
+            <DayHeader label={item.label} />
+          ) : (
+            <PostCard
+              post={item.post}
+              currentUserId={currentUserId}
+              currentUsername={currentUsername}
+              onPressUser={handlePressUser}
+              onPressMeal={handlePressMeal}
+            />
+          )
         )}
         ListHeaderComponent={listHeader}
         ListEmptyComponent={
@@ -705,12 +861,24 @@ const styles = StyleSheet.create({
     height: 0.5, backgroundColor: C.border, marginHorizontal: 16, marginBottom: 12,
   },
 
+  // Day-section header — separates posts into 'Today' / 'Yesterday' / date
+  // groups. First one sits right under the personal strip's divider; the
+  // rest space themselves out from the previous day's last card.
+  dayHeaderRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    marginHorizontal: 16, marginTop: 6, marginBottom: 14,
+  },
+  dayHeaderText: {
+    fontSize: 13, fontWeight: '800', color: C.white, letterSpacing: 0.3,
+  },
+  dayHeaderLine: { flex: 1, height: 0.5, backgroundColor: C.border },
+
   // Post card — Shorts-style: a media box on top, a normal (non-overlaid)
   // info block below. Elevation and overflow:hidden must live on SEPARATE
   // views — on Android, elevation blocks overflow clipping, so the image
   // bleeds through the rounded corners otherwise.
   cardWrap: {
-    marginBottom: 20, marginHorizontal: 16, borderRadius: 22,
+    marginBottom: 30, marginHorizontal: 16, borderRadius: 22,
     shadowColor: '#000', shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.3, shadowRadius: 18, elevation: 8,
   },
@@ -724,7 +892,9 @@ const styles = StyleSheet.create({
   mediaRow: {
     flexDirection: 'row', height: MEDIA_HEIGHT, gap: 3, backgroundColor: '#000',
   },
-  mediaSlot: { flex: 1, backgroundColor: '#111' },
+  mediaSlot: { flex: 1, backgroundColor: '#111', overflow: 'hidden' },
+  mediaSlotVoted: { borderWidth: 3, borderColor: C.orange, borderRadius: 8 },
+  mediaSlotTouchable: { flex: 1 },
   cardNoPhoto: { alignItems: 'center', justifyContent: 'center', backgroundColor: '#151515' },
   cardFallbackEmoji: { fontSize: 36 },
 
@@ -758,16 +928,39 @@ const styles = StyleSheet.create({
   },
   slotTierText: { fontSize: 11, fontWeight: '800', letterSpacing: 0.3 },
 
+  // Tier Duel vote badge — bottom-right, opposite the tier ribbon
+  slotVoteBadge: {
+    position: 'absolute', bottom: 12, right: 12,
+    flexDirection: 'row', alignItems: 'center', gap: 3,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.16)', borderRadius: 9,
+    paddingHorizontal: 7, paddingVertical: 4,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.35, shadowRadius: 4, elevation: 3,
+  },
+  slotVoteBadgeActive: { backgroundColor: C.orange, borderColor: 'rgba(255,255,255,0.35)' },
+  slotVoteCount: { fontSize: 11, fontWeight: '800', color: '#fff' },
+
+  // Tier Duel vote-share bar — directly under the media row
+  voteBarWrap: { paddingHorizontal: 14, paddingTop: 10 },
+  voteBarTrack: {
+    flexDirection: 'row', height: 6, borderRadius: 3, overflow: 'hidden',
+    backgroundColor: '#1a1a1a',
+  },
+  voteBarSeg: { height: '100%' },
+  voteBarCaption: { fontSize: 12, color: C.gray2, fontWeight: '500', marginTop: 6 },
+
   // Info block — normal flow, below the media box. Typography hierarchy:
   // username (bold, white, largest) > caption (regular, near-white) >
   // meal names (small, semibold, muted — metadata, not prose).
-  infoBlock: { paddingHorizontal: 14, paddingTop: 12, paddingBottom: 14 },
-  posterRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 2, gap: 9 },
+  infoBlock: { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 18 },
+  posterRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4, gap: 9 },
   posterAvatar: {
     width: 30, height: 30, borderRadius: 15,
     backgroundColor: C.purpleDim, borderWidth: 1, borderColor: C.purpleBorder,
-    alignItems: 'center', justifyContent: 'center',
+    alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
   },
+  posterAvatarImage: { width: '100%', height: '100%' },
   posterInitial: { fontSize: 12, fontWeight: '700', color: C.purpleText },
   posterUsername: { fontSize: 15, fontWeight: '700', color: C.white, letterSpacing: 0.1, flex: 1 },
   postTime: { fontSize: 12, color: C.gray2 },
@@ -784,11 +977,11 @@ const styles = StyleSheet.create({
   badgeText: { fontSize: 9, fontWeight: '800', color: '#fff' },
   caption: {
     fontSize: 14, fontWeight: '400', color: 'rgba(255,255,255,0.92)',
-    lineHeight: 19, marginTop: 6,
+    lineHeight: 19, marginTop: 8,
   },
   mealName: {
     fontSize: 12, fontWeight: '600', color: C.gray1,
-    letterSpacing: 0.15, marginTop: 7,
+    letterSpacing: 0.15, marginTop: 10,
   },
 
   // Meal picker modal
