@@ -9,7 +9,9 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { Ionicons, Feather } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import ShareBottomSheet from '../components/ShareBottomSheet';
+import DayTrail from '../components/DayTrail';
 import { fetchPostedMealIds, MEAL_TAGS, TAG_META, TAG_ICON } from '../lib/postUtils';
+import { displayPlaceName } from '../lib/homePrivacy';
 
 const C = {
   bg: '#0d0d0d', surface: '#1a1a1a', border: '#2a2a2a',
@@ -41,6 +43,20 @@ function scoreToneColor(score) {
 function formatScore(score) {
   const n = typeof score === 'number' ? score : Number(score);
   return isNaN(n) ? '—' : n.toFixed(1);
+}
+
+function haversineMiles(lat1, lng1, lat2, lng2) {
+  const R = 3958.8;
+  const toRad = d => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+}
+function formatDistance(mi) {
+  if (mi == null) return '—';
+  if (mi < 0.1) return '<0.1 mi';
+  return `${mi.toFixed(1)} mi`;
 }
 
 // ─── Streak (ported from FeedScreen.jsx's PersonalStrip logic) ────────────────
@@ -230,6 +246,48 @@ function BoardSection({ tag, sectionIndex, tiles, onPressTile, onPressYou, onFir
   );
 }
 
+// ─── Day Trail release card ────────────────────────────────────────────────
+// Unlocks the moment the current user's own day has 2+ located meals — not
+// gated on dinner specifically, and never for friends' days (isOwner is
+// always true here: this card only ever shows the viewer's own trail).
+// Absent entirely below that threshold, so it reads as something that just
+// happened rather than a locked/placeholder slot to fill.
+function DayTrailCard({ images, locatedImages, avgScore, totalDistance, delay, onPress }) {
+  return (
+    <FadeScaleIn delay={delay} style={styles.trailCardWrap}>
+      <View style={styles.trailUnlockBadge}>
+        <Ionicons name="lock-open" size={11} color={C.orange} />
+        <Text style={styles.trailUnlockText}>Day Trail unlocked</Text>
+      </View>
+
+      <TouchableOpacity onPress={onPress} activeOpacity={0.85}>
+        <Text style={styles.trailHeadline}>Your day, mapped</Text>
+      </TouchableOpacity>
+
+      <View style={styles.trailMapWrap}>
+        <DayTrail images={images} isOwner />
+      </View>
+
+      <TouchableOpacity onPress={onPress} activeOpacity={0.85} style={styles.trailStatsRow}>
+        <View style={styles.trailStat}>
+          <Text style={styles.trailStatNum}>{formatScore(avgScore)}</Text>
+          <Text style={styles.trailStatLabel}>avg score</Text>
+        </View>
+        <View style={styles.trailStatDivider} />
+        <View style={styles.trailStat}>
+          <Text style={styles.trailStatNum}>{formatDistance(totalDistance)}</Text>
+          <Text style={styles.trailStatLabel}>traveled</Text>
+        </View>
+        <View style={styles.trailStatDivider} />
+        <View style={styles.trailStat}>
+          <Text style={styles.trailStatNum}>{locatedImages.length}</Text>
+          <Text style={styles.trailStatLabel}>{locatedImages.length === 1 ? 'stop' : 'stops'}</Text>
+        </View>
+      </TouchableOpacity>
+    </FadeScaleIn>
+  );
+}
+
 export default function DayBoardScreen() {
   const navigation = useNavigation();
   const [loading, setLoading] = useState(true);
@@ -267,9 +325,9 @@ export default function DayBoardScreen() {
           .from('posts')
           .select(`
             id, user_id, created_at,
-            breakfast:meals!breakfast_meal_id(id, name, photo_url, emoji),
-            lunch:meals!lunch_meal_id(id, name, photo_url, emoji),
-            dinner:meals!dinner_meal_id(id, name, photo_url, emoji),
+            breakfast:meals!breakfast_meal_id(id, name, photo_url, emoji, score, place_id, places(lat, lng, name)),
+            lunch:meals!lunch_meal_id(id, name, photo_url, emoji, score, place_id, places(lat, lng, name)),
+            dinner:meals!dinner_meal_id(id, name, photo_url, emoji, score, place_id, places(lat, lng, name)),
             profiles!posts_user_id_fkey(id, username, avatar_url)
           `)
           .gte('created_at', dayStart)
@@ -349,6 +407,41 @@ export default function DayBoardScreen() {
   ).size;
 
   const totalMealsToday = MEAL_TAGS.reduce((sum, tag) => sum + tilesByTag[tag].length, 0);
+
+  // Day Trail release card — only ever the viewer's own day (isOwner is
+  // always true for this card), never a friend's. Unlocks at 2+ located
+  // meals regardless of which slots they're in — not gated on dinner.
+  const myImages = MEAL_TAGS
+    .map(tag => {
+      const mine = tilesByTag[tag].find(t => t.isMine);
+      return mine ? { tag, meal: mine.meal } : null;
+    })
+    .filter(Boolean);
+  const myLocatedImages = myImages.filter(
+    ({ meal }) => meal.place_id && meal.places?.lat != null && meal.places?.lng != null
+  );
+  const trailUnlocked = myLocatedImages.length >= 2;
+  const myAvgScore = myImages.length > 0
+    ? myImages.reduce((sum, { meal }) => sum + (Number(meal.score) || 0), 0) / myImages.length
+    : null;
+  const myTotalDistance = myLocatedImages.slice(1).reduce((sum, { meal }, i) => {
+    const prev = myLocatedImages[i].meal.places;
+    return sum + haversineMiles(prev.lat, prev.lng, meal.places.lat, meal.places.lng);
+  }, 0);
+
+  function handleOpenMyTrail() {
+    navigation.navigate('DayTrailDetail', {
+      locations: myLocatedImages.map(({ tag, meal }) => ({
+        tag,
+        kind: 'mapped', // the owner always sees real coordinates, per lib/homePrivacy.js
+        lat: meal.places.lat,
+        lng: meal.places.lng,
+        placeName: displayPlaceName(meal),
+        mealName: meal.name,
+        photoUrl: meal.photo_url ?? null,
+      })),
+    });
+  }
 
   const dateLabel = now => now.toLocaleDateString([], { weekday: 'long' });
 
@@ -537,6 +630,17 @@ export default function DayBoardScreen() {
             />
           ))}
 
+          {trailUnlocked && (
+            <DayTrailCard
+              images={myImages}
+              locatedImages={myLocatedImages}
+              avgScore={myAvgScore}
+              totalDistance={myTotalDistance}
+              delay={MEAL_TAGS.length * STAGGER_SECTION + 250}
+              onPress={handleOpenMyTrail}
+            />
+          )}
+
           <View style={styles.footerCard}>
             <View style={styles.footerRow}>
               <Text style={styles.footerFlame}>🔥</Text>
@@ -706,6 +810,37 @@ const styles = StyleSheet.create({
     position: 'absolute', top: -4, left: -4, right: -4, bottom: -4,
     borderRadius: 22, borderWidth: 2, borderColor: C.orange,
   },
+
+  // Day Trail release card — deliberately louder than the footer stat card
+  // (orange-tinted border/glow) so it reads as something that just
+  // unlocked, not another routine section.
+  trailCardWrap: {
+    marginHorizontal: 20, marginTop: Math.round(SECTION_GAP * 0.6),
+    backgroundColor: C.surface, borderWidth: 1, borderColor: C.orange + '55',
+    borderRadius: 18, padding: 16,
+    shadowColor: C.orange, shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25, shadowRadius: 14, elevation: 4,
+  },
+  trailUnlockBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    alignSelf: 'flex-start',
+    backgroundColor: C.orange + '22', borderRadius: 8,
+    paddingHorizontal: 8, paddingVertical: 4, marginBottom: 8,
+  },
+  trailUnlockText: {
+    fontSize: 10, fontWeight: '800', color: C.orange,
+    textTransform: 'uppercase', letterSpacing: 0.6,
+  },
+  trailHeadline: {
+    fontSize: 18, fontWeight: '800', color: C.white, letterSpacing: -0.3,
+    marginBottom: 12,
+  },
+  trailMapWrap: { marginBottom: 14 },
+  trailStatsRow: { flexDirection: 'row', alignItems: 'center' },
+  trailStat: { flex: 1, alignItems: 'center' },
+  trailStatNum: { fontSize: 17, fontWeight: '800', color: C.white },
+  trailStatLabel: { fontSize: 11, color: C.gray2, fontWeight: '500', marginTop: 2 },
+  trailStatDivider: { width: 0.5, height: 28, backgroundColor: C.border },
 
   // Footer — closes out the page instead of just trailing off into empty
   // space below the three sections.
