@@ -112,8 +112,9 @@ function FadeScaleIn({ delay = 0, style, children }) {
 // overflow:hidden (needed to round the photo's corners) would otherwise
 // clip the shadow itself, especially on Android where elevation and
 // overflow:hidden fight each other on the same view.
-function BoardTile({ tile, onPress, delay, onFire }) {
+function BoardTile({ tile, onPress, delay, onFire, likeCount, commentCount }) {
   const { meal, poster, isMine } = tile;
+  const showBadge = likeCount > 0 || commentCount > 0;
   return (
     <FadeScaleIn delay={delay} style={styles.tileShadowWrap}>
       <TouchableOpacity style={[styles.tile, isMine && styles.tileMine]} onPress={onPress} activeOpacity={0.85}>
@@ -131,6 +132,22 @@ function BoardTile({ tile, onPress, delay, onFire }) {
           pointerEvents="none"
         />
         <Text style={styles.tileUsername} numberOfLines={1}>@{poster?.username ?? '?'}</Text>
+        {showBadge && (
+          <View style={styles.tileEngageBadge}>
+            {likeCount > 0 && (
+              <View style={styles.tileEngageItem}>
+                <Ionicons name="heart" size={10} color="#ff4d6a" />
+                <Text style={styles.tileEngageText}>{likeCount}</Text>
+              </View>
+            )}
+            {commentCount > 0 && (
+              <View style={styles.tileEngageItem}>
+                <Ionicons name="chatbubble" size={9} color="#fff" />
+                <Text style={styles.tileEngageText}>{commentCount}</Text>
+              </View>
+            )}
+          </View>
+        )}
       </TouchableOpacity>
       {isMine && onFire && <FireRing />}
     </FadeScaleIn>
@@ -159,7 +176,7 @@ function YouEmptyTile({ onPress, delay }) {
 const STAGGER_SECTION = 110;
 const STAGGER_TILE = 55;
 
-function BoardSection({ tag, sectionIndex, tiles, onPressTile, onPressYou, onFire }) {
+function BoardSection({ tag, sectionIndex, tiles, onPressTile, onPressYou, onFire, likeCounts, commentCounts }) {
   const meta = TAG_META[tag];
   const mineTile = tiles.find(t => t.isMine);
   const othersTiles = tiles.filter(t => !t.isMine);
@@ -187,7 +204,14 @@ function BoardSection({ tag, sectionIndex, tiles, onPressTile, onPressYou, onFir
         contentContainerStyle={styles.tileRow}
       >
         {mineTile ? (
-          <BoardTile tile={mineTile} delay={sectionDelay} onFire={onFire} onPress={() => onPressTile(tag, orderedTiles, 0)} />
+          <BoardTile
+            tile={mineTile}
+            delay={sectionDelay}
+            onFire={onFire}
+            likeCount={likeCounts[mineTile.mealId] || 0}
+            commentCount={commentCounts[mineTile.mealId] || 0}
+            onPress={() => onPressTile(tag, orderedTiles, 0)}
+          />
         ) : (
           <YouEmptyTile delay={sectionDelay} onPress={() => onPressYou(tag)} />
         )}
@@ -196,6 +220,8 @@ function BoardSection({ tag, sectionIndex, tiles, onPressTile, onPressYou, onFir
             key={tile.mealId}
             tile={tile}
             delay={sectionDelay + (i + 1) * STAGGER_TILE}
+            likeCount={likeCounts[tile.mealId] || 0}
+            commentCount={commentCounts[tile.mealId] || 0}
             onPress={() => onPressTile(tag, orderedTiles, mineTile ? i + 1 : i)}
           />
         ))}
@@ -213,6 +239,8 @@ export default function DayBoardScreen() {
   const [pendingRequests, setPendingRequests] = useState(0);
   const [streak, setStreak] = useState(0);
   const [loggedToday, setLoggedToday] = useState(false);
+  const [likeCounts, setLikeCounts] = useState({});    // mealId -> count
+  const [commentCounts, setCommentCounts] = useState({}); // mealId -> count
 
   // Compose / meal picker — ported verbatim from FeedScreen.jsx
   const [pickerVisible, setPickerVisible] = useState(false);
@@ -264,6 +292,28 @@ export default function DayBoardScreen() {
       const { streak: s, loggedToday: lt } = computeStreak(streakResult.data);
       setStreak(s);
       setLoggedToday(lt);
+
+      // Per-meal like/comment counts for today's tiles (migration 018 keyed
+      // both tables to meal_id, not just post_id, so a like/comment on one
+      // slot no longer shows up on every slot of the same post).
+      const mealIds = (data || [])
+        .flatMap(p => [p.breakfast?.id, p.lunch?.id, p.dinner?.id])
+        .filter(Boolean);
+      if (mealIds.length > 0) {
+        const [{ data: likeRows }, { data: commentRows }] = await Promise.all([
+          supabase.from('post_likes').select('meal_id').in('meal_id', mealIds),
+          supabase.from('post_comments').select('meal_id').in('meal_id', mealIds),
+        ]);
+        const nextLikeCounts = {};
+        for (const row of likeRows || []) nextLikeCounts[row.meal_id] = (nextLikeCounts[row.meal_id] || 0) + 1;
+        setLikeCounts(nextLikeCounts);
+        const nextCommentCounts = {};
+        for (const row of commentRows || []) nextCommentCounts[row.meal_id] = (nextCommentCounts[row.meal_id] || 0) + 1;
+        setCommentCounts(nextCommentCounts);
+      } else {
+        setLikeCounts({});
+        setCommentCounts({});
+      }
     } catch (e) {
       setError(e.message || "Failed to load today's board.");
     } finally {
@@ -482,6 +532,8 @@ export default function DayBoardScreen() {
               onPressTile={handlePressTile}
               onPressYou={handlePressYou}
               onFire={streak > 0}
+              likeCounts={likeCounts}
+              commentCounts={commentCounts}
             />
           ))}
 
@@ -618,6 +670,18 @@ const styles = StyleSheet.create({
     fontSize: 12, fontWeight: '700', color: '#fff',
     paddingHorizontal: 8, paddingBottom: 8,
   },
+
+  // Small per-meal like/comment indicator, top-right corner — informational
+  // only (liking happens in SlotViewerScreen); only shown once there's
+  // something to show.
+  tileEngageBadge: {
+    position: 'absolute', top: 6, right: 6,
+    flexDirection: 'row', gap: 5,
+    backgroundColor: 'rgba(0,0,0,0.55)', borderRadius: 8,
+    paddingHorizontal: 5, paddingVertical: 3,
+  },
+  tileEngageItem: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+  tileEngageText: { fontSize: 9, fontWeight: '700', color: '#fff' },
 
   // A dashed outline reads as a placeholder, not a solid raised object — a
   // heavy black drop shadow (right for photo tiles) looked wrong here. A

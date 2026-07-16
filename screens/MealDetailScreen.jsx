@@ -179,6 +179,7 @@ export default function MealDetailScreen() {
   const [likeCount, setLikeCount] = useState(0);
   const [isLiked, setIsLiked] = useState(false);
   const [liking, setLiking] = useState(false);
+  const [commentCount, setCommentCount] = useState(0);
   const [commentOpen, setCommentOpen] = useState(false);
 
   // Tier Duel — same voting mechanic as FeedScreen's PostCard, reusing the
@@ -199,8 +200,13 @@ export default function MealDetailScreen() {
       const { data: { user } } = await supabase.auth.getUser();
       setCurrentUserId(user?.id ?? null);
 
+      // Likes/comments are keyed to this specific meal now (migration 018 —
+      // they used to be keyed to the whole post, so liking one slot of a
+      // tri-image post would show as liked on every slot). Fetched directly
+      // off the meal via its post_likes/post_comments meal_id FK, not
+      // through the post.
       const [{ data: mealData, error: mealErr }, { data: photoRows, error: photoErr }] = await Promise.all([
-        supabase.from('meals').select('*, places(name, address, lat, lng)').eq('id', mealId).single(),
+        supabase.from('meals').select('*, places(name, address, lat, lng), post_likes(user_id), post_comments(id)').eq('id', mealId).single(),
         supabase.from('meal_photos').select('id, photo_url').eq('meal_id', mealId).order('position', { ascending: true }),
       ]);
       if (mealErr) throw mealErr;
@@ -211,14 +217,18 @@ export default function MealDetailScreen() {
         ...(mealData.photo_url ? [{ id: 'primary', url: mealData.photo_url }] : []),
         ...(photoRows || []).map(p => ({ id: p.id, url: p.photo_url })),
       ]);
+      const mealLikes = mealData.post_likes || [];
+      setLikeCount(mealLikes.length);
+      setIsLiked(user ? mealLikes.some(l => l.user_id === user.id) : false);
+      setCommentCount((mealData.post_comments || []).length);
 
-      // Resolve the backing post (for like/comment/Day Trail) — either the one
+      // Resolve the backing post (for Tier Duel/Day Trail) — either the one
       // we were told about (from FeedScreen), or looked up across all 4 slot
       // columns (from TierListScreen, which doesn't know if/how this meal was
       // posted). The same breakfast/lunch/dinner + places(lat,lng,name) join
       // FeedScreen uses is included here so DayTrail can render identically.
       const POST_FIELDS = `
-        id, user_id, caption, post_likes(user_id), post_votes(voter_id, slot),
+        id, user_id, caption, post_votes(voter_id, slot),
         breakfast:meals!breakfast_meal_id(id, name, emoji, score, photo_url, tag, place_id, places(lat, lng, name)),
         lunch:meals!lunch_meal_id(id, name, emoji, score, photo_url, tag, place_id, places(lat, lng, name)),
         dinner:meals!dinner_meal_id(id, name, emoji, score, photo_url, tag, place_id, places(lat, lng, name))
@@ -243,9 +253,6 @@ export default function MealDetailScreen() {
       }
       setPost(resolvedPost);
       if (resolvedPost) {
-        const likes = resolvedPost.post_likes || [];
-        setLikeCount(likes.length);
-        setIsLiked(user ? likes.some(l => l.user_id === user.id) : false);
         setTrailImages(
           MEAL_TAGS.map(tag => (resolvedPost[tag] ? { tag, meal: resolvedPost[tag] } : null)).filter(Boolean)
         );
@@ -289,9 +296,9 @@ export default function MealDetailScreen() {
     setLiking(true);
     try {
       if (next) {
-        await supabase.from('post_likes').insert({ post_id: post.id, user_id: currentUserId });
+        await supabase.from('post_likes').insert({ post_id: post.id, meal_id: mealId, user_id: currentUserId });
       } else {
-        await supabase.from('post_likes').delete().eq('post_id', post.id).eq('user_id', currentUserId);
+        await supabase.from('post_likes').delete().eq('meal_id', mealId).eq('user_id', currentUserId);
       }
     } catch {
       setIsLiked(!next);
@@ -537,6 +544,9 @@ export default function MealDetailScreen() {
               </TouchableOpacity>
               <TouchableOpacity onPress={() => setCommentOpen(true)} style={styles.engageBtn} hitSlop={10} activeOpacity={0.7}>
                 <Ionicons name="chatbubble-outline" size={20} color={C.gray2} />
+                {commentCount > 0 && (
+                  <Text style={styles.engageCount}>{commentCount}</Text>
+                )}
               </TouchableOpacity>
             </View>
           )}
@@ -547,8 +557,10 @@ export default function MealDetailScreen() {
         <CommentSheet
           visible={commentOpen}
           postId={post.id}
+          mealId={mealId}
           postOwnerId={post.user_id}
           onDismiss={() => setCommentOpen(false)}
+          onCommentPosted={() => setCommentCount(c => c + 1)}
         />
       )}
     </SafeAreaView>

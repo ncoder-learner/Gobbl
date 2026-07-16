@@ -10,6 +10,7 @@ import { Ionicons, Feather } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import CommentSheet from '../components/CommentSheet';
 import { TAG_META, TAG_ICON } from '../lib/postUtils';
+import { displayPlaceName } from '../lib/homePrivacy';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -157,7 +158,7 @@ export default function SlotViewerScreen() {
   const [mealData, setMealData] = useState({});     // mealId -> {score, placeName, photos}
   const [likeState, setLikeState] = useState({});   // postId -> {count, isLiked}
   const [commentCounts, setCommentCounts] = useState({}); // postId -> count
-  const [commentSheetPostId, setCommentSheetPostId] = useState(null);
+  const [commentSheetTarget, setCommentSheetTarget] = useState(null); // {postId, mealId} | null
   const [currentUserId, setCurrentUserId] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -171,13 +172,12 @@ export default function SlotViewerScreen() {
         setCurrentUserId(user?.id ?? null);
 
         const mealIds = people.map(p => p.mealId);
-        const postIds = people.map(p => p.postId);
 
         const [{ data: meals }, { data: photoRows }, { data: likeRows }, { data: commentRows }] = await Promise.all([
           supabase.from('meals').select('id, score, place_id, places(name)').in('id', mealIds),
           supabase.from('meal_photos').select('id, meal_id, photo_url').in('meal_id', mealIds).order('position', { ascending: true }),
-          supabase.from('post_likes').select('post_id, user_id').in('post_id', postIds),
-          supabase.from('post_comments').select('id, post_id').in('post_id', postIds),
+          supabase.from('post_likes').select('meal_id, user_id').in('meal_id', mealIds),
+          supabase.from('post_comments').select('id, meal_id').in('meal_id', mealIds),
         ]);
 
         const nextMealData = {};
@@ -192,7 +192,7 @@ export default function SlotViewerScreen() {
           ];
           nextMealData[p.mealId] = {
             score: m?.score ?? null,
-            placeName: m?.places?.name ?? null,
+            placeName: m ? displayPlaceName(m) : null,
             photos: photos.length ? photos : [{ id: 'fallback', url: null }],
           };
         }
@@ -200,14 +200,14 @@ export default function SlotViewerScreen() {
 
         const nextLikes = {};
         for (const p of people) {
-          const rows = (likeRows || []).filter(r => r.post_id === p.postId);
-          nextLikes[p.postId] = { count: rows.length, isLiked: user ? rows.some(r => r.user_id === user.id) : false };
+          const rows = (likeRows || []).filter(r => r.meal_id === p.mealId);
+          nextLikes[p.mealId] = { count: rows.length, isLiked: user ? rows.some(r => r.user_id === user.id) : false };
         }
         setLikeState(nextLikes);
 
         const nextComments = {};
         for (const p of people) {
-          nextComments[p.postId] = (commentRows || []).filter(r => r.post_id === p.postId).length;
+          nextComments[p.mealId] = (commentRows || []).filter(r => r.meal_id === p.mealId).length;
         }
         setCommentCounts(nextComments);
       } catch (err) {
@@ -219,29 +219,29 @@ export default function SlotViewerScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function toggleLike(postId) {
+  async function toggleLike(mealId, postId) {
     if (!currentUserId) return;
-    const cur = likeState[postId] || { count: 0, isLiked: false };
+    const cur = likeState[mealId] || { count: 0, isLiked: false };
     const next = !cur.isLiked;
-    setLikeState(s => ({ ...s, [postId]: { count: next ? cur.count + 1 : Math.max(0, cur.count - 1), isLiked: next } }));
+    setLikeState(s => ({ ...s, [mealId]: { count: next ? cur.count + 1 : Math.max(0, cur.count - 1), isLiked: next } }));
     try {
       if (next) {
-        const { error } = await supabase.from('post_likes').insert({ post_id: postId, user_id: currentUserId });
+        const { error } = await supabase.from('post_likes').insert({ post_id: postId, meal_id: mealId, user_id: currentUserId });
         if (error) throw error;
       } else {
-        const { error } = await supabase.from('post_likes').delete().eq('post_id', postId).eq('user_id', currentUserId);
+        const { error } = await supabase.from('post_likes').delete().eq('meal_id', mealId).eq('user_id', currentUserId);
         if (error) throw error;
       }
     } catch {
-      setLikeState(s => ({ ...s, [postId]: cur }));
+      setLikeState(s => ({ ...s, [mealId]: cur }));
     }
   }
 
-  async function submitComment(postId, text) {
+  async function submitComment(mealId, postId, text) {
     if (!currentUserId) throw new Error('Not signed in');
-    const { error } = await supabase.from('post_comments').insert({ post_id: postId, user_id: currentUserId, content: text });
+    const { error } = await supabase.from('post_comments').insert({ post_id: postId, meal_id: mealId, user_id: currentUserId, content: text });
     if (error) throw error;
-    setCommentCounts(c => ({ ...c, [postId]: (c[postId] || 0) + 1 }));
+    setCommentCounts(c => ({ ...c, [mealId]: (c[mealId] || 0) + 1 }));
   }
 
   function onOuterMomentumEnd(e) {
@@ -281,11 +281,11 @@ export default function SlotViewerScreen() {
           <PersonPage
             person={item}
             data={mealData[item.mealId]}
-            likeInfo={likeState[item.postId]}
-            commentCount={commentCounts[item.postId] ?? 0}
-            onLike={() => toggleLike(item.postId)}
-            onSubmitComment={text => submitComment(item.postId, text)}
-            onOpenComments={() => setCommentSheetPostId(item.postId)}
+            likeInfo={likeState[item.mealId]}
+            commentCount={commentCounts[item.mealId] ?? 0}
+            onLike={() => toggleLike(item.mealId, item.postId)}
+            onSubmitComment={text => submitComment(item.mealId, item.postId, text)}
+            onOpenComments={() => setCommentSheetTarget({ postId: item.postId, mealId: item.mealId, posterId: item.poster?.id })}
           />
         )}
       />
@@ -323,10 +323,11 @@ export default function SlotViewerScreen() {
       )}
 
       <CommentSheet
-        visible={!!commentSheetPostId}
-        postId={commentSheetPostId}
-        postOwnerId={people.find(p => p.postId === commentSheetPostId)?.poster?.id}
-        onDismiss={() => setCommentSheetPostId(null)}
+        visible={!!commentSheetTarget}
+        postId={commentSheetTarget?.postId}
+        mealId={commentSheetTarget?.mealId}
+        postOwnerId={commentSheetTarget?.posterId}
+        onDismiss={() => setCommentSheetTarget(null)}
       />
     </View>
   );

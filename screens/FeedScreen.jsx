@@ -252,8 +252,14 @@ function PostCard({ post, currentUserId, currentUsername, onPressUser, onPressMe
     setLikeCount(c => next ? c + 1 : Math.max(0, c - 1));
     setLiking(true);
     try {
+      // This is a post-level "like the whole card" action (FeedScreen shows
+      // all 1-3 slots at once, not one meal), so it's tied to the post's
+      // primary/legacy meal_id — every post has one. Scoped by meal_id (not
+      // just post_id) since migration 018: post_id alone is no longer
+      // unique per user now that per-slot likes (SlotViewerScreen,
+      // MealDetailScreen) can coexist on the same post.
       if (next) {
-        await supabase.from('post_likes').insert({ post_id: post.id, user_id: currentUserId });
+        await supabase.from('post_likes').insert({ post_id: post.id, meal_id: post.meal_id, user_id: currentUserId });
         if (post.user_id && post.user_id !== currentUserId) {
           supabase.functions.invoke('send-notification', {
             body: {
@@ -265,7 +271,7 @@ function PostCard({ post, currentUserId, currentUsername, onPressUser, onPressMe
         }
       } else {
         await supabase.from('post_likes').delete()
-          .eq('post_id', post.id).eq('user_id', currentUserId);
+          .eq('meal_id', post.meal_id).eq('user_id', currentUserId);
       }
     } catch {
       setIsLiked(!next);
@@ -351,6 +357,7 @@ function PostCard({ post, currentUserId, currentUsername, onPressUser, onPressMe
           <CommentSheet
             visible={commentOpen}
             postId={post.id}
+            mealId={post.meal_id}
             postOwnerId={post.user_id}
             onDismiss={() => setCommentOpen(false)}
           />

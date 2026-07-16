@@ -53,7 +53,13 @@ function CommentRow({ comment, myId, onDelete }) {
   );
 }
 
-export default function CommentSheet({ visible, postId, postOwnerId, onDismiss }) {
+// `mealId` is optional: pass it when this sheet is scoped to one specific
+// meal-in-a-slot (SlotViewerScreen, MealDetailScreen) so comments filter to
+// and get inserted against that meal only. Omit it for a post-level surface
+// (FeedScreen's card, which shows all 1-3 slots at once and has no single
+// meal to scope to) — falls back to the pre-migration post_id-only
+// behavior, showing every comment across the whole post.
+export default function CommentSheet({ visible, postId, mealId, postOwnerId, onDismiss, onCommentPosted }) {
   const [comments, setComments]   = useState([]);
   const [myId, setMyId]           = useState(null);
   const [loading, setLoading]     = useState(false);
@@ -68,7 +74,7 @@ export default function CommentSheet({ visible, postId, postOwnerId, onDismiss }
       setComments([]);
       setText('');
     }
-  }, [visible, postId]);
+  }, [visible, postId, mealId]);
 
   async function loadComments() {
     setLoading(true);
@@ -76,12 +82,13 @@ export default function CommentSheet({ visible, postId, postOwnerId, onDismiss }
       const { data: { user } } = await supabase.auth.getUser();
       setMyId(user?.id ?? null);
 
-      const { data } = await supabase
+      let query = supabase
         .from('post_comments')
         .select('id, user_id, content, created_at, profiles!post_comments_user_id_fkey(username, avatar_url)')
-        .eq('post_id', postId)
         .order('created_at', { ascending: true })
         .limit(100);
+      query = mealId ? query.eq('meal_id', mealId) : query.eq('post_id', postId);
+      const { data } = await query;
 
       setComments(data || []);
     } catch {
@@ -98,13 +105,14 @@ export default function CommentSheet({ visible, postId, postOwnerId, onDismiss }
     try {
       const { data, error } = await supabase
         .from('post_comments')
-        .insert({ post_id: postId, user_id: myId, content: trimmed })
+        .insert({ post_id: postId, meal_id: mealId, user_id: myId, content: trimmed })
         .select('id, user_id, content, created_at, profiles!post_comments_user_id_fkey(username, avatar_url)')
         .single();
 
       if (error) throw error;
       setComments(prev => [...prev, data]);
       setText('');
+      onCommentPosted?.();
 
       // Notify post owner if it's someone else's post
       if (postOwnerId && postOwnerId !== myId) {
