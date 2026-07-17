@@ -347,6 +347,18 @@ export default function LogMealScreen() {
   const [imageMediaType, setImageMediaType] = useState('image/jpeg');
   const [identified, setIdentified] = useState(null); // Claude's response
   const [mealName, setMealName] = useState('');
+  // Claude's identification is a starting point, not the final word — a
+  // wrong guess on any of these three needs a correction path, so each gets
+  // its own editable field (mealName already worked this way; emoji/cuisine
+  // now match it) rather than saving identified.* directly.
+  const [mealEmoji, setMealEmoji] = useState('');
+  const [mealCuisine, setMealCuisine] = useState('');
+  // Extra photos beyond the primary shot — held locally (no meal id exists
+  // yet to attach meal_photos rows to) and uploaded right after the meal
+  // insert succeeds in saveMeal(). Same storage bucket + meal_photos table
+  // MealDetailScreen's post-hoc "add photo" already uses.
+  const [extraPhotos, setExtraPhotos] = useState([]); // [{ uri, base64 }]
+  const [addingPhoto, setAddingPhoto] = useState(false);
   const [score, setScore] = useState(5.5);
   const [mealTag, setMealTag] = useState(() => forceTag || guessMealTag());
 
@@ -364,7 +376,7 @@ export default function LogMealScreen() {
   const [notes, setNotes] = useState('');
   const [facing, setFacing] = useState('back');
   const [processing, setProcessing] = useState(false);
-  const [saveStatus, setSaveStatus] = useState(''); // 'uploading' | 'inserting'
+  const [saveStatus, setSaveStatus] = useState(''); // 'uploading' | 'inserting' | 'photos'
   const [identifyError, setIdentifyError] = useState(null); // null | 'timeout' | 'error'
 
   // ── Place / location state ──────────────────────────────────────────────────
@@ -503,6 +515,85 @@ export default function LogMealScreen() {
     }
   }
 
+  // ── Extra photos (confirm stage) — camera and library both available for
+  // every additional shot, same as the primary photo. ────────────────────────
+
+  async function addExtraPhotoFromCamera() {
+    if (addingPhoto) return;
+    const { status, canAskAgain } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') {
+      if (!canAskAgain) {
+        Alert.alert(
+          'Permission required',
+          'Open your device settings to allow FoodWrapped to access your camera.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Open Settings', onPress: () => Linking.openSettings() },
+          ],
+        );
+      }
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({ quality: 1 });
+    if (result.canceled) return;
+    setAddingPhoto(true);
+    try {
+      const compressed = await compressImage(result.assets[0].uri);
+      setExtraPhotos(prev => [...prev, { uri: compressed.uri, base64: compressed.base64 }]);
+    } catch (err) {
+      Alert.alert('Processing failed', 'Could not process the photo. Try again.');
+    } finally {
+      setAddingPhoto(false);
+    }
+  }
+
+  async function addExtraPhotosFromLibrary() {
+    if (addingPhoto) return;
+    if (Platform.OS === 'android') {
+      const { status, canAskAgain } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        if (!canAskAgain) {
+          Alert.alert(
+            'Permission required',
+            'Open your device settings to allow FoodWrapped to access your photos.',
+            [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Open Settings', onPress: () => Linking.openSettings() },
+            ],
+          );
+        }
+        return;
+      }
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      quality: 1,
+      allowsMultipleSelection: true,
+    });
+    if (result.canceled) return;
+    setAddingPhoto(true);
+    try {
+      const compressed = await Promise.all(result.assets.map(a => compressImage(a.uri)));
+      setExtraPhotos(prev => [...prev, ...compressed.map(c => ({ uri: c.uri, base64: c.base64 }))]);
+    } catch (err) {
+      Alert.alert('Processing failed', 'Could not process the selected photo(s). Try again.');
+    } finally {
+      setAddingPhoto(false);
+    }
+  }
+
+  function promptAddExtraPhoto() {
+    Alert.alert('Add a photo', undefined, [
+      { text: 'Take Photo', onPress: addExtraPhotoFromCamera },
+      { text: 'Choose from Library', onPress: addExtraPhotosFromLibrary },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  }
+
+  function removeExtraPhoto(index) {
+    setExtraPhotos(prev => prev.filter((_, i) => i !== index));
+  }
+
   // ── Identify with Claude ────────────────────────────────────────────────────
 
   async function identify() {
@@ -555,6 +646,8 @@ export default function LogMealScreen() {
       // Both checks passed — proceed to confirm.
       setIdentified(result);
       setMealName(result.name);
+      setMealEmoji(result.emoji || '🍽️');
+      setMealCuisine(result.cuisine || '');
       setStage('confirm');
     } catch (err) {
       // Network error, timeout, or unexpected failure — fail safe: stay on
@@ -684,9 +777,9 @@ export default function LogMealScreen() {
         .insert({
           user_id: user.id,
           name: mealName.trim(),
-          emoji: identified?.emoji || '🍽️',
+          emoji: mealEmoji.trim() || '🍽️',
           description: identified?.description || '',
-          cuisine: identified?.cuisine || '',
+          cuisine: mealCuisine.trim(),
           rating: derivedRating,
           score,
           notes: notes.trim() || null,
@@ -702,6 +795,29 @@ export default function LogMealScreen() {
       if (insertError) {
         await supabase.storage.from('meal-photos').remove([uploadedFileName]);
         throw insertError;
+      }
+
+      // 4. Extra photos — non-fatal if one fails; the meal itself is already
+      // saved, and the same meal_photos table is editable later from
+      // MealDetailScreen, so a partial failure here isn't a lost cause.
+      if (extraPhotos.length > 0) {
+        setSaveStatus('photos');
+        for (let i = 0; i < extraPhotos.length; i++) {
+          try {
+            const photo = extraPhotos[i];
+            const extraFileName = `${user.id}/${Date.now()}-${i}.jpg`;
+            const { error: extraUploadErr } = await supabase.storage
+              .from('meal-photos')
+              .upload(extraFileName, decode(photo.base64), { contentType: 'image/jpeg' });
+            if (extraUploadErr) throw extraUploadErr;
+            const { data: { publicUrl: extraUrl } } = supabase.storage
+              .from('meal-photos')
+              .getPublicUrl(extraFileName);
+            await supabase.from('meal_photos').insert({ meal_id: inserted.id, photo_url: extraUrl, position: i });
+          } catch (err) {
+            console.warn('[LogMeal] extra photo failed, continuing:', err?.message ?? err);
+          }
+        }
       }
 
       setSavedMealId(inserted?.id ?? null);
@@ -753,6 +869,9 @@ export default function LogMealScreen() {
     setImageBase64(null);
     setIdentified(null);
     setMealName('');
+    setMealEmoji('');
+    setMealCuisine('');
+    setExtraPhotos([]);
     setScore(5.5);
     setNotes('');
     setSavedMealId(null);
@@ -770,7 +889,7 @@ export default function LogMealScreen() {
     return (
       <SafeAreaView style={styles.safe} edges={['top']}>
         <DoneCelebration
-          emoji={identified?.emoji || '🍽️'}
+          emoji={mealEmoji || '🍽️'}
           mealName={mealName}
           score={score}
           onFinished={() => setStage('done-options')}
@@ -783,7 +902,7 @@ export default function LogMealScreen() {
     const shareMeal = {
       id: savedMealId,
       name: mealName,
-      emoji: identified?.emoji || '🍽️',
+      emoji: mealEmoji || '🍽️',
       score,
       photo_url: savedPhotoUrl,
       tag: mealTag,
@@ -792,7 +911,7 @@ export default function LogMealScreen() {
     return (
       <SafeAreaView style={styles.safe} edges={['top']}>
         <View style={styles.doneBox}>
-          <Text style={styles.doneEmoji}>{identified?.emoji || '🍽️'}</Text>
+          <Text style={styles.doneEmoji}>{mealEmoji || '🍽️'}</Text>
           <Text style={styles.doneTitle}>Logged!</Text>
           <Text style={styles.doneSub} numberOfLines={1}>{mealName}</Text>
 
@@ -982,6 +1101,51 @@ export default function LogMealScreen() {
             )}
           </View>
 
+          {/* More photos — a core feature that was previously only
+              reachable after the fact from MealDetailScreen. Kept right
+              under the hero photo so it's visible at log time, not buried.
+              Both camera and library are offered for every added photo. */}
+          <View style={styles.extraPhotosSection}>
+            <View style={styles.extraPhotosHeaderRow}>
+              <Ionicons name="images" size={16} color={C.orange} />
+              <Text style={styles.extraPhotosLabel}>More photos</Text>
+              <Text style={styles.optional}>(optional)</Text>
+            </View>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.extraPhotosRow}
+            >
+              {extraPhotos.map((photo, i) => (
+                <View key={i} style={styles.extraPhotoThumbWrap}>
+                  <Image source={{ uri: photo.uri }} style={styles.extraPhotoThumb} resizeMode="cover" />
+                  <TouchableOpacity
+                    style={styles.extraPhotoRemoveBtn}
+                    onPress={() => removeExtraPhoto(i)}
+                    hitSlop={8}
+                  >
+                    <Ionicons name="close" size={12} color="#fff" />
+                  </TouchableOpacity>
+                </View>
+              ))}
+              <TouchableOpacity
+                style={styles.addExtraPhotoTile}
+                onPress={promptAddExtraPhoto}
+                activeOpacity={0.75}
+                disabled={addingPhoto}
+              >
+                {addingPhoto ? (
+                  <ActivityIndicator color={C.orange} size="small" />
+                ) : (
+                  <>
+                    <Ionicons name="add" size={22} color={C.orange} />
+                    <Text style={styles.addExtraPhotoText}>Add</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+
           {/* Identify error — shown when Claude couldn't analyse the photo */}
           {identifyError && (
             <View style={styles.identifyErrBox}>
@@ -1074,14 +1238,39 @@ export default function LogMealScreen() {
             )}
           </View>
 
-          {/* Name input */}
+          {/* Name + emoji — Claude's identification is a starting point,
+              not the final word, so both are directly editable rather than
+              locking in whatever it guessed. */}
           <View style={styles.fieldGroup}>
             <Text style={styles.fieldLabel}>Meal name</Text>
+            <View style={styles.nameRow}>
+              <TextInput
+                style={styles.emojiInput}
+                value={mealEmoji}
+                onChangeText={t => setMealEmoji(t.slice(0, 4))}
+                placeholder="🍽️"
+                placeholderTextColor={C.gray4}
+                textAlign="center"
+              />
+              <TextInput
+                style={[styles.textInput, styles.nameInput]}
+                value={mealName}
+                onChangeText={setMealName}
+                placeholder="e.g. Spicy tuna roll"
+                placeholderTextColor={C.gray4}
+                returnKeyType="done"
+              />
+            </View>
+          </View>
+
+          {/* Cuisine */}
+          <View style={styles.fieldGroup}>
+            <Text style={styles.fieldLabel}>Cuisine <Text style={styles.optional}>(optional)</Text></Text>
             <TextInput
               style={styles.textInput}
-              value={mealName}
-              onChangeText={setMealName}
-              placeholder="e.g. Spicy tuna roll"
+              value={mealCuisine}
+              onChangeText={setMealCuisine}
+              placeholder="e.g. Japanese"
               placeholderTextColor={C.gray4}
               returnKeyType="done"
             />
@@ -1124,7 +1313,7 @@ export default function LogMealScreen() {
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                 <ActivityIndicator color={C.white} size="small" />
                 <Text style={styles.saveBtnText}>
-                  {saveStatus === 'uploading' ? 'Uploading photo…' : 'Saving…'}
+                  {saveStatus === 'uploading' ? 'Uploading photo…' : saveStatus === 'photos' ? 'Adding extra photos…' : 'Saving…'}
                 </Text>
               </View>
             ) : (
@@ -1235,6 +1424,33 @@ const styles = StyleSheet.create({
   tagPickerTextActive: { color: C.white },
   textInput: { backgroundColor: C.inputBg, borderWidth: 0.5, borderColor: C.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: C.white },
   textArea: { height: 88, textAlignVertical: 'top' },
+  nameRow: { flexDirection: 'row', gap: 10 },
+  emojiInput: {
+    width: 52, backgroundColor: C.inputBg, borderWidth: 0.5, borderColor: C.border,
+    borderRadius: 12, fontSize: 22, color: C.white,
+  },
+  nameInput: { flex: 1 },
+
+  // More photos — same dashed "add" tile language used elsewhere in the app
+  // (DayBoardScreen's empty "you" tile) for a consistent "tap to add" cue.
+  extraPhotosSection: { marginHorizontal: 24, marginTop: 20 },
+  extraPhotosHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 10 },
+  extraPhotosLabel: { fontSize: 15, fontWeight: '700', color: C.white },
+  extraPhotosRow: { gap: 10, paddingRight: 4 },
+  extraPhotoThumbWrap: { width: 72, height: 72, borderRadius: 14, overflow: 'hidden', backgroundColor: C.surface },
+  extraPhotoThumb: { width: '100%', height: '100%' },
+  extraPhotoRemoveBtn: {
+    position: 'absolute', top: 4, right: 4,
+    width: 18, height: 18, borderRadius: 9,
+    backgroundColor: 'rgba(0,0,0,0.65)', alignItems: 'center', justifyContent: 'center',
+  },
+  addExtraPhotoTile: {
+    width: 72, height: 72, borderRadius: 14,
+    borderWidth: 1.5, borderColor: C.orange, borderStyle: 'dashed',
+    alignItems: 'center', justifyContent: 'center', gap: 2,
+    backgroundColor: 'rgba(255,107,61,0.06)',
+  },
+  addExtraPhotoText: { fontSize: 11, fontWeight: '700', color: C.orange },
 
   // Score slider
   scoreReadout: { flexDirection: 'row', alignItems: 'baseline', gap: 8, marginBottom: 14 },
