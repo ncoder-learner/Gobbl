@@ -77,12 +77,16 @@ function dateLabel(d) {
 // onDismiss(): called on cancel or after post
 export default function ShareBottomSheet({ visible, meal, onDismiss, onPosted }) {
   // Modal renders as its own native window on Android — `statusBarTranslucent`
-  // makes it extend edge-to-edge, so the sheet's `bottom: 0` positioner sits
-  // flush against the physical screen edge, behind the system nav bar, not
-  // above it. react-native-safe-area-context's insets still resolve
-  // correctly inside a Modal (it reads native window insets, not the JS view
-  // tree), so padding the sheet's bottom by insets.bottom pushes its content
-  // — specifically the post button — back above the nav bar.
+  // makes it extend edge-to-edge, so `sheetPositioner`'s `bottom: 0` is the
+  // true physical screen edge, behind the system nav bar. `sheet` has no
+  // fixed height (just a maxHeight cap) and is flex-end-aligned inside that
+  // positioner, so its bottom boundary always sits flush against that same
+  // edge regardless of how much padding is added *inside* its scrollable
+  // content — growing the content only extends how much is revealed at the
+  // top, not where the bottom boundary actually is. The inset has to go on
+  // `sheet` itself (a margin, so flex-end alignment respects it) to actually
+  // move that boundary — and everything near it, like the post button —
+  // above the nav bar.
   const insets = useSafeAreaInsets();
   const [caption, setCaption] = useState('');
   const [posting, setPosting] = useState(false);
@@ -228,12 +232,12 @@ export default function ShareBottomSheet({ visible, meal, onDismiss, onPosted })
           style={[styles.sheetPositioner, { transform: [{ translateY: sheetY }] }]}
           pointerEvents="box-none"
         >
-          <Pressable style={styles.sheet} onPress={() => {}}>
+          <Pressable style={[styles.sheet, { marginBottom: insets.bottom }]} onPress={() => {}}>
             <View style={styles.handle} />
 
             <ScrollView
               showsVerticalScrollIndicator={false}
-              contentContainerStyle={{ paddingBottom: 40 + insets.bottom }}
+              contentContainerStyle={{ paddingBottom: 40 }}
               keyboardShouldPersistTaps="handled"
             >
               {/* Header */}

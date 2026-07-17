@@ -589,7 +589,13 @@ export default function DayBoardScreen() {
         onRequestClose={() => setPickerVisible(false)}
       >
         <Pressable style={styles.pickerOverlay} onPress={() => setPickerVisible(false)}>
-          <Pressable style={styles.pickerSheet} onPress={() => {}}>
+          {/* pickerSheet has no fixed height (just a maxHeight cap) and is
+              flex-end-aligned inside pickerOverlay, which spans the full
+              edge-to-edge Modal window on Android — its bottom boundary
+              always sits flush against the true screen edge, behind the nav
+              bar, regardless of internal content padding. Needs a margin on
+              the sheet itself so flex-end alignment actually respects it. */}
+          <Pressable style={[styles.pickerSheet, { marginBottom: insets.bottom }]} onPress={() => {}}>
             <View style={styles.pickerHandle} />
             <View style={styles.pickerHeader}>
               <TouchableOpacity onPress={() => setPickerVisible(false)} hitSlop={8}>
@@ -612,7 +618,13 @@ export default function DayBoardScreen() {
                 </Text>
               </View>
             ) : (
-              <ScrollView showsVerticalScrollIndicator={false} style={{ flex: 1 }}>
+              // flexShrink: 1, not flex: 1 — pickerSheet has no fixed/
+              // flex-resolved height (just a maxHeight cap, sized by its own
+              // content), so a flex:1 child here has nothing concrete to
+              // grow into and Yoga collapses it to zero height. flexShrink
+              // lets this take its natural content size and only shrink
+              // (enabling scroll) once the maxHeight cap constrains it.
+              <ScrollView showsVerticalScrollIndicator={false} style={{ flexShrink: 1 }}>
                 {pickerMeals.map(meal => (
                   <TouchableOpacity
                     key={meal.id}
@@ -638,7 +650,7 @@ export default function DayBoardScreen() {
                     </Text>
                   </TouchableOpacity>
                 ))}
-                <View style={{ height: 32 + insets.bottom }} />
+                <View style={{ height: 32 }} />
               </ScrollView>
             )}
           </Pressable>
