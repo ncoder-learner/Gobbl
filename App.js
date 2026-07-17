@@ -32,6 +32,9 @@ import DayBoardScreen from './screens/DayBoardScreen';
 import SlotViewerScreen from './screens/SlotViewerScreen';
 import DuelScreen from './screens/DuelScreen';
 import DuelLiveListener from './components/DuelLiveListener';
+import TourOverlay from './components/TourOverlay';
+import { TourProvider, useTour } from './lib/tourContext';
+import { navigationRef } from './lib/navigationRef';
 
 const Tab  = createBottomTabNavigator();
 const Root = createNativeStackNavigator();
@@ -115,7 +118,7 @@ function TabNavigator() {
 
 function AppNavigator() {
   return (
-    <NavigationContainer theme={NAV_THEME}>
+    <NavigationContainer ref={navigationRef} theme={NAV_THEME}>
       <DuelLiveListener />
       <Root.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#0d0d0d' } }}>
         <Root.Screen name="Tabs" component={TabNavigator} />
@@ -189,6 +192,27 @@ function AppNavigator() {
   );
 }
 
+// Starts the guided tour the moment AppNavigator actually mounts after a
+// fresh onboarding completion — not right when the carousel finishes,
+// since ProfileInfoScreen/UsernamePromptScreen can still sit in between.
+// `trigger` stays true (harmlessly) through those screens; this only does
+// anything once it's mounted inside the real navigator.
+function AutoStartTour({ trigger, onStarted }) {
+  const { startTour } = useTour();
+  useEffect(() => {
+    if (!trigger) return;
+    const id = setInterval(() => {
+      if (navigationRef.isReady()) {
+        clearInterval(id);
+        setTimeout(startTour, 300);
+        onStarted();
+      }
+    }, 150);
+    return () => clearInterval(id);
+  }, [trigger]);
+  return null;
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function onboardingKey(userId) {
@@ -216,6 +240,7 @@ export default function App() {
   const [onboardingDone, setOnboardingDone] = useState(undefined);
   const [hasProfileInfo, setHasProfileInfo] = useState(undefined);
   const [hasUsername, setHasUsername]       = useState(undefined);
+  const [autoStartTour, setAutoStartTour]   = useState(false);
   const lastCheckedUserRef                  = useRef(null);
 
   async function checkProfile(userId) {
@@ -367,6 +392,7 @@ export default function App() {
 
   async function handleOnboardingDone() {
     setOnboardingDone(true);
+    setAutoStartTour(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) await AsyncStorage.setItem(onboardingKey(user.id), 'true');
@@ -410,7 +436,11 @@ export default function App() {
         ) : !hasUsername ? (
           <UsernamePromptScreen onDone={handleUsernameDone} />
         ) : (
-          <AppNavigator />
+          <TourProvider>
+            <AppNavigator />
+            <TourOverlay />
+            <AutoStartTour trigger={autoStartTour} onStarted={() => setAutoStartTour(false)} />
+          </TourProvider>
         )}
       </SafeAreaProvider>
     </GestureHandlerRootView>

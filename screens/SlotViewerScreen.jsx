@@ -12,6 +12,8 @@ import CommentSheet from '../components/CommentSheet';
 import { TAG_META, TAG_ICON } from '../lib/postUtils';
 import { displayPlaceName } from '../lib/homePrivacy';
 import Avatar from '../components/Avatar';
+import { useFirstVisit, FirstVisitTooltip } from '../lib/firstVisit';
+import { TourTarget } from '../lib/tourContext';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -34,7 +36,7 @@ function formatScore(score) {
 }
 
 // ─── One person's page — a vertical photo pager with fixed overlay chrome ──
-function PersonPage({ person, data, likeInfo, commentCount, onLike, onSubmitComment, onOpenComments, onPhotoIndexChange }) {
+function PersonPage({ person, data, likeInfo, commentCount, onLike, onSubmitComment, onOpenComments, onPhotoIndexChange, showLikeTooltip, onDismissLikeTooltip, isActive }) {
   const { meal, poster } = person;
   const [commentText, setCommentText] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -110,10 +112,26 @@ function PersonPage({ person, data, likeInfo, commentCount, onLike, onSubmitComm
         {placeName ? <Text style={styles.placeName} numberOfLines={1}>📍 {placeName}</Text> : null}
 
         <View style={styles.engageRow}>
-          <TouchableOpacity onPress={onLike} style={styles.engageBtn} hitSlop={8} activeOpacity={0.7}>
-            <Ionicons name={likeInfo?.isLiked ? 'heart' : 'heart-outline'} size={22} color={likeInfo?.isLiked ? '#ff4d6a' : C.white} />
-            <Text style={styles.engageCount}>{likeInfo?.count ?? 0}</Text>
-          </TouchableOpacity>
+          {isActive ? (
+            <TourTarget id="slotviewer.like" action={onLike}>
+              <TouchableOpacity onPress={onLike} style={styles.engageBtn} hitSlop={8} activeOpacity={0.7}>
+                <Ionicons name={likeInfo?.isLiked ? 'heart' : 'heart-outline'} size={22} color={likeInfo?.isLiked ? '#ff4d6a' : C.white} />
+                <Text style={styles.engageCount}>{likeInfo?.count ?? 0}</Text>
+                {showLikeTooltip && (
+                  <FirstVisitTooltip
+                    message="Tap to like this meal"
+                    onDismiss={onDismissLikeTooltip}
+                    style={styles.likeTooltip}
+                  />
+                )}
+              </TouchableOpacity>
+            </TourTarget>
+          ) : (
+            <TouchableOpacity onPress={onLike} style={styles.engageBtn} hitSlop={8} activeOpacity={0.7}>
+              <Ionicons name={likeInfo?.isLiked ? 'heart' : 'heart-outline'} size={22} color={likeInfo?.isLiked ? '#ff4d6a' : C.white} />
+              <Text style={styles.engageCount}>{likeInfo?.count ?? 0}</Text>
+            </TouchableOpacity>
+          )}
           <TouchableOpacity onPress={onOpenComments} style={styles.engageBtn} hitSlop={8} activeOpacity={0.7}>
             <Ionicons name="chatbubble-outline" size={20} color={C.white} />
             <Text style={styles.engageCount}>{commentCount}</Text>
@@ -160,6 +178,9 @@ export default function SlotViewerScreen() {
   const [loading, setLoading] = useState(true);
 
   const outerListRef = useRef(null);
+
+  const [swipeTooltipVisible, dismissSwipeTooltip] = useFirstVisit('@fw_tt_slotswipe');
+  const [likeTooltipVisible, dismissLikeTooltip] = useFirstVisit('@fw_tt_like');
 
   useEffect(() => {
     if (people.length === 0) { setLoading(false); return; }
@@ -277,7 +298,7 @@ export default function SlotViewerScreen() {
         initialScrollIndex={initialIndex}
         getItemLayout={(_, i) => ({ length: SCREEN_HEIGHT, offset: SCREEN_HEIGHT * i, index: i })}
         onMomentumScrollEnd={onOuterMomentumEnd}
-        renderItem={({ item }) => (
+        renderItem={({ item, index }) => (
           <PersonPage
             person={item}
             data={mealData[item.mealId]}
@@ -287,9 +308,23 @@ export default function SlotViewerScreen() {
             onSubmitComment={text => submitComment(item.mealId, item.postId, text)}
             onOpenComments={() => setCommentSheetTarget({ postId: item.postId, mealId: item.mealId, posterId: item.poster?.id })}
             onPhotoIndexChange={idx => setPhotoIndexByMeal(m => ({ ...m, [item.mealId]: idx }))}
+            showLikeTooltip={likeTooltipVisible && index === activeIndex}
+            onDismissLikeTooltip={dismissLikeTooltip}
+            isActive={index === activeIndex}
           />
         )}
       />
+
+      {/* Explains the swipe gesture on first-ever visit — vertical between
+          people, horizontal through one person's photos. Centered so it
+          reads as a general hint, not anchored to any one control. */}
+      {swipeTooltipVisible && !loading && (
+        <FirstVisitTooltip
+          message="Swipe up/down for the next person, left/right through their photos"
+          onDismiss={dismissSwipeTooltip}
+          style={styles.swipeTooltip}
+        />
+      )}
 
       <SafeAreaView style={styles.topOverlay} edges={['top']} pointerEvents="box-none">
         <LinearGradient
@@ -385,6 +420,11 @@ const styles = StyleSheet.create({
   engageRow: { flexDirection: 'row', alignItems: 'center', gap: 20, marginTop: 8, marginBottom: 12 },
   engageBtn: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   engageCount: { fontSize: 13, color: C.white, fontWeight: '600' },
+
+  swipeTooltip: { top: '42%', alignSelf: 'center' },
+  // Anchored to the like button's own wrapper (engageBtn is small and
+  // non-clipping), arrow pointing down at the heart icon.
+  likeTooltip: { top: -66, left: -8 },
 
   commentInputRow: {
     flexDirection: 'row', alignItems: 'center', gap: 10,

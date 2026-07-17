@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
-  StatusBar, ActivityIndicator, KeyboardAvoidingView, Platform,
+  StatusBar, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { supabase } from '../lib/supabase';
+import HomeLocationEditor from '../components/HomeLocationEditor';
 
 const C = {
   bg: '#0d0d0d', surface: '#1a1a1a', border: '#2a2a2a',
@@ -26,6 +27,53 @@ export default function ProfileInfoScreen({ onDone }) {
   const [city, setCity]           = useState('');
   const [saving, setSaving]       = useState(false);
   const [error, setError]         = useState(null);
+  const [homeLocation, setHomeLocation] = useState(null); // {lat, lng, name} | null
+  const [homeSaving, setHomeSaving]     = useState(false);
+
+  // Saves independently of Continue/Skip below — picking a home location
+  // writes immediately, same as AccountScreen's copy of this field, so it
+  // persists regardless of whether the rest of the screen gets skipped.
+  async function handleSaveHomeLocation(place) {
+    setHomeSaving(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { error: saveError } = await supabase.from('profiles').upsert({
+        id: user.id,
+        home_lat: place.lat,
+        home_lng: place.lng,
+        home_place_name: place.name,
+        updated_at: new Date().toISOString(),
+      });
+      if (saveError) throw saveError;
+      setHomeLocation(place);
+    } catch (err) {
+      setError(err.message || 'Failed to save home location.');
+    } finally {
+      setHomeSaving(false);
+    }
+  }
+
+  async function handleClearHomeLocation() {
+    setHomeSaving(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { error: clearError } = await supabase.from('profiles').upsert({
+        id: user.id,
+        home_lat: null,
+        home_lng: null,
+        home_place_name: null,
+        updated_at: new Date().toISOString(),
+      });
+      if (clearError) throw clearError;
+      setHomeLocation(null);
+    } catch (err) {
+      setError(err.message || 'Failed to clear home location.');
+    } finally {
+      setHomeSaving(false);
+    }
+  }
 
   async function persist({ skipped }) {
     setSaving(true);
@@ -75,7 +123,11 @@ export default function ProfileInfoScreen({ onDone }) {
     <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       <StatusBar barStyle="light-content" backgroundColor={C.bg} />
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-        <View style={styles.body}>
+        <ScrollView
+          contentContainerStyle={styles.body}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
 
           <View style={styles.artBox}>
             <LinearGradient colors={['#1e0a38', '#2a0d4a']} style={StyleSheet.absoluteFill} />
@@ -125,6 +177,19 @@ export default function ProfileInfoScreen({ onDone }) {
             />
           </View>
 
+          {/* Fully optional and saves on its own — setting it (or not) has
+              no bearing on the Continue/Skip buttons below. */}
+          <View style={styles.homeLocationWrap}>
+            <HomeLocationEditor
+              value={homeLocation}
+              onSave={handleSaveHomeLocation}
+              onClear={handleClearHomeLocation}
+              saving={homeSaving}
+              label="Home location (optional)"
+              helperText="So meals you eat at home can appear on your Day Trail — your exact location is never shown to friends."
+            />
+          </View>
+
           {error ? <Text style={styles.hint}>{error}</Text> : null}
 
           <TouchableOpacity
@@ -153,7 +218,7 @@ export default function ProfileInfoScreen({ onDone }) {
           >
             <Text style={styles.skipText}>Skip for now</Text>
           </TouchableOpacity>
-        </View>
+        </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -162,8 +227,10 @@ export default function ProfileInfoScreen({ onDone }) {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: C.bg },
   body: {
-    flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 28,
+    flexGrow: 1, alignItems: 'center', justifyContent: 'center',
+    paddingHorizontal: 28, paddingVertical: 24,
   },
+  homeLocationWrap: { width: '100%', marginTop: 2, marginBottom: 4 },
   artBox: {
     width: 110, height: 110, borderRadius: 28,
     alignItems: 'center', justifyContent: 'center',

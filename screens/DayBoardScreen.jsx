@@ -13,6 +13,8 @@ import DayTrail from '../components/DayTrail';
 import { fetchPostedMealIds, MEAL_TAGS, TAG_META, TAG_ICON } from '../lib/postUtils';
 import { displayPlaceName } from '../lib/homePrivacy';
 import { isDuelUnlocked } from '../lib/postVotes';
+import { useFirstVisit, FirstVisitTooltip } from '../lib/firstVisit';
+import { useTour, TourTarget } from '../lib/tourContext';
 
 const C = {
   bg: '#0d0d0d', surface: '#1a1a1a', border: '#2a2a2a',
@@ -198,7 +200,12 @@ function YouEmptyTile({ onPress, delay }) {
 const STAGGER_SECTION = 110;
 const STAGGER_TILE = 55;
 
-function BoardSection({ tag, sectionIndex, tiles, onPressTile, onPressYou, onFire, likeCounts, commentCounts, leaderMealIds, duelUnlocked, duelVoted, onPressDuel }) {
+function BoardSection({
+  tag, sectionIndex, tiles, onPressTile, onPressYou, onFire, likeCounts, commentCounts, leaderMealIds,
+  duelUnlocked, duelVoted, onPressDuel,
+  showYouTooltip, onDismissYouTooltip, showDuelTooltip, onDismissDuelTooltip,
+  isFirstYouTarget, isFirstTileTarget, isFirstDuelTarget,
+}) {
   const meta = TAG_META[tag];
   const mineTile = tiles.find(t => t.isMine);
   const othersTiles = tiles.filter(t => !t.isMine);
@@ -208,6 +215,18 @@ function BoardSection({ tag, sectionIndex, tiles, onPressTile, onPressYou, onFir
   const orderedTiles = mineTile ? [mineTile, ...othersTiles] : othersTiles;
   const sectionDelay = sectionIndex * STAGGER_SECTION;
 
+  const firstTile = mineTile
+    ? <BoardTile
+        tile={mineTile}
+        delay={sectionDelay}
+        onFire={onFire}
+        likeCount={likeCounts[mineTile.mealId] || 0}
+        commentCount={commentCounts[mineTile.mealId] || 0}
+        isLeader={leaderMealIds.includes(mineTile.mealId)}
+        onPress={() => onPressTile(tag, orderedTiles, 0)}
+      />
+    : <YouEmptyTile delay={sectionDelay} onPress={() => onPressYou(tag)} />;
+
   return (
     <View style={[styles.section, isDimmed && styles.sectionDimmed]}>
       <View style={styles.sectionHeader}>
@@ -216,7 +235,7 @@ function BoardSection({ tag, sectionIndex, tiles, onPressTile, onPressYou, onFir
           <Text style={styles.sectionTitle}>{meta.label}</Text>
         </View>
         <Text style={styles.sectionCount}>
-          {tiles.length === 0 ? 'nobody yet' : `${tiles.length} posted`}
+          {tiles.length === 0 ? 'tap + to fill this in' : `${tiles.length} posted`}
         </Text>
       </View>
 
@@ -225,38 +244,66 @@ function BoardSection({ tag, sectionIndex, tiles, onPressTile, onPressYou, onFir
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.tileRow}
       >
-        {mineTile ? (
-          <BoardTile
-            tile={mineTile}
-            delay={sectionDelay}
-            onFire={onFire}
-            likeCount={likeCounts[mineTile.mealId] || 0}
-            commentCount={commentCounts[mineTile.mealId] || 0}
-            isLeader={leaderMealIds.includes(mineTile.mealId)}
-            onPress={() => onPressTile(tag, orderedTiles, 0)}
-          />
-        ) : (
-          <YouEmptyTile delay={sectionDelay} onPress={() => onPressYou(tag)} />
-        )}
-        {othersTiles.map((tile, i) => (
-          <BoardTile
-            key={tile.mealId}
-            tile={tile}
-            delay={sectionDelay + (i + 1) * STAGGER_TILE}
-            likeCount={likeCounts[tile.mealId] || 0}
-            commentCount={commentCounts[tile.mealId] || 0}
-            isLeader={leaderMealIds.includes(tile.mealId)}
-            onPress={() => onPressTile(tag, orderedTiles, mineTile ? i + 1 : i)}
-          />
-        ))}
+        {!mineTile && isFirstYouTarget ? (
+          <TourTarget id="board.youtile" action={() => onPressYou(tag)}>{firstTile}</TourTarget>
+        ) : mineTile && isFirstTileTarget ? (
+          <TourTarget id="board.tile.first" action={() => onPressTile(tag, orderedTiles, 0)}>{firstTile}</TourTarget>
+        ) : firstTile}
+        {othersTiles.map((tile, i) => {
+          const board = (
+            <BoardTile
+              tile={tile}
+              delay={sectionDelay + (i + 1) * STAGGER_TILE}
+              likeCount={likeCounts[tile.mealId] || 0}
+              commentCount={commentCounts[tile.mealId] || 0}
+              isLeader={leaderMealIds.includes(tile.mealId)}
+              onPress={() => onPressTile(tag, orderedTiles, mineTile ? i + 1 : i)}
+            />
+          );
+          return !mineTile && isFirstTileTarget && i === 0 ? (
+            <TourTarget key={tile.mealId} id="board.tile.first" action={() => onPressTile(tag, orderedTiles, 0)}>
+              {board}
+            </TourTarget>
+          ) : (
+            <View key={tile.mealId} collapsable={false}>{board}</View>
+          );
+        })}
       </ScrollView>
 
+      {/* Anchored to the section itself, not the tile row — the row scrolls
+          horizontally and would clip a tooltip wider than a single tile. */}
+      {showYouTooltip && (
+        <FirstVisitTooltip
+          message="Tap here to log this meal"
+          onDismiss={onDismissYouTooltip}
+          style={styles.youTooltip}
+        />
+      )}
+
       {duelUnlocked && (
-        <DuelCard
-          tag={tag}
-          voted={duelVoted}
-          delay={sectionDelay + (othersTiles.length + 1) * STAGGER_TILE}
-          onPress={onPressDuel}
+        isFirstDuelTarget ? (
+          <TourTarget id="board.duelcard.first" action={onPressDuel}>
+            <DuelCard
+              tag={tag}
+              voted={duelVoted}
+              delay={sectionDelay + (othersTiles.length + 1) * STAGGER_TILE}
+              onPress={onPressDuel}
+            />
+          </TourTarget>
+        ) : (
+          <DuelCard
+            tag={tag}
+            voted={duelVoted}
+            delay={sectionDelay + (othersTiles.length + 1) * STAGGER_TILE}
+            onPress={onPressDuel}
+          />
+        )
+      )}
+      {showDuelTooltip && (
+        <FirstVisitTooltip
+          message="Vote for the best meal once this slot's window closes"
+          onDismiss={onDismissDuelTooltip}
+          style={styles.duelTooltip}
         />
       )}
     </View>
@@ -294,7 +341,7 @@ function DuelCard({ tag, voted, delay, onPress }) {
 // always true here: this card only ever shows the viewer's own trail).
 // Absent entirely below that threshold, so it reads as something that just
 // happened rather than a locked/placeholder slot to fill.
-function DayTrailCard({ images, locatedImages, avgScore, totalDistance, delay, onPress }) {
+function DayTrailCard({ images, locatedImages, avgScore, totalDistance, delay, onPress, showTooltip, onDismissTooltip }) {
   return (
     <FadeScaleIn delay={delay} style={styles.trailCardWrap}>
       <View style={styles.trailUnlockBadge}>
@@ -326,12 +373,21 @@ function DayTrailCard({ images, locatedImages, avgScore, totalDistance, delay, o
           <Text style={styles.trailStatLabel}>{locatedImages.length === 1 ? 'stop' : 'stops'}</Text>
         </View>
       </TouchableOpacity>
+
+      {showTooltip && (
+        <FirstVisitTooltip
+          message="This map fills in as you eat around town — tap to see the full trail"
+          onDismiss={onDismissTooltip}
+          style={styles.trailTooltip}
+        />
+      )}
     </FadeScaleIn>
   );
 }
 
 export default function DayBoardScreen() {
   const navigation = useNavigation();
+  const { startTour } = useTour();
   const insets = useSafeAreaInsets();
   const [loading, setLoading] = useState(true);
   const [posts, setPosts] = useState([]);
@@ -350,6 +406,13 @@ export default function DayBoardScreen() {
   const [pickerMeals, setPickerMeals]     = useState([]);
   const [pickerLoading, setPickerLoading] = useState(false);
   const [shareTarget, setShareTarget]     = useState(null); // meal to share
+
+  // First-visit teaching tooltips — each fires once, ever, on whichever
+  // section first qualifies (see firstEmptyYouTag/firstDuelTag below), not
+  // on every section that matches.
+  const [youTileTooltipVisible, dismissYouTileTooltip] = useFirstVisit('@fw_tt_youtile');
+  const [duelTooltipVisible, dismissDuelTooltip] = useFirstVisit('@fw_tt_duelcard');
+  const [trailTooltipVisible, dismissTrailTooltip] = useFirstVisit('@fw_tt_daytrail');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -488,6 +551,12 @@ export default function DayBoardScreen() {
   ).size;
 
   const totalMealsToday = MEAL_TAGS.reduce((sum, tag) => sum + tilesByTag[tag].length, 0);
+
+  // Which single section shows the "+ you" / duel tooltip — never more than
+  // one at once, even though up to 3 sections could otherwise qualify.
+  const firstEmptyYouTag = MEAL_TAGS.find(tag => !tilesByTag[tag].some(t => t.isMine));
+  const firstDuelTag = MEAL_TAGS.find(tag => duelUnlockedByTag[tag]);
+  const firstTileTag = MEAL_TAGS.find(tag => tilesByTag[tag].length > 0);
 
   // Day Trail release card — only ever the viewer's own day (isOwner is
   // always true for this card), never a friend's. Unlocks at 2+ located
@@ -668,6 +737,16 @@ export default function DayBoardScreen() {
       <View style={styles.navBar}>
         <Text style={styles.navTitle}>FoodWrapped</Text>
         <View style={styles.headerActions}>
+          {/* Persistent way back into a live, interactive walkthrough — the
+              one-shot tooltips are gone for good once seen/dismissed, so
+              this is the only in-context help left once someone's burned
+              through them. */}
+          <TouchableOpacity
+            onPress={startTour}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Ionicons name="help-circle-outline" size={24} color={C.orange} />
+          </TouchableOpacity>
           <TouchableOpacity
             onPress={() => navigation.navigate('Map')}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
@@ -707,7 +786,7 @@ export default function DayBoardScreen() {
           <Text style={styles.dateHeader}>{dateLabel(new Date())}</Text>
           <Text style={styles.friendCount}>
             {friendsEatingCount === 0
-              ? 'No friends eating yet today'
+              ? "Log a meal below, then add friends to fill this in"
               : `${friendsEatingCount} friend${friendsEatingCount === 1 ? '' : 's'} eating`}
           </Text>
 
@@ -728,18 +807,29 @@ export default function DayBoardScreen() {
               duelUnlocked={duelUnlockedByTag[tag]}
               duelVoted={myVoteMealIdByTag[tag] != null}
               onPressDuel={() => handlePressDuel(tag)}
+              showYouTooltip={youTileTooltipVisible && tag === firstEmptyYouTag}
+              onDismissYouTooltip={dismissYouTileTooltip}
+              showDuelTooltip={duelTooltipVisible && tag === firstDuelTag}
+              onDismissDuelTooltip={dismissDuelTooltip}
+              isFirstYouTarget={tag === firstEmptyYouTag}
+              isFirstTileTarget={tag === firstTileTag}
+              isFirstDuelTarget={tag === firstDuelTag}
             />
           ))}
 
           {trailUnlocked && (
-            <DayTrailCard
-              images={myImages}
-              locatedImages={myLocatedImages}
-              avgScore={myAvgScore}
-              totalDistance={myTotalDistance}
-              delay={MEAL_TAGS.length * STAGGER_SECTION + 250}
-              onPress={handleOpenMyTrail}
-            />
+            <TourTarget id="board.trailcard" action={handleOpenMyTrail}>
+              <DayTrailCard
+                images={myImages}
+                locatedImages={myLocatedImages}
+                avgScore={myAvgScore}
+                totalDistance={myTotalDistance}
+                delay={MEAL_TAGS.length * STAGGER_SECTION + 250}
+                onPress={handleOpenMyTrail}
+                showTooltip={trailTooltipVisible}
+                onDismissTooltip={dismissTrailTooltip}
+              />
+            </TourTarget>
           )}
 
           <View style={styles.footerCard}>
@@ -853,6 +943,15 @@ const styles = StyleSheet.create({
   sectionCount: { fontSize: 13, color: C.gray2, fontWeight: '500' },
 
   tileRow: { paddingHorizontal: 20, gap: TILE_GAP },
+
+  // Tooltip bubble sits above its target with the arrow pointing down —
+  // anchored on the section (not the scrolling tile row) so it never clips.
+  youTooltip: { top: 24, left: 16 },
+  // Duel card is the last element in the section (rendered after the tile
+  // row), so this is bottom-anchored to sit just above it regardless of how
+  // tall the tile row ends up.
+  duelTooltip: { bottom: 70, left: 16 },
+  trailTooltip: { top: -66, alignSelf: 'center' },
 
   // Tier Duel card — a scheduled-event prompt, not a persistent stat, so it
   // gets a warm gold accent (matches the trophy/crown) rather than the
