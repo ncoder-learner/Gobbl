@@ -39,6 +39,18 @@ import { navigationRef } from './lib/navigationRef';
 const Tab  = createBottomTabNavigator();
 const Root = createNativeStackNavigator();
 
+// Lets a shared profile link (com.ncoderpro.foodwrapped://profile/<username>)
+// open UserProfileScreen directly when tapped by someone who already has the
+// app installed. UserProfileScreen resolves the username to a userId itself.
+const linking = {
+  prefixes: ['com.ncoderpro.foodwrapped://'],
+  config: {
+    screens: {
+      UserProfile: 'profile/:username',
+    },
+  },
+};
+
 // React Navigation v7 requires all four font slots; without them the tab bar
 // accesses theme.fonts.regular → undefined → crashes silently in React 19.
 const NAV_THEME = {
@@ -118,7 +130,7 @@ function TabNavigator() {
 
 function AppNavigator() {
   return (
-    <NavigationContainer ref={navigationRef} theme={NAV_THEME}>
+    <NavigationContainer ref={navigationRef} theme={NAV_THEME} linking={linking}>
       <DuelLiveListener />
       <Root.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#0d0d0d' } }}>
         <Root.Screen name="Tabs" component={TabNavigator} />

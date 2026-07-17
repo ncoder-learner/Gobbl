@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, FlatList, Image, TouchableOpacity, StyleSheet,
   StatusBar, Dimensions, ActivityIndicator, Alert, Modal,
@@ -183,7 +183,26 @@ function FriendButton({ status, friendshipId, targetId, myId, onStatusChange }) 
 
 export default function UserProfileScreen() {
   const navigation = useNavigation();
-  const { userId } = useRoute().params;
+  const routeParams = useRoute().params ?? {};
+  // The deep link (com.ncoderpro.foodwrapped://profile/:username) only has a
+  // username to go on; in-app navigation always passes userId directly.
+  const { userId: userIdParam, username: usernameParam } = routeParams;
+  const [resolvedUserId, setResolvedUserId] = useState(null);
+  const [resolveFailed, setResolveFailed] = useState(false);
+  const userId = userIdParam ?? resolvedUserId;
+
+  useEffect(() => {
+    if (userIdParam || !usernameParam) return;
+    let cancelled = false;
+    supabase.from('profiles').select('id').eq('username', usernameParam).maybeSingle()
+      .then(({ data }) => {
+        if (cancelled) return;
+        if (data?.id) setResolvedUserId(data.id);
+        else setResolveFailed(true);
+      })
+      .catch(() => { if (!cancelled) setResolveFailed(true); });
+    return () => { cancelled = true; };
+  }, [usernameParam, userIdParam]);
 
   const [myId, setMyId]               = useState(null);
   const [profile, setProfile]         = useState(null);
@@ -254,6 +273,7 @@ export default function UserProfileScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      if (!userId) return;
       loadProfile();
     }, [userId])
   );
@@ -375,7 +395,7 @@ export default function UserProfileScreen() {
     </View>
   );
 
-  if (loading) {
+  if (loading && !resolveFailed) {
     return (
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <StatusBar barStyle="light-content" backgroundColor={C.bg} />
@@ -391,7 +411,7 @@ export default function UserProfileScreen() {
     );
   }
 
-  if (notFound) {
+  if (notFound || resolveFailed) {
     return (
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <StatusBar barStyle="light-content" backgroundColor={C.bg} />

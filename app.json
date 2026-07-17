@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "FoodWrapped",
+    "name": "Gobbl",
     "slug": "FoodWrapped",
     "version": "1.0.0",
     "scheme": "com.ncoderpro.foodwrapped",
@@ -12,9 +12,9 @@
       "bundleIdentifier": "com.ncoderpro.foodwrapped",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "NSCameraUsageDescription": "FoodWrapped uses your camera to photograph your meals.",
-        "NSPhotoLibraryUsageDescription": "FoodWrapped accesses your photo library so you can log meals from existing photos.",
-        "NSLocationWhenInUseUsageDescription": "FoodWrapped uses your location to tag where you got a meal so you can find great spots again later."
+        "NSCameraUsageDescription": "Gobbl uses your camera to photograph your meals.",
+        "NSPhotoLibraryUsageDescription": "Gobbl accesses your photo library so you can log meals from existing photos.",
+        "NSLocationWhenInUseUsageDescription": "Gobbl uses your location to tag where you got a meal so you can find great spots again later."
       }
     },
     "android": {
@@ -47,13 +47,13 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "FoodWrapped uses your camera to photograph your meals."
+          "cameraPermission": "Gobbl uses your camera to photograph your meals."
         }
       ],
       [
         "expo-image-picker",
         {
-          "photosPermission": "FoodWrapped accesses your photo library so you can log meals from existing photos."
+          "photosPermission": "Gobbl accesses your photo library so you can log meals from existing photos."
         }
       ],
       "expo-font",

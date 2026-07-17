@@ -250,7 +250,7 @@ function WrappedShareCard({ cardRef, personality, totalMeals, avgScore, cuisines
           locations={[0, 0.35, 0.65, 1]}
           style={StyleSheet.absoluteFill}
         />
-        <Text style={sc.kicker}>FOODWRAPPED · {monthName.toUpperCase()} {year}</Text>
+        <Text style={sc.kicker}>GOBBL · {monthName.toUpperCase()} {year}</Text>
         <View style={sc.hero}>
           <View style={sc.emojiBadge}><Text style={sc.emoji}>{personality.emoji}</Text></View>
           <Text style={sc.youAre}>YOU ARE</Text>
@@ -299,7 +299,7 @@ function WrappedShareCard({ cardRef, personality, totalMeals, avgScore, cuisines
             {pills.map((p, i) => <ShareCardInsightPill key={i} icon={p.icon} text={p.text} />)}
           </View>
         )}
-        <View style={sc.footer}><Text style={sc.footerText}>MADE WITH FOODWRAPPED</Text></View>
+        <View style={sc.footer}><Text style={sc.footerText}>MADE WITH GOBBL</Text></View>
       </View>
     </ViewShot>
   );
@@ -409,7 +409,7 @@ function FinaleSlide({
   return (
     <View style={{ flex: 1, width: '100%' }}>
       <ScrollView contentContainerStyle={styles.finaleContent} showsVerticalScrollIndicator={false}>
-        <Text style={styles.finaleKicker}>FOODWRAPPED · {monthName.toUpperCase()} {year}</Text>
+        <Text style={styles.finaleKicker}>GOBBL · {monthName.toUpperCase()} {year}</Text>
 
         {/* PERSONALITY HERO — aura lives here, scrolls with content, no jitter */}
         <View style={styles.finalePersonality}>
@@ -495,7 +495,7 @@ function FinaleSlide({
         </Animated.View>
 
         <Animated.Text style={[styles.finaleFooter, { opacity: insightsAnim }]}>
-          Made with FoodWrapped
+          Made with Gobbl
         </Animated.Text>
       </ScrollView>
     </View>

@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, FlatList,
   StyleSheet, StatusBar, ActivityIndicator,
@@ -8,6 +8,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
+import { shareProfileLink } from '../lib/profileLink';
+
+const SEARCH_LIMIT = 20;
+const SEARCH_DEBOUNCE_MS = 280;
 
 const C = {
   bg: '#0d0d0d', surface: '#1a1a1a', border: '#2a2a2a',
@@ -223,16 +227,20 @@ export default function FriendsScreen() {
   const navigation = useNavigation();
 
   const [myId, setMyId]                   = useState(null);
+  const [myUsername, setMyUsername]       = useState(null);
   const [loading, setLoading]             = useState(true);
   const [incoming, setIncoming]           = useState([]);
   const [outgoing, setOutgoing]           = useState([]);
   const [friends, setFriends]             = useState([]);
 
-  // Search state
+  // Search state — live, debounced as the user types
   const [query, setQuery]                 = useState('');
   const [searching, setSearching]         = useState(false);
-  const [searchResult, setSearchResult]   = useState(null); // profile | 'not_found' | null
+  const [searchResults, setSearchResults] = useState([]);
   const [sentIds, setSentIds]             = useState(new Set());
+  const debounceRef = useRef(null);
+  const abortRef     = useRef(null);
+  const searchSeqRef = useRef(0);
 
   useFocusEffect(
     useCallback(() => {
@@ -246,6 +254,9 @@ export default function FriendsScreen() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
       setMyId(user.id);
+      supabase.from('profiles').select('username').eq('id', user.id).maybeSingle()
+        .then(({ data }) => { if (data?.username) setMyUsername(data.username); })
+        .catch(() => {});
 
       const { data, error } = await supabase
         .from('friendships')
@@ -270,57 +281,84 @@ export default function FriendsScreen() {
     }
   }
 
-  async function handleSearch() {
-    const q = query.trim().toLowerCase().replace('@', '');
-    if (!q) return;
-    setSearching(true);
-    setSearchResult(null);
+  // Debounced (280ms) live search: cancels the previous in-flight request via
+  // AbortController and a request sequence number, so a slow earlier response
+  // can never overwrite a newer one's results.
+  async function runSearch(q) {
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const seq = ++searchSeqRef.current;
 
+    setSearching(true);
     try {
-      const { data: profiles } = await supabase
+      const { data: profiles, error } = await supabase
         .from('profiles')
         .select('id, username, display_name, avatar_url')
-        .ilike('username', q)
+        .or(`username.ilike.${q}%,display_name.ilike.${q}%`)
         .neq('id', myId)
-        .limit(1);
+        .limit(SEARCH_LIMIT)
+        .abortSignal(controller.signal);
+      if (error) throw error;
+      if (seq !== searchSeqRef.current) return; // superseded by a newer query
 
-      if (!profiles?.length) {
-        setSearchResult('not_found');
-        return;
+      let results = profiles || [];
+      if (results.length && myId) {
+        const { data: friendships } = await supabase
+          .from('friendships')
+          .select('id, status, requester_id, addressee_id')
+          .or(`requester_id.eq.${myId},addressee_id.eq.${myId}`)
+          .abortSignal(controller.signal);
+        if (seq !== searchSeqRef.current) return;
+
+        const statusById = new Map();
+        (friendships || []).forEach(f => {
+          const otherId = f.requester_id === myId ? f.addressee_id : f.requester_id;
+          if (f.status === 'accepted') statusById.set(otherId, 'accepted');
+          else if (f.status === 'pending') {
+            statusById.set(otherId, f.requester_id === myId ? 'outgoing' : 'incoming');
+          }
+        });
+        results = results.map(p => ({
+          ...p,
+          _status: sentIds.has(p.id) ? 'outgoing' : (statusById.get(p.id) ?? null),
+        }));
       }
 
-      const profile = profiles[0];
-
-      // Check existing friendship status
-      const { data: existing } = await supabase
-        .from('friendships')
-        .select('id, status, requester_id')
-        .or(
-          `and(requester_id.eq.${myId},addressee_id.eq.${profile.id}),` +
-          `and(requester_id.eq.${profile.id},addressee_id.eq.${myId})`
-        )
-        .maybeSingle();
-
-      let status = null;
-      if (existing) {
-        if (existing.status === 'accepted') status = 'accepted';
-        else if (existing.status === 'pending') {
-          status = existing.requester_id === myId ? 'outgoing' : 'incoming';
-        }
-      }
-      if (sentIds.has(profile.id)) status = 'outgoing';
-
-      setSearchResult({ ...profile, _status: status });
-    } catch {
-      setSearchResult('not_found');
+      setSearchResults(results);
+    } catch (err) {
+      if (err?.name === 'AbortError') return;
+      if (seq === searchSeqRef.current) setSearchResults([]);
     } finally {
-      setSearching(false);
+      if (seq === searchSeqRef.current) setSearching(false);
     }
   }
 
+  function handleQueryChange(text) {
+    setQuery(text);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+
+    const q = text.trim().toLowerCase().replace('@', '');
+    if (!q) {
+      abortRef.current?.abort();
+      searchSeqRef.current++; // invalidate any in-flight response
+      setSearchResults([]);
+      setSearching(false);
+      return;
+    }
+    debounceRef.current = setTimeout(() => runSearch(q), SEARCH_DEBOUNCE_MS);
+  }
+
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      abortRef.current?.abort();
+    };
+  }, []);
+
   function handleRequestSent(profileId) {
     setSentIds(prev => new Set([...prev, profileId]));
-    setSearchResult(prev => prev && prev.id ? { ...prev, _status: 'outgoing' } : prev);
+    setSearchResults(prev => prev.map(p => p.id === profileId ? { ...p, _status: 'outgoing' } : p));
     // Optimistically add to outgoing list
     loadFriends();
   }
@@ -335,7 +373,9 @@ export default function FriendsScreen() {
           <Ionicons name="arrow-back" size={22} color={C.white} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Friends</Text>
-        <View style={{ width: 22 }} />
+        <TouchableOpacity onPress={() => shareProfileLink(myUsername)} hitSlop={12}>
+          <Ionicons name="share-outline" size={22} color={C.white} />
+        </TouchableOpacity>
       </View>
 
       <KeyboardAvoidingView
@@ -355,49 +395,36 @@ export default function FriendsScreen() {
           )}
           ListHeaderComponent={
             <>
-              {/* Search */}
+              {/* Search — live as you type, debounced */}
               <View style={styles.searchSection}>
                 <Text style={styles.sectionLabel}>Find by username</Text>
-                <View style={styles.searchRow}>
-                  <View style={styles.searchInputWrap}>
-                    <Text style={styles.searchAt}>@</Text>
-                    <TextInput
-                      style={styles.searchInput}
-                      value={query}
-                      onChangeText={text => {
-                        setQuery(text);
-                        setSearchResult(null);
-                      }}
-                      placeholder="username"
-                      placeholderTextColor={C.gray4}
-                      autoCapitalize="none"
-                      autoCorrect={false}
-                      returnKeyType="search"
-                      onSubmitEditing={handleSearch}
-                    />
-                  </View>
-                  <TouchableOpacity
-                    style={[styles.searchBtn, searching && { opacity: 0.6 }]}
-                    onPress={handleSearch}
-                    disabled={searching}
-                    activeOpacity={0.85}
-                  >
-                    {searching
-                      ? <ActivityIndicator color={C.white} size="small" />
-                      : <Text style={styles.searchBtnText}>Search</Text>
-                    }
-                  </TouchableOpacity>
+                <View style={styles.searchInputWrap}>
+                  <Text style={styles.searchAt}>@</Text>
+                  <TextInput
+                    style={styles.searchInput}
+                    value={query}
+                    onChangeText={handleQueryChange}
+                    placeholder="username"
+                    placeholderTextColor={C.gray4}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    returnKeyType="search"
+                  />
+                  {searching && <ActivityIndicator color={C.gray2} size="small" />}
                 </View>
 
-                {searchResult === 'not_found' ? (
-                  <Text style={styles.notFound}>No user found with that username.</Text>
-                ) : searchResult ? (
+                {!searching && query.trim() && searchResults.length === 0 ? (
+                  <Text style={styles.notFound}>No users found for "{query.trim()}".</Text>
+                ) : null}
+
+                {searchResults.map(profile => (
                   <SearchResult
-                    profile={searchResult}
+                    key={profile.id}
+                    profile={profile}
                     myId={myId}
                     onRequestSent={handleRequestSent}
                   />
-                ) : null}
+                ))}
               </View>
 
               {/* Incoming requests */}
@@ -503,19 +530,13 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase', marginBottom: 12,
   },
 
-  searchRow: { flexDirection: 'row', gap: 8, marginBottom: 10 },
   searchInputWrap: {
-    flex: 1, flexDirection: 'row', alignItems: 'center',
+    flexDirection: 'row', alignItems: 'center', marginBottom: 10,
     backgroundColor: C.inputBg, borderWidth: 0.5, borderColor: C.border,
     borderRadius: 12, paddingHorizontal: 12, height: 44,
   },
   searchAt: { fontSize: 16, color: C.gray2, marginRight: 4 },
   searchInput: { flex: 1, fontSize: 15, color: C.white },
-  searchBtn: {
-    backgroundColor: C.orange, borderRadius: 12,
-    paddingHorizontal: 16, height: 44, alignItems: 'center', justifyContent: 'center',
-  },
-  searchBtnText: { fontSize: 14, fontWeight: '600', color: C.white },
   notFound: { fontSize: 13, color: C.gray2, marginTop: 2, marginBottom: 8 },
 
   personRow: {

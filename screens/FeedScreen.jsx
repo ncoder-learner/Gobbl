@@ -318,7 +318,7 @@ function NoFriendsState({ onAddFriends, onInvite }) {
       <Text style={styles.emptyEmoji}>👥</Text>
       <Text style={styles.emptyTitle}>Your feed fills up as you add friends</Text>
       <Text style={styles.emptySub}>
-        Find people by their @username, or invite friends to join FoodWrapped.
+        Find people by their @username, or invite friends to join Gobbl.
       </Text>
       <TouchableOpacity style={styles.emptyBtn} onPress={onAddFriends} activeOpacity={0.85}>
         <Ionicons name="person-add-outline" size={15} color={C.white} style={{ marginRight: 6 }} />
@@ -511,8 +511,8 @@ export default function FeedScreen() {
 
   async function handleInvite() {
     const msg = currentUsername
-      ? `Add me on FoodWrapped — my username is @${currentUsername}`
-      : 'Join me on FoodWrapped!';
+      ? `Add me on Gobbl — my username is @${currentUsername}`
+      : 'Join me on Gobbl!';
     try {
       await Share.share({ message: msg });
     } catch {
@@ -549,7 +549,7 @@ export default function FeedScreen() {
     <>
       {/* Page header */}
       <View style={styles.pageHeader}>
-        <Text style={styles.pageTitle}>FoodWrapped</Text>
+        <Text style={styles.pageTitle}>Gobbl</Text>
         <View style={styles.headerActions}>
           <TouchableOpacity
             onPress={() => navigation.navigate('Map')}

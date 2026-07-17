@@ -735,7 +735,7 @@ export default function DayBoardScreen() {
       />
 
       <View style={styles.navBar}>
-        <Text style={styles.navTitle}>FoodWrapped</Text>
+        <Text style={styles.navTitle}>Gobbl</Text>
         <View style={styles.headerActions}>
           {/* Persistent way back into a live, interactive walkthrough — the
               one-shot tooltips are gone for good once seen/dismissed, so

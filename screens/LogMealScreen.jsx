@@ -482,7 +482,7 @@ export default function LogMealScreen() {
         if (!canAskAgain) {
           Alert.alert(
             'Permission required',
-            'Open your device settings to allow FoodWrapped to access your photos.',
+            'Open your device settings to allow Gobbl to access your photos.',
             [
               { text: 'Cancel', style: 'cancel' },
               { text: 'Open Settings', onPress: () => Linking.openSettings() },
@@ -525,7 +525,7 @@ export default function LogMealScreen() {
       if (!canAskAgain) {
         Alert.alert(
           'Permission required',
-          'Open your device settings to allow FoodWrapped to access your camera.',
+          'Open your device settings to allow Gobbl to access your camera.',
           [
             { text: 'Cancel', style: 'cancel' },
             { text: 'Open Settings', onPress: () => Linking.openSettings() },
@@ -555,7 +555,7 @@ export default function LogMealScreen() {
         if (!canAskAgain) {
           Alert.alert(
             'Permission required',
-            'Open your device settings to allow FoodWrapped to access your photos.',
+            'Open your device settings to allow Gobbl to access your photos.',
             [
               { text: 'Cancel', style: 'cancel' },
               { text: 'Open Settings', onPress: () => Linking.openSettings() },
@@ -842,7 +842,7 @@ export default function LogMealScreen() {
         <View style={styles.permissionBox}>
           <Text style={styles.permissionEmoji}>📸</Text>
           <Text style={styles.permissionTitle}>Camera access needed</Text>
-          <Text style={styles.permissionSub}>FoodWrapped needs your camera to log meals.</Text>
+          <Text style={styles.permissionSub}>Gobbl needs your camera to log meals.</Text>
           {permission.canAskAgain ? (
             <TouchableOpacity style={styles.permissionBtn} onPress={requestPermission}>
               <Text style={styles.permissionBtnText}>Allow camera</Text>

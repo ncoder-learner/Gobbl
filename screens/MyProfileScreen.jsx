@@ -11,6 +11,7 @@ import { supabase } from '../lib/supabase';
 import CommentSheet from '../components/CommentSheet';
 import { bannerColorHex } from '../lib/profileTheme';
 import { winsForMonth } from '../lib/postVotes';
+import { shareProfileLink } from '../lib/profileLink';
 import Avatar from '../components/Avatar';
 
 const MONTH_NAMES = [
@@ -268,13 +269,22 @@ export default function MyProfileScreen() {
   const listHeader = (
     <View style={styles.profileHeader}>
       <View style={[styles.banner, { backgroundColor: bannerHex }]}>
-        <TouchableOpacity
-          onPress={() => navigation.navigate('AccountSettings')}
-          hitSlop={12}
-          style={styles.gearBtn}
-        >
-          <Ionicons name="settings-outline" size={22} color="rgba(255,255,255,0.9)" />
-        </TouchableOpacity>
+        <View style={styles.bannerActions}>
+          <TouchableOpacity
+            onPress={() => shareProfileLink(profile?.username)}
+            hitSlop={12}
+            style={styles.gearBtn}
+          >
+            <Ionicons name="share-outline" size={22} color="rgba(255,255,255,0.9)" />
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => navigation.navigate('AccountSettings')}
+            hitSlop={12}
+            style={styles.gearBtn}
+          >
+            <Ionicons name="settings-outline" size={22} color="rgba(255,255,255,0.9)" />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <View style={styles.avatarWrap}>
@@ -371,6 +381,7 @@ const styles = StyleSheet.create({
     width: '100%', height: 88, justifyContent: 'flex-start', alignItems: 'flex-end',
     paddingTop: 10, paddingHorizontal: 16,
   },
+  bannerActions: { flexDirection: 'row', gap: 12 },
   gearBtn: { padding: 4 },
   avatarWrap: { marginTop: -40 },
   bigAvatar: {

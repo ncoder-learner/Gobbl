@@ -1,21 +1,21 @@
 # Privacy Policy
 
-**App name:** FoodWrapped [PLACEHOLDER: replace with final app name if different]  
+**App name:** Gobbl  
 **Last updated:** June 12, 2026
 
 ---
 
 ## 1. Introduction
 
-FoodWrapped ("we," "our," or "us") is a mobile app that lets you log meals, rate them, and share them with friends. This Privacy Policy explains what information we collect, how we use it, who we share it with, and the rights you have over your data.
+Gobbl ("we," "our," or "us") is a mobile app that lets you log meals, rate them, and share them with friends. This Privacy Policy explains what information we collect, how we use it, who we share it with, and the rights you have over your data.
 
-By creating an account and using FoodWrapped, you agree to the practices described in this policy. If you do not agree, please do not use the app.
+By creating an account and using Gobbl, you agree to the practices described in this policy. If you do not agree, please do not use the app.
 
 ---
 
 ## 2. Who Can Use This App
 
-FoodWrapped is intended for users **13 years of age and older**. We do not knowingly collect personal information from children under 13. If we learn that a child under 13 has provided us with personal information, we will delete it promptly. If you believe this has happened, please contact us at nealsinghal10@gmail.com.
+Gobbl is intended for users **13 years of age and older**. We do not knowingly collect personal information from children under 13. If we learn that a child under 13 has provided us with personal information, we will delete it promptly. If you believe this has happened, please contact us at nealsinghal10@gmail.com.
 
 ---
 
@@ -136,7 +136,7 @@ No system is completely secure. We cannot guarantee the absolute security of you
 
 ## 9. Children's Privacy
 
-FoodWrapped is not directed at children under 13 years of age and does not knowingly collect personal information from anyone under 13. If you are a parent or guardian and believe your child has created an account, please contact us at nealsinghal10@gmail.com. We will delete the account and associated data promptly.
+Gobbl is not directed at children under 13 years of age and does not knowingly collect personal information from anyone under 13. If you are a parent or guardian and believe your child has created an account, please contact us at nealsinghal10@gmail.com. We will delete the account and associated data promptly.
 
 ---
 

@@ -231,7 +231,7 @@ export default function MealDetailScreen() {
         if (!canAskAgain) {
           Alert.alert(
             'Permission required',
-            'Open your device settings to allow FoodWrapped to access your photos.',
+            'Open your device settings to allow Gobbl to access your photos.',
             [
               { text: 'Cancel', style: 'cancel' },
               { text: 'Open Settings', onPress: () => Linking.openSettings() },

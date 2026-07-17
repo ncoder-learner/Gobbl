@@ -176,7 +176,7 @@ export default function AuthScreen() {
         >
           <View style={styles.header}>
             <Text style={styles.logo}>🍽️</Text>
-            <Text style={styles.appName}>FoodWrapped</Text>
+            <Text style={styles.appName}>Gobbl</Text>
             <Text style={styles.tagline}>Your year in food</Text>
           </View>
 
