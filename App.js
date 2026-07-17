@@ -16,6 +16,7 @@ import RecapsScreen from './screens/RecapsScreen';
 import TierListScreen from './screens/TierListScreen';
 import AccountScreen from './screens/AccountScreen';
 import HistoryScreen from './screens/HistoryScreen';
+import YoursScreen from './screens/YoursScreen';
 import AuthScreen from './screens/AuthScreen';
 import OnboardingScreen from './screens/OnboardingScreen';
 import ProfileInfoScreen from './screens/ProfileInfoScreen';
@@ -80,32 +81,22 @@ function TabNavigator() {
         name="LogMeal"
         component={LogMealScreen}
         options={{
-          tabBarLabel: 'Log Meal',
+          tabBarLabel: 'Log',
           tabBarIcon: ({ color, size }) => <Ionicons name="camera-outline" size={size} color={color} />,
         }}
       />
+      {/* Merges History, Tier List, and Recaps behind a segmented control —
+          three sorts of the same meal data, not three separate concerns.
+          The original screens stay registered below (Root.Navigator) so
+          by-name navigation to them — e.g. LogMealScreen's
+          navigate('TierList', { newMealId }) — still resolves; it now
+          presents as a full-screen push instead of a tab switch. */}
       <Tab.Screen
-        name="Recaps"
-        component={RecapsScreen}
+        name="Yours"
+        component={YoursScreen}
         options={{
-          tabBarLabel: 'Recaps',
-          tabBarIcon: ({ color, size }) => <Ionicons name="film-outline" size={size} color={color} />,
-        }}
-      />
-      <Tab.Screen
-        name="TierList"
-        component={TierListScreen}
-        options={{
-          tabBarLabel: 'Tier List',
-          tabBarIcon: ({ color, size }) => <Ionicons name="trophy-outline" size={size} color={color} />,
-        }}
-      />
-      <Tab.Screen
-        name="History"
-        component={HistoryScreen}
-        options={{
-          tabBarLabel: 'History',
-          tabBarIcon: ({ color, size }) => <Ionicons name="time-outline" size={size} color={color} />,
+          tabBarLabel: 'Yours',
+          tabBarIcon: ({ color, size }) => <Ionicons name="albums-outline" size={size} color={color} />,
         }}
       />
       <Tab.Screen
@@ -172,6 +163,26 @@ function AppNavigator() {
           name="Duel"
           component={DuelScreen}
           options={{ animation: 'slide_from_bottom' }}
+        />
+        {/* No longer standalone tabs (merged into "Yours" — see TabNavigator)
+            but kept registered here so by-name navigation to them still
+            resolves, e.g. LogMealScreen's navigate('TierList', { newMealId })
+            to highlight a just-logged meal. Presents as a push now instead
+            of a tab switch. */}
+        <Root.Screen
+          name="TierList"
+          component={TierListScreen}
+          options={{ animation: 'slide_from_right' }}
+        />
+        <Root.Screen
+          name="History"
+          component={HistoryScreen}
+          options={{ animation: 'slide_from_right' }}
+        />
+        <Root.Screen
+          name="Recaps"
+          component={RecapsScreen}
+          options={{ animation: 'slide_from_right' }}
         />
       </Root.Navigator>
     </NavigationContainer>
