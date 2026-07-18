@@ -374,10 +374,11 @@ export default function AccountScreen() {
       ];
       await AsyncStorage.multiRemove(keysToRemove);
       if (u) {
-        await supabase
+        const { error } = await supabase
           .from('profiles')
           .update({ onboarding_completed: false, updated_at: new Date().toISOString() })
           .eq('id', u.id);
+        if (error) throw error;
       }
       Alert.alert(
         'Dev Reset Done',

@@ -16,6 +16,7 @@ import { syncStreakRiskNotification, loadNotifPrefs } from '../lib/notifications
 import { FirstVisitTooltip, useFirstVisit } from '../lib/firstVisit';
 import { fetchPostedMealIds, MEAL_TAGS, TAG_META } from '../lib/postUtils';
 import { fetchSkipDayKeys } from '../lib/skips';
+import { localDateKey } from '../lib/dateKey';
 import Avatar from '../components/Avatar';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -53,13 +54,6 @@ function timeAgo(iso) {
   if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
   if (diff < 86400 * 7) return `${Math.floor(diff / 86400)}d ago`;
   return new Date(iso).toLocaleDateString([], { month: 'short', day: 'numeric' });
-}
-
-function localDateKey(date) {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
 }
 
 // 'Today' / 'Yesterday' / a full weekday date for anything older — the
@@ -178,7 +172,8 @@ function PostCard({ post, currentUserId, currentUsername, onPressUser, onPressMe
       // unique per user now that per-slot likes (SlotViewerScreen,
       // MealDetailScreen) can coexist on the same post.
       if (next) {
-        await supabase.from('post_likes').insert({ post_id: post.id, meal_id: post.meal_id, user_id: currentUserId });
+        const { error } = await supabase.from('post_likes').insert({ post_id: post.id, meal_id: post.meal_id, user_id: currentUserId });
+        if (error) throw error;
         if (post.user_id && post.user_id !== currentUserId) {
           supabase.functions.invoke('send-notification', {
             body: {
@@ -189,8 +184,9 @@ function PostCard({ post, currentUserId, currentUsername, onPressUser, onPressMe
           }).catch(() => {});
         }
       } else {
-        await supabase.from('post_likes').delete()
+        const { error } = await supabase.from('post_likes').delete()
           .eq('meal_id', post.meal_id).eq('user_id', currentUserId);
+        if (error) throw error;
       }
     } catch {
       setIsLiked(!next);
@@ -367,6 +363,7 @@ export default function FeedScreen() {
   const [currentUserId, setCurrentUserId]       = useState(null);
   const [currentUsername, setCurrentUsername]   = useState(null);
   const [pendingRequests, setPendingRequests]   = useState(0);
+  const [loadError, setLoadError]         = useState(null);
 
   const [feedTooltipVisible, dismissFeedTooltip] = useFirstVisit('@fw_tt_feed');
 
@@ -377,6 +374,7 @@ export default function FeedScreen() {
   const [shareTarget, setShareTarget]       = useState(null); // meal to share
 
   const loadData = useCallback(async (pageNum = 0, replace = true) => {
+    setLoadError(null);
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
@@ -445,6 +443,8 @@ export default function FeedScreen() {
         setPosts(prev => replace ? data : [...prev, ...data]);
         setHasMore(data.length === PAGE_SIZE);
         setPage(pageNum);
+      } else {
+        setLoadError('Failed to load your feed. Pull down or tap Retry.');
       }
 
       const skipDayKeys = skipDayKeysResult.status === 'fulfilled' ? skipDayKeysResult.value : new Set();
@@ -460,8 +460,11 @@ export default function FeedScreen() {
       if (pendingResult.status === 'fulfilled') {
         setPendingRequests(pendingResult.value.count ?? 0);
       }
-    } catch {
-      // Non-fatal
+    } catch (err) {
+      // Stale data is still shown underneath — this used to be completely
+      // silent, leaving the feed stuck on old/empty data with no way to
+      // tell anything had failed short of leaving and returning to the tab.
+      setLoadError(err.message || 'Failed to load your feed. Pull down or tap Retry.');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -587,6 +590,15 @@ export default function FeedScreen() {
           </TouchableOpacity>
         </View>
       </View>
+
+      {loadError && (
+        <View style={styles.loadErrorBanner}>
+          <Text style={styles.loadErrorText}>{loadError}</Text>
+          <TouchableOpacity onPress={() => loadData(0, true)} hitSlop={8}>
+            <Text style={styles.loadErrorRetry}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* Personal strip: streak + log CTA */}
       <PersonalStrip
@@ -795,6 +807,15 @@ const styles = StyleSheet.create({
   feedDivider: {
     height: 0.5, backgroundColor: C.border, marginHorizontal: 16, marginBottom: 12,
   },
+
+  loadErrorBanner: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    marginHorizontal: 16, marginBottom: 12, padding: 12,
+    borderRadius: 12, backgroundColor: 'rgba(229,72,77,0.12)',
+    borderWidth: 1, borderColor: 'rgba(229,72,77,0.3)',
+  },
+  loadErrorText: { flex: 1, fontSize: 12, color: '#ff8a8a', marginRight: 10 },
+  loadErrorRetry: { fontSize: 12, fontWeight: '700', color: C.orange },
 
   // Day-section header — separates posts into 'Today' / 'Yesterday' / date
   // groups. First one sits right under the personal strip's divider; the

@@ -13,6 +13,7 @@ import { bannerColorHex } from '../lib/profileTheme';
 import { winsForMonth } from '../lib/postVotes';
 import { shareProfileLink } from '../lib/profileLink';
 import { fetchSkipDayKeys } from '../lib/skips';
+import { localDateKey } from '../lib/dateKey';
 import Avatar from '../components/Avatar';
 import { THEME as C } from '../lib/theme';
 import StripedPlaceholder from '../components/StripedPlaceholder';
@@ -53,13 +54,6 @@ function scoreToneColor(score) {
 function formatScore(score) {
   const n = typeof score === 'number' ? score : Number(score);
   return isNaN(n) ? '—' : n.toFixed(1);
-}
-
-function localDateKey(date) {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
 }
 
 // extraDayKeys are days resolved by a skip (not a logged meal) — merged in

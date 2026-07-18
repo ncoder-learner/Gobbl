@@ -20,6 +20,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { computeTierRank, createPost, mealTagSlot } from '../lib/postUtils';
+import { localDateKeyFromISO } from '../lib/dateKey';
 import { THEME as C } from '../lib/theme';
 import StripedPlaceholder from '../components/StripedPlaceholder';
 
@@ -45,14 +46,6 @@ function formatTime(iso) {
   return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
 
-function localDateKey(iso) {
-  const d = new Date(iso);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
-
 function formatSectionDate(dateKey) {
   const [year, month, day] = dateKey.split('-').map(Number);
   const d = new Date(year, month - 1, day);
@@ -75,7 +68,7 @@ function formatSectionDate(dateKey) {
 function buildFlatData(meals) {
   const dateMap = new Map();
   for (const meal of meals) {
-    const key = localDateKey(meal.created_at);
+    const key = localDateKeyFromISO(meal.created_at);
     if (!dateMap.has(key)) dateMap.set(key, []);
     dateMap.get(key).push(meal);
   }

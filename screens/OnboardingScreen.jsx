@@ -15,14 +15,21 @@ export default function OnboardingScreen({ onDone }) {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
-        await supabase.from('profiles').upsert({
+        const { error } = await supabase.from('profiles').upsert({
           id: user.id,
           onboarding_completed: true,
           updated_at: new Date().toISOString(),
         });
+        // Still let the user through either way — re-showing this carousel
+        // once more next launch is annoying but not harmful, and blocking
+        // "Let's eat!" on a network hiccup would be worse. But App.js's
+        // startup gate (App.js:319-351) re-reads onboarding_completed from
+        // the DB on every load, so a silently swallowed failure here does
+        // mean it comes back — worth at least logging so it's visible.
+        if (error) console.warn('[Onboarding] failed to persist onboarding_completed:', error.message);
       }
-    } catch (_) {
-      // Non-fatal: proceed even if save fails. The gate in App.js trusts local state.
+    } catch (err) {
+      console.warn('[Onboarding] failed to persist onboarding_completed:', err?.message ?? err);
     } finally {
       setSaving(false);
       onDone();

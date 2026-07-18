@@ -9,6 +9,7 @@ import { supabase } from '../lib/supabase';
 import { withTimeout } from '../lib/withTimeout';
 import { MEAL_TAGS } from '../lib/postUtils';
 import { isDuelUnlocked, markWinsSeen, getWinsSeenAt, newWinsSince, winsForMonth } from '../lib/postVotes';
+import { localDateKey } from '../lib/dateKey';
 import { THEME as C } from '../lib/theme';
 
 const CONFETTI_EMOJI = ['🎉', '✨', '🏆', '⭐', '🎊'];
@@ -59,12 +60,6 @@ function ConfettiBurst() {
   );
 }
 
-function localDateKey(date) {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-}
 
 // Mounted once at the app root (see App.js) — the single home for the wins
 // celebration, covering both cases with the same full-screen overlay:

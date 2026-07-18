@@ -1,0 +1,12 @@
+-- 025_post_votes_replica_identity.sql
+-- post_votes had default REPLICA IDENTITY (relreplident = 'd', primary-key
+-- columns only: voter_id, meal_id). Its two realtime subscribers
+-- (DuelScreen.jsx, DuelLiveListener.jsx) both filter on `slot=eq.<tag>` —
+-- `slot` is NOT part of the primary key, so under default replica identity
+-- an UPDATE/DELETE's old-row data doesn't carry it, meaning Realtime can't
+-- evaluate that filter for those events (votes silently failing to
+-- decrement on delete) and RLS's friends_can_see_votes policy has less than
+-- the full row to evaluate against for a DELETE broadcast. FULL replica
+-- identity fixes both: old-row payloads carry every column, so filters
+-- evaluate correctly and RLS has the complete row to authorize against.
+ALTER TABLE post_votes REPLICA IDENTITY FULL;

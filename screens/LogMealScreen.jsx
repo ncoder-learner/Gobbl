@@ -480,6 +480,8 @@ export default function LogMealScreen() {
               { text: 'Open Settings', onPress: () => Linking.openSettings() },
             ],
           );
+        } else {
+          Alert.alert('Photo access needed', 'Allow access to your photos to add one from your library.');
         }
         return;
       }
@@ -523,6 +525,8 @@ export default function LogMealScreen() {
             { text: 'Open Settings', onPress: () => Linking.openSettings() },
           ],
         );
+      } else {
+        Alert.alert('Camera access needed', 'Allow camera access to take a photo.');
       }
       return;
     }
@@ -553,6 +557,11 @@ export default function LogMealScreen() {
               { text: 'Open Settings', onPress: () => Linking.openSettings() },
             ],
           );
+        } else {
+          // canAskAgain is true but they still just denied — the OS prompt
+          // already fired and got dismissed, so this isn't a re-prompt loop,
+          // just a one-line acknowledgment instead of nothing happening.
+          Alert.alert('Photo access needed', 'Allow access to your photos to choose one from your library.');
         }
         return;
       }
@@ -747,7 +756,7 @@ export default function LogMealScreen() {
       //    ignoreDuplicates: true → ON CONFLICT DO NOTHING (no UPDATE attempted, matching RLS).
       let resolvedPlaceId = null;
       if (selectedPlace?.place_id) {
-        await supabase.from('places').upsert(
+        const { error: placeError } = await supabase.from('places').upsert(
           {
             place_id: selectedPlace.place_id,
             name:     selectedPlace.name,
@@ -757,6 +766,7 @@ export default function LogMealScreen() {
           },
           { onConflict: 'place_id', ignoreDuplicates: true },
         );
+        if (placeError) throw placeError;
         resolvedPlaceId = selectedPlace.place_id;
       }
 
@@ -805,7 +815,8 @@ export default function LogMealScreen() {
             const { data: { publicUrl: extraUrl } } = supabase.storage
               .from('meal-photos')
               .getPublicUrl(extraFileName);
-            await supabase.from('meal_photos').insert({ meal_id: inserted.id, photo_url: extraUrl, position: i });
+            const { error: extraInsertErr } = await supabase.from('meal_photos').insert({ meal_id: inserted.id, photo_url: extraUrl, position: i });
+            if (extraInsertErr) throw extraInsertErr;
           } catch (err) {
             console.warn('[LogMeal] extra photo failed, continuing:', err?.message ?? err);
           }

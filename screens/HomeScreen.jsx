@@ -18,6 +18,7 @@ import { supabase } from '../lib/supabase';
 import { loadNotifPrefs, getPermissionStatus, syncStreakRiskNotification } from '../lib/notifications';
 import { useFirstVisit } from '../lib/firstVisit';
 import { fetchSkipDayKeys } from '../lib/skips';
+import { localDateKey } from '../lib/dateKey';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -46,14 +47,6 @@ const C = {
 const WRAPPED_THRESHOLD = 5; // meals needed before Wrapped is unlockable
 
 // ─── Timezone-safe helpers ────────────────────────────────────────────────────
-
-// Returns YYYY-MM-DD for any Date using the device's local timezone.
-function localDateKey(date) {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-}
 
 // Returns the ISO string of local midnight (so Supabase gte/lte comparisons are timezone-correct).
 function localMidnightISO() {
@@ -376,6 +369,7 @@ export default function HomeScreen() {
   // Today's meal cards
   const [meals, setMeals] = useState([]);
   const [mealsLoading, setMealsLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   // Streak & today state
   const [streak, setStreak] = useState(0);
@@ -398,6 +392,7 @@ export default function HomeScreen() {
   const monthName = MONTH_NAMES[new Date().getMonth()];
 
   const loadData = useCallback(async () => {
+    setError(null);
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
@@ -545,8 +540,12 @@ export default function HomeScreen() {
         );
         syncStreakRiskNotification(s, lt).catch(() => {});
       }
-    } catch {
-      // Non-fatal: stale data is better than a crash.
+    } catch (err) {
+      // Stale data is still shown underneath — this banner is just so a
+      // failed load isn't completely silent (it used to be, with no
+      // indication anything was wrong and no way to retry short of leaving
+      // and returning to the tab).
+      setError(err.message || 'Failed to refresh. Pull down or tap Retry.');
     } finally {
       setMealsLoading(false);
     }
@@ -582,6 +581,15 @@ export default function HomeScreen() {
             <Text style={styles.titleAccent}>{userName || 'friend'}?</Text>
           </Text>
         </View>
+
+        {error && (
+          <View style={styles.loadErrorBanner}>
+            <Text style={styles.loadErrorText}>{error}</Text>
+            <TouchableOpacity onPress={loadData} hitSlop={8}>
+              <Text style={styles.loadErrorRetry}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* Streak */}
         <StreakBanner streak={streak} loggedToday={loggedToday} last7Days={last7Days} />
@@ -714,6 +722,15 @@ const styles = StyleSheet.create({
   greeting: { fontSize: 13, color: C.gray1, marginBottom: 2 },
   title: { fontFamily: 'Syne_800ExtraBold', fontSize: 28, color: C.white, letterSpacing: -0.5, lineHeight: 34 },
   titleAccent: { color: C.orange },
+
+  loadErrorBanner: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    marginHorizontal: 24, marginTop: 12, padding: 12,
+    borderRadius: 12, backgroundColor: 'rgba(229,72,77,0.12)',
+    borderWidth: 1, borderColor: 'rgba(229,72,77,0.3)',
+  },
+  loadErrorText: { flex: 1, fontSize: 12, color: '#ff8a8a', marginRight: 10 },
+  loadErrorRetry: { fontSize: 12, fontWeight: '700', color: C.orange },
 
   // Streak
   streakBanner: {

@@ -225,10 +225,17 @@ export default function RecapsScreen() {
       const statsData = computeWrappedStats(meals, month, year, 0);
       if (!statsData) continue;
 
-      const { data: snap } = await supabase.from('wrapped_snapshots')
+      const { data: snap, error: snapErr } = await supabase.from('wrapped_snapshots')
         .insert({ user_id: uid, month, year, stats: statsData, viewed: false })
         .select().single();
 
+      if (snapErr) {
+        // Non-fatal — this month's recap just won't appear this load; the
+        // "missing months" scan above will retry it next time since nothing
+        // got inserted, so silently skipping (with a log) is safe.
+        console.warn('[Recaps] failed to generate snapshot for', year, month, snapErr.message);
+        continue;
+      }
       if (snap) created.push(snap);
     }
 
@@ -246,7 +253,14 @@ export default function RecapsScreen() {
 
   async function handleSelectSnapshot(snap) {
     if (!snap.viewed) {
-      supabase.from('wrapped_snapshots').update({ viewed: true }).eq('id', snap.id).then(() => {});
+      supabase.from('wrapped_snapshots').update({ viewed: true }).eq('id', snap.id)
+        .then(({ error }) => {
+          // Cosmetic only (just the "NEW" badge) — log rather than alert,
+          // and don't bother rolling back the optimistic update below since
+          // re-flipping the badge back on after the user already opened it
+          // would be more confusing than a badge that's occasionally wrong.
+          if (error) console.warn('[Recaps] failed to mark snapshot viewed:', error.message);
+        });
       setSnapshots(prev => prev.map(s => s.id === snap.id ? { ...s, viewed: true } : s));
     }
     setSelected({ stats: snap.stats });

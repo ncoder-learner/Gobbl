@@ -12,6 +12,7 @@ import ShareBottomSheet from '../components/ShareBottomSheet';
 import DayTrail from '../components/DayTrail';
 import { fetchPostedMealIds, MEAL_TAGS, TAG_META, TAG_ICON } from '../lib/postUtils';
 import { skipMeal, unskipMeal } from '../lib/skips';
+import { localDateKey } from '../lib/dateKey';
 import { displayPlaceName } from '../lib/homePrivacy';
 import { isDuelUnlocked } from '../lib/postVotes';
 import { useFirstVisit, FirstVisitTooltip } from '../lib/firstVisit';
@@ -61,12 +62,6 @@ function formatDistance(mi) {
 }
 
 // ─── Streak (ported from FeedScreen.jsx's PersonalStrip logic) ────────────────
-function localDateKey(date) {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-}
 // extraDayKeys are days resolved by a skip (not a logged meal) — a day
 // marked skipped counts as resolved same as a day with a meal logged, so it
 // merges straight into the same date set the backward-walk uses.

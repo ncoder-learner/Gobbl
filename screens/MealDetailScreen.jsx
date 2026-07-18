@@ -207,9 +207,11 @@ export default function MealDetailScreen() {
     setLiking(true);
     try {
       if (next) {
-        await supabase.from('post_likes').insert({ post_id: post.id, meal_id: mealId, user_id: currentUserId });
+        const { error } = await supabase.from('post_likes').insert({ post_id: post.id, meal_id: mealId, user_id: currentUserId });
+        if (error) throw error;
       } else {
-        await supabase.from('post_likes').delete().eq('meal_id', mealId).eq('user_id', currentUserId);
+        const { error } = await supabase.from('post_likes').delete().eq('meal_id', mealId).eq('user_id', currentUserId);
+        if (error) throw error;
       }
     } catch {
       setIsLiked(!next);

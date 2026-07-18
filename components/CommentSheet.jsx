@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   Modal, View, Text, TextInput, TouchableOpacity, FlatList,
   StyleSheet, KeyboardAvoidingView, Platform, ActivityIndicator,
-  Pressable,
+  Pressable, Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
@@ -122,16 +122,27 @@ export default function CommentSheet({ visible, postId, mealId, postOwnerId, onD
           },
         }).catch(() => {});
       }
-    } catch {
-      // Non-fatal
+    } catch (err) {
+      Alert.alert('Couldn\'t post comment', err.message || 'Please try again.');
     } finally {
       setSubmitting(false);
     }
   }
 
   async function deleteComment(id) {
+    const removed = comments.find(c => c.id === id);
+    const removedIndex = comments.findIndex(c => c.id === id);
     setComments(prev => prev.filter(c => c.id !== id));
-    await supabase.from('post_comments').delete().eq('id', id).catch(() => {});
+    const { error } = await supabase.from('post_comments').delete().eq('id', id);
+    if (error && removed) {
+      // Put it back where it was — the delete didn't actually happen.
+      setComments(prev => {
+        const next = [...prev];
+        next.splice(Math.min(removedIndex, next.length), 0, removed);
+        return next;
+      });
+      Alert.alert('Couldn\'t delete comment', error.message || 'Please try again.');
+    }
   }
 
   return (
