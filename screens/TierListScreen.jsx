@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, Fragment } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
@@ -24,27 +24,14 @@ import RAnimated, {
   withSpring,
 } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { supabase } from '../lib/supabase';
 import { FirstVisitTooltip, useFirstVisit } from '../lib/firstVisit';
+import { THEME as C } from '../lib/theme';
+import StripedPlaceholder from '../components/StripedPlaceholder';
 
-const C = {
-  bg: '#0d0d0d',
-  surface: '#1a1a1a',
-  border: '#2a2a2a',
-  orange: '#FF6B3D',
-  rankGray: '#8a8a8a',
-  white: '#ffffff',
-  gray1: '#888888',
-  gray2: '#666666',
-  gray3: '#555555',
-  gray4: '#444444',
-  gray5: '#333333',
-  purple: '#8B5CF6',
-};
-
-const ACCENTS = { 1: '#ffd166', 2: '#cfd6e4', 3: '#cd8b5a' };
-const DEFAULT_ACCENT = C.orange;
+const RANK_GRAY = '#8a8a8a';
 
 const CURRENT_YEAR = new Date().getFullYear();
 const CURRENT_MONTH = new Date().getMonth();
@@ -55,12 +42,6 @@ function formatScore(score) {
   const n = typeof score === 'string' ? Number(score) : score;
   if (typeof n !== 'number' || Number.isNaN(n)) return '—';
   return (Math.round(n * 2) / 2).toFixed(1);
-}
-
-function scoreBarWidth(score) {
-  const n = typeof score === 'string' ? Number(score) : score;
-  const pct = typeof n === 'number' && !Number.isNaN(n) ? Math.max(0, Math.min(n, 10)) / 10 : 0;
-  return Math.max(6, pct * 40);
 }
 
 // ─── Distance (Near Me) ────────────────────────────────────────────────────────
@@ -224,13 +205,12 @@ function AnimatedRow({ index, children, style, pressableStyle, isNew, onPress })
   );
 }
 
-// ─── TopCard ──────────────────────────────────────────────────────────────────
+// ─── TopCard — the #1 hero, matching the mockup's single gold hero card
+// (full-bleed photo, "#1 this month" pill, bottom-left serif name/place,
+// bottom-right huge serif gold score). Only ever rendered for rank 1 —
+// ranks 2+ use the plain RankRow list below. ──────────────────────────────────
 // isPinned / onTogglePin are yearly-only; undefined on the monthly list.
 function TopCard({ meal, rank, index, isNew, onLanded, isPinned, onTogglePin, distance, onPress }) {
-  const accent = ACCENTS[rank] || DEFAULT_ACCENT;
-  const isFirst = rank === 1;
-  const targetBarWidth = scoreBarWidth(meal.score);
-
   const glow = useRef(new Animated.Value(0)).current;
   const badgeIn = useRef(new Animated.Value(0)).current;
   useEffect(() => {
@@ -252,43 +232,24 @@ function TopCard({ meal, rank, index, isNew, onLanded, isPinned, onTogglePin, di
   }, []);
   const badgeScale = badgeIn.interpolate({ inputRange: [0, 1], outputRange: [0.7, 1] });
 
-  const fill = useRef(new Animated.Value(0)).current;
+  const fade = useRef(new Animated.Value(0)).current;
   useEffect(() => {
-    Animated.timing(fill, {
-      toValue: 1, duration: 750, delay: index * 90 + 320,
-      easing: Easing.out(Easing.cubic), useNativeDriver: false,
+    Animated.timing(fade, {
+      toValue: 1, duration: 550, delay: index * 90 + 200,
+      easing: Easing.out(Easing.cubic), useNativeDriver: true,
     }).start();
   }, []);
-  const barWidth = fill.interpolate({ inputRange: [0, 1], outputRange: [0, targetBarWidth] });
-  const scoreOpacity = fill.interpolate({ inputRange: [0, 0.35, 1], outputRange: [0, 0, 1] });
-  const scoreScale   = fill.interpolate({ inputRange: [0, 0.35, 1], outputRange: [0.82, 0.82, 1] });
 
-  const sweep = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    if (!isFirst) return;
-    Animated.loop(
-      Animated.sequence([
-        Animated.delay(1800),
-        Animated.timing(sweep, { toValue: 1, duration: 1100, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
-        Animated.timing(sweep, { toValue: 0, duration: 0, useNativeDriver: true }),
-      ])
-    ).start();
-  }, []);
-  const sweepX = sweep.interpolate({ inputRange: [0, 1], outputRange: [-140, 360] });
-
-  const rankBadgeContent = onTogglePin ? (
+  const badge = (
     <Pressable
       onPress={onTogglePin}
+      disabled={!onTogglePin}
       hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-      style={[styles.rankBadge, styles.rankBadgePinnable, isPinned && styles.rankBadgePinned]}
+      style={styles.heroBadge}
     >
-      <Text style={[styles.topRankNum, isPinned && { color: C.orange }]}>{rank}</Text>
-      <Text style={[styles.topRankPinDot, isPinned && styles.topRankPinDotActive]}>📌</Text>
+      <Ionicons name="star" size={11} color={C.bg} />
+      <Text style={styles.heroBadgeText}>{onTogglePin ? (isPinned ? 'PINNED AT #1' : '#1') : '#1 this month'}</Text>
     </Pressable>
-  ) : (
-    <View style={styles.rankBadge}>
-      <Text style={styles.topRankNum}>{rank}</Text>
-    </View>
   );
 
   return (
@@ -296,56 +257,45 @@ function TopCard({ meal, rank, index, isNew, onLanded, isPinned, onTogglePin, di
       index={index}
       isNew={isNew}
       onPress={onPress}
-      style={[styles.topShadow, { shadowColor: accent }]}
-      pressableStyle={[
-        styles.topCard,
-        isFirst ? styles.topCardGold : { borderColor: accent + '40' },
-        isPinned && styles.topCardPinned,
-      ]}
+      style={{ opacity: fade }}
+      pressableStyle={styles.heroCard}
     >
-      {isFirst && (
-        <Animated.View pointerEvents="none" style={[styles.sweepWrap, { transform: [{ translateX: sweepX }, { rotate: '18deg' }] }]}>
-          <LinearGradient
-            colors={['transparent', 'rgba(255,255,255,0.14)', 'transparent']}
-            start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
-            style={styles.sweepGradient}
-          />
-        </Animated.View>
+      {meal.photo_url ? (
+        <Image source={{ uri: meal.photo_url }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+      ) : (
+        <StripedPlaceholder style={StyleSheet.absoluteFill}>
+          <View style={styles.heroImgFallback}>
+            <Text style={styles.heroEmoji}>{meal.emoji || '🍽️'}</Text>
+          </View>
+        </StripedPlaceholder>
       )}
 
-      {isNew && <Animated.View pointerEvents="none" style={[styles.landGlow, { borderColor: accent, opacity: glow }]} />}
+      <LinearGradient
+        colors={['transparent', 'rgba(0,0,0,0.92)']}
+        locations={[0.35, 1]}
+        style={StyleSheet.absoluteFill}
+        pointerEvents="none"
+      />
+
+      {isNew && <Animated.View pointerEvents="none" style={[styles.landGlow, { opacity: glow }]} />}
       {isNew && (
-        <Animated.View pointerEvents="none" style={[styles.landBadge, { backgroundColor: accent, opacity: badgeIn, transform: [{ scale: badgeScale }] }]}>
+        <Animated.View pointerEvents="none" style={[styles.landBadge, { opacity: badgeIn, transform: [{ scale: badgeScale }] }]}>
           <Text style={styles.landBadgeText}>LANDED HERE</Text>
         </Animated.View>
       )}
 
-      {rankBadgeContent}
+      {badge}
 
-      {meal.photo_url ? (
-        <Image source={{ uri: meal.photo_url }} style={styles.topImg} resizeMode="cover" />
-      ) : (
-        <View style={[styles.topImg, styles.topImgFallback]}>
-          <Text style={styles.topEmoji}>{meal.emoji || '🍽️'}</Text>
+      <View style={styles.heroBottomRow}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.heroName} numberOfLines={1}>{meal.name}</Text>
+          {(distance || meal.tag) && (
+            <Text style={styles.heroMeta} numberOfLines={1}>
+              {[tagLabel(meal.tag), distance && `📍 ${distance}`].filter(Boolean).join('  ·  ')}
+            </Text>
+          )}
         </View>
-      )}
-
-      <View style={styles.topNameWrap}>
-        <Text style={styles.topName} numberOfLines={1}>{meal.name}</Text>
-        {(distance || meal.tag) && (
-          <Text style={styles.topDistance} numberOfLines={1}>
-            {[tagLabel(meal.tag), distance && `📍 ${distance}`].filter(Boolean).join('  ·  ')}
-          </Text>
-        )}
-      </View>
-
-      <View style={styles.scoreWrap}>
-        <Animated.Text style={[styles.topScore, { color: accent, opacity: scoreOpacity, transform: [{ scale: scoreScale }] }]}>
-          {formatScore(meal.score)}
-        </Animated.Text>
-        <View style={styles.scoreTrack}>
-          <Animated.View style={[styles.scoreBar, { backgroundColor: accent, shadowColor: accent, width: barWidth }]} />
-        </View>
+        <Text style={styles.heroScore}>{formatScore(meal.score)}</Text>
       </View>
     </AnimatedRow>
   );
@@ -407,9 +357,11 @@ function RankRow({ meal, rank, listIndex, isNew, onLanded, isPinned, onTogglePin
         {meal.photo_url ? (
           <Image source={{ uri: meal.photo_url }} style={styles.rowImg} resizeMode="cover" />
         ) : (
-          <View style={[styles.rowImg, styles.rowImgFallback]}>
-            <Text style={styles.rowEmoji}>{meal.emoji || '🍽️'}</Text>
-          </View>
+          <StripedPlaceholder style={styles.rowImg}>
+            <View style={styles.rowImgFallback}>
+              <Text style={styles.rowEmoji}>{meal.emoji || '🍽️'}</Text>
+            </View>
+          </StripedPlaceholder>
         )}
         <View style={styles.rowNameWrap}>
           <Text style={styles.rowName} numberOfLines={1}>{meal.name}</Text>
@@ -436,14 +388,14 @@ const SLOT_VISIBLE = 5;
 const SLOT_CENTER = 2;
 
 const RANK_TIER = {
-  1: { accent: '#ffd166', bg: ['#241900', '#0d0d0d'], medal: '🥇', title: 'LEGENDARY',  confetti: ['#ffd166', '#ff9e3d', '#fff', '#ffcc44', '#ffa040'] },
-  2: { accent: '#d8e0ec', bg: ['#181e26', '#0d0d0d'], medal: '🥈', title: 'INCREDIBLE', confetti: ['#d8e0ec', '#a0b8cc', '#fff', '#d0ddf0'] },
-  3: { accent: '#e09060', bg: ['#201000', '#0d0d0d'], medal: '🥉', title: 'IMPRESSIVE', confetti: ['#e09060', '#ff6b3d', '#fff', '#e8a87a'] },
+  1: { accent: C.gold, bg: ['#241900', '#000000'], medal: '🥇', title: 'LEGENDARY',  confetti: [C.gold, '#ff9e3d', '#fff', '#ffcc44', '#ffa040'] },
+  2: { accent: '#d8e0ec', bg: ['#181e26', '#000000'], medal: '🥈', title: 'INCREDIBLE', confetti: ['#d8e0ec', '#a0b8cc', '#fff', '#d0ddf0'] },
+  3: { accent: '#e09060', bg: ['#201000', '#000000'], medal: '🥉', title: 'IMPRESSIVE', confetti: ['#e09060', '#ff6b3d', '#fff', '#e8a87a'] },
 };
 function rankTier(rank) {
   if (RANK_TIER[rank]) return { ...RANK_TIER[rank], special: true };
-  if (rank <= 10) return { accent: C.orange, bg: ['#1a0600', '#0d0d0d'], medal: null, title: 'TOP 10', confetti: ['#ff6b3d', '#ff9e3d', '#fff'], special: false };
-  return { accent: C.gray1, bg: ['#111', '#0d0d0d'], medal: null, title: null, confetti: null, special: false };
+  if (rank <= 10) return { accent: C.orange, bg: ['#1a0600', '#000000'], medal: null, title: 'TOP 10', confetti: ['#ff6b3d', '#ff9e3d', '#fff'], special: false };
+  return { accent: C.gray1, bg: ['#111', '#000000'], medal: null, title: null, confetti: null, special: false };
 }
 
 const N_PARTICLES = 32;
@@ -1004,41 +956,34 @@ export default function TierListScreen() {
 
     return displayMeals.map((meal, idx) => {
       const rank = idx + 1;
-      const isTop = rank <= 5;
+      const isHero = rank === 1;
       const distance = nearMeOn ? formatDistance(mealDistanceMi(meal, userCoords)) : null;
       return (
-        <Fragment key={meal.id}>
-          {rank === 6 && (
-            <View>
-              <View style={styles.restDivider} />
-              <Text style={styles.restLabel}>The rest of the lineup</Text>
-            </View>
+        <DraggableRow
+          key={meal.id}
+          mealId={meal.id}
+          draggedIdShared={draggedIdShared}
+          dragTranslateY={dragTranslateY}
+          onLayout={e => { rowLayoutsRef.current[meal.id] = { y: e.nativeEvent.layout.y, height: e.nativeEvent.layout.height }; }}
+          onDragStart={handleDragStart}
+          onDrop={handleDrop}
+          dragEnabled={!nearMeOn}
+          style={isHero ? [styles.topDragRow, { marginBottom: 12 }] : styles.rankDragRow}
+        >
+          {isHero ? (
+            <TopCard meal={meal} rank={rank} index={idx}
+              isNew={meal.id === highlightId}
+              onLanded={() => setHighlightId(cur => cur === meal.id ? null : cur)}
+              distance={distance}
+              onPress={() => navigation.navigate('MealDetail', { mealId: meal.id })} />
+          ) : (
+            <RankRow meal={meal} rank={rank} listIndex={idx - 1}
+              isNew={meal.id === highlightId}
+              onLanded={() => setHighlightId(cur => cur === meal.id ? null : cur)}
+              distance={distance}
+              onPress={() => navigation.navigate('MealDetail', { mealId: meal.id })} />
           )}
-          <DraggableRow
-            mealId={meal.id}
-            draggedIdShared={draggedIdShared}
-            dragTranslateY={dragTranslateY}
-            onLayout={e => { rowLayoutsRef.current[meal.id] = { y: e.nativeEvent.layout.y, height: e.nativeEvent.layout.height }; }}
-            onDragStart={handleDragStart}
-            onDrop={handleDrop}
-            dragEnabled={!nearMeOn}
-            style={isTop ? [styles.topDragRow, idx < Math.min(4, displayMeals.length - 1) && { marginBottom: 12 }] : styles.rankDragRow}
-          >
-            {isTop ? (
-              <TopCard meal={meal} rank={rank} index={idx}
-                isNew={meal.id === highlightId}
-                onLanded={() => setHighlightId(cur => cur === meal.id ? null : cur)}
-                distance={distance}
-                onPress={() => navigation.navigate('MealDetail', { mealId: meal.id })} />
-            ) : (
-              <RankRow meal={meal} rank={rank} listIndex={idx - 5}
-                isNew={meal.id === highlightId}
-                onLanded={() => setHighlightId(cur => cur === meal.id ? null : cur)}
-                distance={distance}
-                onPress={() => navigation.navigate('MealDetail', { mealId: meal.id })} />
-            )}
-          </DraggableRow>
-        </Fragment>
+        </DraggableRow>
       );
     });
   }
@@ -1071,24 +1016,31 @@ export default function TierListScreen() {
     }
     return yearlyMeals.map((meal, idx) => {
       const rank = idx + 1;
+      const isHero = rank === 1;
       const isPinned = meal._pinned === true;
       return (
-        <Fragment key={meal.id}>
-          <DraggableRow
-            mealId={meal.id}
-            draggedIdShared={draggedIdShared}
-            dragTranslateY={dragTranslateY}
-            onLayout={e => { rowLayoutsRef.current[meal.id] = { y: e.nativeEvent.layout.y, height: e.nativeEvent.layout.height }; }}
-            onDragStart={handleDragStart}
-            onDrop={handleDropYearly}
-            style={[styles.topDragRow, idx < yearlyMeals.length - 1 && { marginBottom: 12 }]}
-          >
+        <DraggableRow
+          key={meal.id}
+          mealId={meal.id}
+          draggedIdShared={draggedIdShared}
+          dragTranslateY={dragTranslateY}
+          onLayout={e => { rowLayoutsRef.current[meal.id] = { y: e.nativeEvent.layout.y, height: e.nativeEvent.layout.height }; }}
+          onDragStart={handleDragStart}
+          onDrop={handleDropYearly}
+          style={isHero ? [styles.topDragRow, { marginBottom: 12 }] : styles.rankDragRow}
+        >
+          {isHero ? (
             <TopCard meal={meal} rank={rank} index={idx} isNew={false} onLanded={null}
               isPinned={isPinned}
               onTogglePin={() => handleToggleItemPin(meal.id, rank)}
               onPress={() => navigation.navigate('MealDetail', { mealId: meal.id })} />
-          </DraggableRow>
-        </Fragment>
+          ) : (
+            <RankRow meal={meal} rank={rank} listIndex={idx - 1} isNew={false} onLanded={null}
+              isPinned={isPinned}
+              onTogglePin={() => handleToggleItemPin(meal.id, rank)}
+              onPress={() => navigation.navigate('MealDetail', { mealId: meal.id })} />
+          )}
+        </DraggableRow>
       );
     });
   }
@@ -1172,17 +1124,17 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase', paddingHorizontal: 24, paddingTop: 4, marginBottom: 6,
   },
   heading: {
-    fontWeight: '800', fontSize: 30, color: '#f5f5f5',
-    letterSpacing: -0.5, paddingHorizontal: 24, marginBottom: 16,
+    fontFamily: C.serif, fontSize: 36, color: C.white,
+    paddingHorizontal: 24, marginBottom: 16,
   },
-  subheading: { fontSize: 12, color: C.rankGray, paddingHorizontal: 24, marginTop: 4, marginBottom: 26 },
+  subheading: { fontSize: 12, color: RANK_GRAY, paddingHorizontal: 24, marginTop: 4, marginBottom: 26 },
 
   // Segmented control
   segWrap: {
-    flexDirection: 'row', marginHorizontal: 24, backgroundColor: C.surface,
-    borderRadius: 12, borderWidth: 1, borderColor: C.border, padding: 3,
+    flexDirection: 'row', marginHorizontal: 24, backgroundColor: C.glassBg,
+    borderRadius: C.pill, borderWidth: 1, borderColor: C.glassBorder, padding: 4,
   },
-  segBtn: { flex: 1, paddingVertical: 8, borderRadius: 10, alignItems: 'center' },
+  segBtn: { flex: 1, paddingVertical: 8, borderRadius: C.pill, alignItems: 'center' },
   segBtnActive: { backgroundColor: C.orange },
   segBtnText: { fontWeight: '700', fontSize: 13, color: C.gray2 },
   segBtnTextActive: { color: C.white },
@@ -1207,73 +1159,53 @@ const styles = StyleSheet.create({
   },
   handleLine: { width: 14, height: 2, borderRadius: 1, backgroundColor: 'rgba(255,255,255,0.28)' },
 
-  // Top 5 cards
-  topSection: { paddingHorizontal: 24, gap: 12 },
-  topShadow: { borderRadius: 20, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.28, shadowRadius: 20, elevation: 6 },
-  topCard: {
-    flexDirection: 'row', alignItems: 'center', gap: 14, height: 80,
-    paddingLeft: 16, paddingRight: 40,
-    backgroundColor: C.surface, borderWidth: 1, borderRadius: 20, overflow: 'hidden',
+  // #1 hero card — full-bleed photo, gold border/glow, bottom-left serif
+  // name, bottom-right huge serif gold score. Matches the mockup's single
+  // hero treatment (only rank 1 ever renders this; 2+ use rowCard below).
+  heroCard: {
+    height: 220, borderRadius: 22, overflow: 'hidden', position: 'relative',
+    backgroundColor: '#1a1a1a',
+    borderWidth: 1.5, borderColor: 'rgba(233,184,114,0.5)',
+    shadowColor: C.gold, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.35, shadowRadius: 16, elevation: 8,
   },
-  topCardGold: { backgroundColor: '#1c1710', borderColor: 'rgba(255,209,102,0.25)' },
-  topCardPinned: { borderColor: C.orange + '50' },
-  sweepWrap: { position: 'absolute', top: -30, bottom: -30, width: 60 },
-  sweepGradient: { flex: 1 },
+  heroImgFallback: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
+  heroEmoji: { fontSize: 44 },
+  heroBadge: {
+    position: 'absolute', top: 14, left: 14, zIndex: 2,
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: C.gold, borderRadius: C.pill,
+    paddingHorizontal: 11, paddingVertical: 5,
+  },
+  heroBadgeText: { fontSize: 11, fontWeight: '800', color: C.bg, letterSpacing: 0.3 },
+  heroBottomRow: {
+    position: 'absolute', left: 16, right: 16, bottom: 14, zIndex: 2,
+    flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: 10,
+  },
+  heroName: { fontFamily: C.serif, fontSize: 24, color: C.white },
+  heroMeta: { fontSize: 12, color: 'rgba(245,245,247,0.6)', marginTop: 2 },
+  heroScore: { fontFamily: C.serif, fontSize: 40, color: C.gold },
 
-  rankBadge: {
-    width: 34, height: 34, borderRadius: 17,
-    alignItems: 'center', justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.04)',
-  },
-  rankBadgePinnable: {
-    height: 46, borderRadius: 10,
-    flexDirection: 'column', justifyContent: 'center', gap: 2,
-  },
-  rankBadgePinned: {
-    backgroundColor: 'rgba(255,107,61,0.15)',
-    borderWidth: 1, borderColor: C.orange + '60',
-  },
-  topRankNum: { fontWeight: '800', fontSize: 16, textAlign: 'center', color: C.rankGray },
-  topRankPinDot: { fontSize: 9, textAlign: 'center', opacity: 0.22 },
-  topRankPinDotActive: { opacity: 1 },
+  landGlow: { position: 'absolute', top: -4, left: -4, right: -4, bottom: -4, borderWidth: 2, borderColor: C.gold, borderRadius: 24 },
+  landBadge: { position: 'absolute', top: -11, right: 16, backgroundColor: C.gold, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10, zIndex: 5 },
+  landBadgeText: { fontWeight: '800', fontSize: 10, letterSpacing: 0.8, color: C.bg },
 
-  topImg: { width: 52, height: 52, borderRadius: 14, backgroundColor: C.bg, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)' },
-  topImgFallback: { alignItems: 'center', justifyContent: 'center' },
-  topEmoji: { fontSize: 22 },
-  topNameWrap: { flex: 1, justifyContent: 'center' },
-  topName: { fontWeight: '700', fontSize: 16, color: C.white, letterSpacing: 0.2, flexShrink: 1 },
-  topDistance: { fontSize: 11, color: C.gray2, marginTop: 2, fontWeight: '500' },
-  scoreWrap: { alignItems: 'flex-end', minWidth: 46 },
-  topScore: { fontWeight: '800', fontSize: 18, letterSpacing: 0.3 },
-  scoreTrack: { width: 48, height: 6, borderRadius: 3, marginTop: 7, backgroundColor: 'rgba(255,255,255,0.08)', overflow: 'hidden' },
-  scoreBar: { height: '100%', borderRadius: 3, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.8, shadowRadius: 6, elevation: 3 },
-
-  landGlow: { position: 'absolute', top: -4, left: -4, right: -4, bottom: -4, borderWidth: 2, borderRadius: 24 },
-  landBadge: { position: 'absolute', top: -11, right: 16, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10, zIndex: 5 },
-  landBadgeText: { fontWeight: '800', fontSize: 10, letterSpacing: 0.8, color: '#0d0d0d' },
-
-  // Rest section
-  restLabel: {
-    fontSize: 11, color: C.gray3, fontWeight: '700', letterSpacing: 1.2,
-    textTransform: 'uppercase', paddingHorizontal: 24, marginTop: 32, marginBottom: 14,
-  },
-  restDivider: { height: 1, marginHorizontal: 24, marginTop: 32, marginBottom: 16, backgroundColor: C.border },
-  rowCard: { backgroundColor: C.surface, borderRadius: 16, borderWidth: 0.5, borderColor: C.border, overflow: 'hidden' },
+  // Plain list rows (rank 2+) — matches the mockup's flat list under the hero.
+  rowCard: { backgroundColor: C.glassBg, borderRadius: 16, borderWidth: 1, borderColor: C.glassBorder, overflow: 'hidden' },
   rowCardPinned: { borderColor: C.orange + '50', borderWidth: 1, borderLeftWidth: 3, borderLeftColor: C.orange },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingLeft: 14, paddingRight: 40, paddingVertical: 12 },
   rowGlow: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(255,107,61,0.13)' },
   rowBadge: { position: 'absolute', right: 14, top: -1, backgroundColor: C.orange, paddingHorizontal: 7, paddingVertical: 2, borderRadius: 8 },
-  rowBadgeText: { fontWeight: '800', fontSize: 9, letterSpacing: 0.6, color: '#0d0d0d' },
+  rowBadgeText: { fontWeight: '800', fontSize: 9, letterSpacing: 0.6, color: '#000000' },
   rowRankPressable: { width: 30, alignItems: 'center', justifyContent: 'center', gap: 1 },
-  rowRank: { width: 30, fontWeight: '800', fontSize: 13, color: C.gray4, textAlign: 'center' },
+  rowRank: { width: 30, fontFamily: C.serif, fontSize: 20, color: 'rgba(245,245,247,0.6)', textAlign: 'center' },
   rowRankPinDot: { fontSize: 9, textAlign: 'center' },
-  rowImg: { width: 44, height: 44, borderRadius: 11, backgroundColor: C.bg },
-  rowImgFallback: { alignItems: 'center', justifyContent: 'center' },
+  rowImg: { width: 46, height: 46, borderRadius: 12, backgroundColor: C.bg },
+  rowImgFallback: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
   rowEmoji: { fontSize: 20 },
   rowNameWrap: { flex: 1 },
-  rowName: { fontSize: 14, color: C.white, fontWeight: '500', letterSpacing: 0.1 },
+  rowName: { fontSize: 14, color: C.white, fontWeight: '600' },
   rowDistance: { fontSize: 10, color: C.gray3, marginTop: 1, fontWeight: '500' },
-  rowScore: { fontWeight: '700', fontSize: 14, color: C.gray2 },
+  rowScore: { fontWeight: '700', fontSize: 15, color: C.white },
 
   // Rank reveal overlay
   slotPhase: { alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24 },
@@ -1290,7 +1222,7 @@ const styles = StyleSheet.create({
   slotRowName: { flex: 1, fontSize: 15, color: C.gray3 },
   celebPhase: { alignItems: 'center', justifyContent: 'center' },
   celebMedal: { fontSize: 72, marginBottom: 6 },
-  celebRankNum: { fontWeight: '800', fontSize: 100, letterSpacing: -5, lineHeight: 108 },
+  celebRankNum: { fontFamily: C.serif, fontSize: 110, lineHeight: 116 },
   celebTitle: { fontWeight: '800', fontSize: 16, letterSpacing: 4, marginTop: 6 },
   celebMealName: { fontSize: 16, color: C.gray1, marginTop: 20, textAlign: 'center', fontWeight: '500', paddingHorizontal: 40 },
 });

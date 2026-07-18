@@ -3,7 +3,7 @@ import {
   View, Text, TouchableOpacity, StyleSheet, StatusBar,
   ActivityIndicator,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import * as Location from 'expo-location';
@@ -11,12 +11,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import { mappableCoords, displayPlaceName } from '../lib/homePrivacy';
 import Avatar from '../components/Avatar';
-
-const C = {
-  bg: '#0d0d0d', surface: '#1a1a1a', border: '#2a2a2a',
-  orange: '#FF6B3D', purple: '#8855cc', white: '#ffffff',
-  gray1: '#888888', gray2: '#666666', gray4: '#444444',
-};
+import { THEME as C } from '../lib/theme';
 
 const TAG_EMOJI = { breakfast: '🌅', lunch: '☀️', dinner: '🌙' };
 
@@ -163,9 +158,9 @@ function PinMarker({ pin, onPress }) {
   );
 }
 
-function ModeToggle({ mode, onChange }) {
+function ModeToggle({ mode, onChange, style }) {
   return (
-    <View style={styles.toggleRow}>
+    <View style={[styles.toggleRow, style]}>
       <TouchableOpacity
         style={[styles.toggleBtn, mode === 'mine' && styles.toggleBtnActive]}
         onPress={() => onChange('mine')}
@@ -186,6 +181,7 @@ function ModeToggle({ mode, onChange }) {
 
 export default function MapScreen() {
   const navigation = useNavigation();
+  const insets = useSafeAreaInsets();
   const [mode, setMode] = useState('mine');
   const [pins, setPins] = useState([]);
   const [region, setRegion] = useState(DEFAULT_REGION);
@@ -249,82 +245,83 @@ export default function MapScreen() {
   );
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
-      <StatusBar barStyle="light-content" backgroundColor={C.bg} />
+    <View style={styles.safe}>
+      <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
 
-      <View style={styles.navBar}>
-        <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={12}>
-          <Ionicons name="arrow-back" size={22} color={C.white} />
-        </TouchableOpacity>
-        <Text style={styles.navTitle}>Map</Text>
-        <View style={{ width: 22 }} />
-      </View>
+      <MapView
+        ref={mapRef}
+        style={StyleSheet.absoluteFill}
+        provider={PROVIDER_GOOGLE}
+        initialRegion={region}
+        showsUserLocation
+        showsMyLocationButton
+      >
+        {pins.map(pin => (
+          <PinMarker
+            key={pin.id}
+            pin={pin}
+            onPress={() => navigation.navigate('MealDetail', { mealId: pin.id })}
+          />
+        ))}
+      </MapView>
 
-      <ModeToggle mode={mode} onChange={setMode} />
+      <TouchableOpacity
+        style={[styles.floatingBack, { top: insets.top + 12 }]}
+        onPress={() => navigation.goBack()}
+        hitSlop={12}
+      >
+        <Ionicons name="arrow-back" size={20} color={C.white} />
+      </TouchableOpacity>
 
-      <View style={styles.mapWrap}>
-        <MapView
-          ref={mapRef}
-          style={StyleSheet.absoluteFill}
-          provider={PROVIDER_GOOGLE}
-          initialRegion={region}
-          showsUserLocation
-          showsMyLocationButton
-        >
-          {pins.map(pin => (
-            <PinMarker
-              key={pin.id}
-              pin={pin}
-              onPress={() => navigation.navigate('MealDetail', { mealId: pin.id })}
-            />
-          ))}
-        </MapView>
+      <ModeToggle mode={mode} onChange={setMode} style={{ top: insets.top + 12 }} />
 
-        {loading && (
-          <View style={styles.overlay}>
-            <ActivityIndicator color={C.orange} />
-          </View>
-        )}
+      {loading && (
+        <View style={styles.overlay}>
+          <ActivityIndicator color={C.orange} />
+        </View>
+      )}
 
-        {!loading && pins.length === 0 && (
-          <View style={styles.emptyBanner}>
-            <Text style={styles.emptyText}>
-              {mode === 'mine'
-                ? 'No logged meals with a location yet.'
-                : "No friends have posted a located meal today yet."}
-            </Text>
-          </View>
-        )}
+      {!loading && pins.length === 0 && (
+        <View style={styles.emptyBanner}>
+          <Text style={styles.emptyText}>
+            {mode === 'mine'
+              ? 'No logged meals with a location yet.'
+              : "No friends have posted a located meal today yet."}
+          </Text>
+        </View>
+      )}
 
-        {error && (
-          <View style={styles.emptyBanner}>
-            <Text style={[styles.emptyText, { color: '#ff6b6b' }]}>{error}</Text>
-          </View>
-        )}
-      </View>
-    </SafeAreaView>
+      {error && (
+        <View style={styles.emptyBanner}>
+          <Text style={[styles.emptyText, { color: '#ff6b6b' }]}>{error}</Text>
+        </View>
+      )}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: C.bg },
-  navBar: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 20, paddingVertical: 14,
+
+  floatingBack: {
+    position: 'absolute', left: 16,
+    width: 38, height: 38, borderRadius: 19,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: 'rgba(20,20,20,0.72)',
+    borderWidth: 1, borderColor: C.glassBorder,
   },
-  navTitle: { fontSize: 15, fontWeight: '600', color: C.white },
 
   toggleRow: {
-    flexDirection: 'row', marginHorizontal: 20, marginBottom: 12,
-    backgroundColor: C.surface, borderRadius: 12, padding: 4,
-    borderWidth: 0.5, borderColor: C.border,
+    position: 'absolute', right: 16, left: 66,
+    flexDirection: 'row',
+    backgroundColor: 'rgba(20,20,20,0.72)', borderRadius: C.pill, padding: 4,
+    borderWidth: 1, borderColor: C.glassBorder,
   },
-  toggleBtn: { flex: 1, paddingVertical: 9, borderRadius: 9, alignItems: 'center' },
-  toggleBtnActive: { backgroundColor: C.purple },
+  toggleBtn: { flex: 1, paddingVertical: 9, borderRadius: C.pill, alignItems: 'center' },
+  toggleBtnActive: { backgroundColor: C.orange },
   toggleText: { fontSize: 13, fontWeight: '600', color: C.gray2 },
   toggleTextActive: { color: C.white },
 
-  mapWrap: { flex: 1 },
   pinBubble: {
     width: 34, height: 34, borderRadius: 17,
     backgroundColor: C.surface, borderWidth: 1.5, borderColor: C.orange,
@@ -332,7 +329,7 @@ const styles = StyleSheet.create({
   },
   pinEmoji: { fontSize: 16 },
   pinAvatarWrap: { backgroundColor: C.surface },
-  pinInitial: { fontSize: 14, fontWeight: '700', color: C.purple },
+  pinInitial: { fontFamily: C.serif, fontSize: 14, color: C.white },
 
   overlay: {
     ...StyleSheet.absoluteFillObject,

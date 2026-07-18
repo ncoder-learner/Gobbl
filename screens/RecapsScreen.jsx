@@ -17,19 +17,14 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { supabase } from '../lib/supabase';
 import { WrappedPlayer, computeWrappedStats, MONTH_NAMES } from './WrappedScreen';
-
-const C = {
-  bg: '#0d0d0d', surface: '#1a1a1a', border: '#2a2a2a',
-  orange: '#FF6B3D', purple: '#8855cc', purpleDim: '#1a0d1a',
-  white: '#ffffff', gray1: '#888888', gray2: '#666666', gray3: '#555555',
-};
+import { THEME as C } from '../lib/theme';
 
 const CARD_GRADIENTS = [
-  ['#2d1050', '#1a0828'],
-  ['#0d1f3c', '#0d0d0d'],
-  ['#1a2010', '#0d0d0d'],
-  ['#200d0d', '#0d0d0d'],
-  ['#1a1400', '#0d0d0d'],
+  ['#241900', '#000000'],
+  ['#1a0f00', '#000000'],
+  ['#1a1400', '#000000'],
+  ['#200d00', '#000000'],
+  ['#161616', '#000000'],
 ];
 
 // ─── RecapCard ────────────────────────────────────────────────────────────────
@@ -97,7 +92,7 @@ function ThisMonthCard({ stats, onPress }) {
       style={({ pressed }) => [styles.thisMonthCard, pressed && { opacity: 0.82 }]}
     >
       <LinearGradient
-        colors={['#1c0d00', '#0d0d0d']}
+        colors={['#1c0d00', '#000000']}
         start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
         style={StyleSheet.absoluteFill}
       />
@@ -370,7 +365,7 @@ const styles = StyleSheet.create({
 
   headerRow: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', paddingHorizontal: 24, paddingTop: 20, marginBottom: 8 },
   kicker:    { fontWeight: '700', fontSize: 12, letterSpacing: 1.5, color: C.orange, textTransform: 'uppercase', marginBottom: 6 },
-  heading:   { fontWeight: '800', fontSize: 30, color: '#f5f5f5', letterSpacing: -0.5 },
+  heading:   { fontFamily: C.serif, fontSize: 36, color: C.white },
 
   newCountBadge: { backgroundColor: C.orange, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 4, marginBottom: 4 },
   newCountText:  { fontSize: 12, fontWeight: '700', color: C.white },
@@ -392,13 +387,13 @@ const styles = StyleSheet.create({
   cardWrap: { marginBottom: 12 },
   card: {
     borderRadius: 20, overflow: 'hidden',
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.07)',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.16)',
   },
   cardInner: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 18, paddingRight: 14 },
   cardEmoji: {
     width: 50, height: 50, borderRadius: 16,
-    backgroundColor: 'rgba(136,85,204,0.2)',
-    borderWidth: 1, borderColor: 'rgba(136,85,204,0.3)',
+    backgroundColor: 'rgba(251,114,56,0.14)',
+    borderWidth: 1, borderColor: 'rgba(251,114,56,0.3)',
     alignItems: 'center', justifyContent: 'center',
   },
   cardEmojiText: { fontSize: 26 },
@@ -410,7 +405,7 @@ const styles = StyleSheet.create({
   cardLock: { fontSize: 16, opacity: 0.45, paddingRight: 4 },
 
   newBadge: { position: 'absolute', top: 14, right: 14, backgroundColor: C.orange, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3 },
-  newBadgeText: { fontWeight: '800', fontSize: 9, letterSpacing: 1, color: '#0d0d0d' },
+  newBadgeText: { fontWeight: '800', fontSize: 9, letterSpacing: 1, color: '#000000' },
 
   // This Month card
   thisMonthCard: {

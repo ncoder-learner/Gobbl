@@ -4,16 +4,9 @@ import {
   StatusBar, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
 import { supabase } from '../lib/supabase';
 import HomeLocationEditor from '../components/HomeLocationEditor';
-
-const C = {
-  bg: '#0d0d0d', surface: '#1a1a1a', border: '#2a2a2a',
-  orange: '#FF6B3D', purple: '#8855cc', purpleDim: '#1a0d1a', purpleBorder: '#3a2a4a',
-  white: '#ffffff', gray1: '#888888', gray2: '#666666', gray4: '#444444',
-  inputBg: '#161616', red: '#ff4444',
-};
+import { THEME as C } from '../lib/theme';
 
 // Skippable, not required: this sits between the intro carousel and the
 // (required) username step, which is already one gate a new signup has to
@@ -129,15 +122,8 @@ export default function ProfileInfoScreen({ onDone }) {
           showsVerticalScrollIndicator={false}
         >
 
-          <View style={styles.artBox}>
-            <LinearGradient colors={['#1e0a38', '#2a0d4a']} style={StyleSheet.absoluteFill} />
-            <Text style={styles.artEmoji}>👋</Text>
-          </View>
-
-          <Text style={styles.title}>Tell us a bit about you</Text>
-          <Text style={styles.sub}>
-            Helps friends recognize you, and fills in your avatar when you don't have a photo.
-          </Text>
+          <Text style={styles.title}>A few basics</Text>
+          <Text style={styles.sub}>You can always change this later.</Text>
 
           <View style={styles.nameRow}>
             <View style={[styles.inputRow, styles.nameInput]}>
@@ -198,13 +184,8 @@ export default function ProfileInfoScreen({ onDone }) {
             disabled={saving}
             activeOpacity={0.85}
           >
-            <LinearGradient
-              colors={['#8855cc', '#6633aa']}
-              start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
-              style={StyleSheet.absoluteFill}
-            />
             {saving ? (
-              <ActivityIndicator color={C.white} />
+              <ActivityIndicator color={C.bg} />
             ) : (
               <Text style={styles.btnText}>Continue</Text>
             )}
@@ -227,41 +208,34 @@ export default function ProfileInfoScreen({ onDone }) {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: C.bg },
   body: {
-    flexGrow: 1, alignItems: 'center', justifyContent: 'center',
-    paddingHorizontal: 28, paddingVertical: 24,
+    flexGrow: 1, alignItems: 'flex-start', justifyContent: 'center',
+    paddingHorizontal: 26, paddingVertical: 24,
   },
   homeLocationWrap: { width: '100%', marginTop: 2, marginBottom: 4 },
-  artBox: {
-    width: 110, height: 110, borderRadius: 28,
-    alignItems: 'center', justifyContent: 'center',
-    marginBottom: 28, overflow: 'hidden',
-    borderWidth: 1, borderColor: '#3a1a5a',
-  },
-  artEmoji: { fontSize: 48 },
   title: {
-    fontSize: 26, fontWeight: '800', color: C.white,
-    letterSpacing: -0.5, marginBottom: 10, textAlign: 'center',
+    fontFamily: C.serif, fontSize: 30, color: C.white,
+    marginBottom: 6,
   },
   sub: {
-    fontSize: 14, color: C.gray1, textAlign: 'center',
-    lineHeight: 20, marginBottom: 28, paddingHorizontal: 8,
+    fontSize: 13, color: 'rgba(245,245,247,0.45)',
+    lineHeight: 18, marginBottom: 28,
   },
   nameRow: { flexDirection: 'row', gap: 10, width: '100%' },
   nameInput: { flex: 1 },
   inputRow: {
     flexDirection: 'row', alignItems: 'center',
-    backgroundColor: C.inputBg, borderWidth: 0.5, borderColor: C.border,
+    backgroundColor: C.inputBg, borderWidth: 1, borderColor: C.glassBorder,
     borderRadius: 14, paddingHorizontal: 14, height: 52, width: '100%', marginBottom: 10,
   },
   input: { flex: 1, fontSize: 16, color: C.white },
   hint: { fontSize: 12, color: C.red, marginTop: 4, alignSelf: 'flex-start' },
   btn: {
-    marginTop: 14, borderRadius: 16, paddingVertical: 16,
+    marginTop: 14, borderRadius: C.pill, paddingVertical: 16,
     alignItems: 'center', overflow: 'hidden', width: '100%',
-    minHeight: 52,
+    minHeight: 52, backgroundColor: C.white,
   },
   btnDisabled: { opacity: 0.6 },
-  btnText: { fontSize: 16, fontWeight: '700', color: C.white, letterSpacing: 0.2 },
+  btnText: { fontSize: 16, fontWeight: '700', color: C.bg, letterSpacing: 0.2 },
   skipBtn: { marginTop: 16, padding: 4 },
   skipText: { fontSize: 14, color: C.gray2, fontWeight: '500' },
 });

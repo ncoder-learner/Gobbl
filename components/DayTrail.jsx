@@ -4,10 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import { TAG_META } from '../lib/postUtils';
 import { isHomeMeal, mappableCoords, displayPlaceName } from '../lib/homePrivacy';
-
-const C = {
-  surface: '#1a1a1a', border: '#2a2a2a', orange: '#FF6B3D', white: '#ffffff', gray2: '#666666',
-};
+import { THEME as C } from '../lib/theme';
 
 // Small non-interactive map thumbnail showing where a day's logged meals
 // were eaten. Renders for 1+ located stops; a connecting line (breakfast →
@@ -62,6 +59,7 @@ export default function DayTrail({ images, isOwner }) {
         placeName: s.placeName,
         mealName: s.meal.name,
         photoUrl: s.meal.photo_url ?? null,
+        createdAt: s.meal.created_at ?? null,
       })),
     });
   }

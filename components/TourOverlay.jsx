@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Dimensions } from 'react-native';
 import { useTour } from '../lib/tourContext';
 import { TOUR_STEPS } from '../lib/tourSteps';
+import { THEME as C } from '../lib/theme';
 
 const { height: SCREEN_H } = Dimensions.get('window');
 const PAD = 8;
@@ -90,17 +91,17 @@ function tooltipStyleFor(rect) {
 const styles = StyleSheet.create({
   dimAll: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.78)' },
   dimSlice: { position: 'absolute', backgroundColor: 'rgba(0,0,0,0.78)' },
-  ring: { position: 'absolute', borderRadius: 18, borderWidth: 2, borderColor: '#FF6B3D' },
+  ring: { position: 'absolute', borderRadius: 18, borderWidth: 2, borderColor: C.orange },
   centerWrap: { position: 'absolute', left: 16, right: 16, top: '42%' },
   card: {
-    backgroundColor: '#2a1040', borderWidth: 1, borderColor: '#5a2a8a',
-    borderRadius: 16, padding: 16,
-    shadowColor: '#8855cc', shadowOpacity: 0.3, shadowRadius: 12,
+    backgroundColor: '#161616', borderWidth: 1, borderColor: 'rgba(251,114,56,0.3)',
+    borderRadius: 18, padding: 16,
+    shadowColor: C.orange, shadowOpacity: 0.3, shadowRadius: 12,
     shadowOffset: { width: 0, height: 4 }, elevation: 8,
   },
-  cardText: { fontSize: 14, color: '#e8d0ff', lineHeight: 20, fontWeight: '500', marginBottom: 14 },
+  cardText: { fontSize: 14, color: C.white, lineHeight: 20, fontWeight: '500', marginBottom: 14 },
   cardActions: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  skipText: { fontSize: 13, color: '#9966cc', fontWeight: '600' },
-  nextBtn: { backgroundColor: '#8855cc', borderRadius: 10, paddingHorizontal: 18, paddingVertical: 9 },
-  nextBtnText: { fontSize: 13, fontWeight: '700', color: '#fff' },
+  skipText: { fontSize: 13, color: C.gray1, fontWeight: '600' },
+  nextBtn: { backgroundColor: C.orange, borderRadius: C.pill, paddingHorizontal: 18, paddingVertical: 9 },
+  nextBtnText: { fontSize: 13, fontWeight: '700', color: C.white },
 });

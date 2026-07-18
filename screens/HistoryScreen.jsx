@@ -20,26 +20,10 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { computeTierRank, createPost, mealTagSlot } from '../lib/postUtils';
+import { THEME as C } from '../lib/theme';
+import StripedPlaceholder from '../components/StripedPlaceholder';
 
 const PAGE_SIZE = 20;
-
-const C = {
-  bg: '#0d0d0d',
-  surface: '#1a1a1a',
-  border: '#2a2a2a',
-  orange: '#FF6B3D',
-  purple: '#8855cc',
-  white: '#ffffff',
-  gray1: '#888888',
-  gray2: '#666666',
-  gray3: '#555555',
-  gray4: '#444444',
-  gray5: '#333333',
-  inputBg: '#161616',
-  red: '#ff4444',
-  redDim: '#2a0a0a',
-  redBorder: '#5a1a1a',
-};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -48,8 +32,8 @@ function scoreToneColor(score) {
   if (n < 3) return '#e5484d';
   if (n < 5) return '#f5a524';
   if (n < 7) return C.orange;
-  if (n < 9) return '#00c896';
-  return '#ffd166';
+  if (n < 9) return C.green;
+  return C.gold;
 }
 
 function formatScore(score) {
@@ -173,9 +157,11 @@ function MealRow({ meal, onPress }) {
       {meal.photo_url ? (
         <Image source={{ uri: meal.photo_url }} style={styles.thumb} resizeMode="cover" />
       ) : (
-        <View style={[styles.thumb, styles.thumbFallback]}>
-          <Text style={styles.thumbEmoji}>{meal.emoji || '🍽️'}</Text>
-        </View>
+        <StripedPlaceholder style={styles.thumb}>
+          <View style={styles.thumbFallback}>
+            <Text style={styles.thumbEmoji}>{meal.emoji || '🍽️'}</Text>
+          </View>
+        </StripedPlaceholder>
       )}
 
       <View style={styles.rowInfo}>
@@ -372,9 +358,11 @@ function MealDetailModal({ meal, onClose, onUpdated, onDeleted, onPostChanged })
                 {meal.photo_url ? (
                   <Image source={{ uri: meal.photo_url }} style={styles.detailPhoto} resizeMode="cover" />
                 ) : (
-                  <View style={[styles.detailPhoto, styles.detailPhotoFallback]}>
-                    <Text style={styles.detailPhotoEmoji}>{meal.emoji || '🍽️'}</Text>
-                  </View>
+                  <StripedPlaceholder style={styles.detailPhoto}>
+                    <View style={styles.detailPhotoFallback}>
+                      <Text style={styles.detailPhotoEmoji}>{meal.emoji || '🍽️'}</Text>
+                    </View>
+                  </StripedPlaceholder>
                 )}
 
                 <TouchableOpacity style={styles.detailClose} onPress={onClose} hitSlop={12}>
@@ -811,7 +799,7 @@ const styles = StyleSheet.create({
   listContent: { paddingBottom: 32, flexGrow: 1 },
 
   pageHeader: { paddingHorizontal: 24, paddingTop: 8, paddingBottom: 4 },
-  pageTitle: { fontSize: 28, fontWeight: '800', color: C.white, letterSpacing: -0.5 },
+  pageTitle: { fontFamily: C.serif, fontSize: 38, color: C.white },
   pageError: { fontSize: 13, color: '#ff6b6b', marginTop: 8 },
 
   sectionHeader: { paddingHorizontal: 24, paddingTop: 20, paddingBottom: 8 },
@@ -832,10 +820,9 @@ const styles = StyleSheet.create({
   },
   thumb: { width: 54, height: 54, borderRadius: 12, backgroundColor: C.surface },
   thumbFallback: {
+    ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 0.5,
-    borderColor: C.border,
   },
   thumbEmoji: { fontSize: 26 },
   rowInfo: { flex: 1 },
@@ -899,7 +886,7 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   detailPhoto: { width: '100%', height: 240, backgroundColor: C.surface },
-  detailPhotoFallback: { alignItems: 'center', justifyContent: 'center' },
+  detailPhotoFallback: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
   detailPhotoEmoji: { fontSize: 72 },
   detailClose: {
     position: 'absolute',
@@ -930,7 +917,7 @@ const styles = StyleSheet.create({
     color: C.white,
     letterSpacing: -0.3,
   },
-  detailScore: { fontSize: 24, fontWeight: '800', letterSpacing: -0.5 },
+  detailScore: { fontFamily: C.serif, fontSize: 28 },
   detailChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 20 },
   chip: {
     backgroundColor: C.surface,
@@ -1091,7 +1078,7 @@ const styles = StyleSheet.create({
 
   // ── Share to feed mode ────────────────────────────────────────────────────────
   shareBtn: {
-    backgroundColor: C.purple,
+    backgroundColor: C.orange,
     borderRadius: 14, paddingVertical: 13,
     alignItems: 'center', marginBottom: 10, flexDirection: 'row', justifyContent: 'center',
   },

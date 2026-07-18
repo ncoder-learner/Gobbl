@@ -34,23 +34,7 @@ import {
   getPermissionStatus,
 } from '../lib/notifications';
 import { BANNER_COLORS, bannerColorHex, BIO_MAX_LENGTH } from '../lib/profileTheme';
-
-const C = {
-  bg: '#0d0d0d',
-  surface: '#1a1a1a',
-  border: '#2a2a2a',
-  orange: '#FF6B3D',
-  purple: '#8855cc',
-  purpleDim: '#1a0d1a',
-  purpleBorder: '#3a2a4a',
-  white: '#ffffff',
-  gray1: '#888888',
-  gray2: '#666666',
-  gray4: '#444444',
-  red: '#ff4444',
-  redDim: '#2a0a0a',
-  redBorder: '#5a1a1a',
-};
+import { THEME as C } from '../lib/theme';
 
 const PROVIDER_LABELS = {
   email: 'Email & Password',
@@ -467,9 +451,9 @@ export default function AccountScreen() {
         <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={12}>
           <Ionicons name="arrow-back" size={22} color="#ffffff" />
         </TouchableOpacity>
-        <Text style={styles.navTitle}>Account</Text>
         <View style={{ width: 22 }} />
       </View>
+      <Text style={styles.pageTitle}>Account</Text>
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
@@ -585,36 +569,38 @@ export default function AccountScreen() {
           />
         </View>
 
-        {/* Social */}
-        <TouchableOpacity
-          style={[styles.card, styles.friendsRow]}
-          onPress={() => navigation.navigate('Friends')}
-          activeOpacity={0.75}
-        >
-          <Text style={styles.friendsRowLabel}>Friends</Text>
-          <Text style={styles.friendsRowChevron}>›</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.card, styles.friendsRow]}
-          onPress={() => navigation.navigate('BlockedUsers')}
-          activeOpacity={0.75}
-        >
-          <Text style={styles.friendsRowLabel}>Blocked Users</Text>
-          <Text style={styles.friendsRowChevron}>›</Text>
-        </TouchableOpacity>
-
-        {/* Live walkthrough for anyone who skipped or forgot — jumps back
-            to the board and spotlights the real UI, rather than replaying
-            static slides. */}
-        <TouchableOpacity
-          style={[styles.card, styles.friendsRow]}
-          onPress={startTour}
-          activeOpacity={0.75}
-        >
-          <Text style={styles.friendsRowLabel}>How it works</Text>
-          <Text style={styles.friendsRowChevron}>›</Text>
-        </TouchableOpacity>
+        {/* Social + navigation — grouped into one card like the mockup's account list */}
+        <View style={styles.card}>
+          <TouchableOpacity
+            style={styles.friendsRow}
+            onPress={() => navigation.navigate('Friends')}
+            activeOpacity={0.75}
+          >
+            <Text style={styles.friendsRowLabel}>Friends</Text>
+            <Text style={styles.friendsRowChevron}>›</Text>
+          </TouchableOpacity>
+          <View style={styles.rowDivider} />
+          <TouchableOpacity
+            style={styles.friendsRow}
+            onPress={() => navigation.navigate('BlockedUsers')}
+            activeOpacity={0.75}
+          >
+            <Text style={styles.friendsRowLabel}>Blocked Users</Text>
+            <Text style={styles.friendsRowChevron}>›</Text>
+          </TouchableOpacity>
+          <View style={styles.rowDivider} />
+          {/* Live walkthrough for anyone who skipped or forgot — jumps back
+              to the board and spotlights the real UI, rather than replaying
+              static slides. */}
+          <TouchableOpacity
+            style={styles.friendsRow}
+            onPress={startTour}
+            activeOpacity={0.75}
+          >
+            <Text style={styles.friendsRowLabel}>How it works</Text>
+            <Text style={styles.friendsRowChevron}>›</Text>
+          </TouchableOpacity>
+        </View>
 
         {/* Account details */}
         <View style={styles.card}>
@@ -754,15 +740,18 @@ const styles = StyleSheet.create({
 
   navBar: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 20, paddingVertical: 14,
+    paddingHorizontal: 20, paddingTop: 14,
   },
-  navTitle: { fontSize: 15, fontWeight: '600', color: '#ffffff' },
+  pageTitle: {
+    fontFamily: C.serif, fontSize: 34, color: C.white,
+    paddingHorizontal: 20, paddingTop: 8, paddingBottom: 4,
+  },
 
   card: {
-    backgroundColor: C.surface,
-    borderWidth: 0.5,
-    borderColor: C.border,
-    borderRadius: 16,
+    backgroundColor: C.glassBg,
+    borderWidth: 1,
+    borderColor: C.glassBorder,
+    borderRadius: 18,
     marginBottom: 14,
     overflow: 'hidden',
   },
@@ -777,9 +766,9 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: C.purpleDim,
+    backgroundColor: '#242424',
     borderWidth: 1,
-    borderColor: C.purpleBorder,
+    borderColor: C.glassBorder,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
@@ -789,9 +778,9 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   avatarInitials: {
+    fontFamily: C.serif,
     fontSize: 20,
-    fontWeight: '700',
-    color: '#cc99ff',
+    color: C.white,
   },
   avatarEditBadge: {
     position: 'absolute',
@@ -968,8 +957,8 @@ const styles = StyleSheet.create({
   editActions: { paddingHorizontal: 18, paddingBottom: 14, paddingTop: 4 },
 
   saveBtn: {
-    backgroundColor: C.purple,
-    borderRadius: 10,
+    backgroundColor: C.orange,
+    borderRadius: C.pill,
     paddingVertical: 11,
     alignItems: 'center',
   },

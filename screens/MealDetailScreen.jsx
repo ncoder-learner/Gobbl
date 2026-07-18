@@ -15,16 +15,12 @@ import CommentSheet from '../components/CommentSheet';
 import DayTrail from '../components/DayTrail';
 import { MEAL_TAGS, TAG_META } from '../lib/postUtils';
 import { mappableCoords, displayPlaceName, isHomeMeal } from '../lib/homePrivacy';
+import { THEME as C } from '../lib/theme';
+import StripedPlaceholder from '../components/StripedPlaceholder';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CAROUSEL_HEIGHT = SCREEN_WIDTH * 1.15;
 const MAX_PHOTO_WIDTH = 1280;
-
-const C = {
-  bg: '#0d0d0d', surface: '#1a1a1a', border: '#2a2a2a',
-  orange: '#FF6B3D', white: '#ffffff', gray1: '#888888', gray2: '#666666',
-  gray3: '#555555', gray4: '#444444',
-};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function scoreToneColor(score) {
@@ -32,8 +28,8 @@ function scoreToneColor(score) {
   if (n < 3) return '#e5484d';
   if (n < 5) return '#f5a524';
   if (n < 7) return C.orange;
-  if (n < 9) return '#00c896';
-  return '#ffd166';
+  if (n < 9) return C.green;
+  return C.gold;
 }
 
 function formatScore(score) {
@@ -149,9 +145,9 @@ export default function MealDetailScreen() {
       // FeedScreen uses is included here so DayTrail can render identically.
       const POST_FIELDS = `
         id, user_id, caption,
-        breakfast:meals!breakfast_meal_id(id, name, emoji, score, photo_url, tag, place_id, places(lat, lng, name)),
-        lunch:meals!lunch_meal_id(id, name, emoji, score, photo_url, tag, place_id, places(lat, lng, name)),
-        dinner:meals!dinner_meal_id(id, name, emoji, score, photo_url, tag, place_id, places(lat, lng, name))
+        breakfast:meals!breakfast_meal_id(id, name, emoji, score, photo_url, tag, place_id, created_at, places(lat, lng, name)),
+        lunch:meals!lunch_meal_id(id, name, emoji, score, photo_url, tag, place_id, created_at, places(lat, lng, name)),
+        dinner:meals!dinner_meal_id(id, name, emoji, score, photo_url, tag, place_id, created_at, places(lat, lng, name))
       `;
       let resolvedPost = null;
       if (routePostId) {
@@ -350,9 +346,11 @@ export default function MealDetailScreen() {
               )}
             />
           ) : (
-            <View style={[styles.carouselFallback, { width: SCREEN_WIDTH, height: CAROUSEL_HEIGHT }]}>
-              <Text style={styles.carouselFallbackEmoji}>{meal.emoji || '🍽️'}</Text>
-            </View>
+            <StripedPlaceholder style={{ width: SCREEN_WIDTH, height: CAROUSEL_HEIGHT }}>
+              <View style={styles.carouselFallback}>
+                <Text style={styles.carouselFallbackEmoji}>{meal.emoji || '🍽️'}</Text>
+              </View>
+            </StripedPlaceholder>
           )}
 
           <CarouselProgress count={photos.length} activeIndex={activeIndex} />
@@ -360,16 +358,20 @@ export default function MealDetailScreen() {
           <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()} hitSlop={10}>
             <Ionicons name="chevron-back" size={24} color={C.white} />
           </TouchableOpacity>
-
-          <View style={[styles.scoreBadge, { backgroundColor: scoreToneColor(meal.score) }]}>
-            <Text style={styles.scoreBadgeNum}>{formatScore(meal.score)}</Text>
-            <Text style={styles.scoreBadgeDen}>/10</Text>
-          </View>
         </View>
 
         {/* ── Info block ───────────────────────────────────────────────────── */}
         <View style={styles.infoBlock}>
-          <Text style={styles.mealName}>{meal.name}</Text>
+          <View style={styles.nameScoreRow}>
+            <Text style={styles.mealName}>{meal.name}</Text>
+            <Text style={[styles.scoreInline, { color: scoreToneColor(meal.score) }]}>{formatScore(meal.score)}</Text>
+          </View>
+
+          <Text style={styles.metaLine} numberOfLines={1}>
+            {[isOwner ? 'you' : null, placeName, meta?.label].filter(Boolean).join(' · ')}
+          </Text>
+
+          <View style={styles.divider} />
 
           {placeName ? (
             <View style={styles.placeRow}>
@@ -382,14 +384,9 @@ export default function MealDetailScreen() {
 
           <Text style={styles.timestamp}>{formatFullTimestamp(meal.created_at)}</Text>
 
-          {(meta || distance) && (
+          {distance && (
             <View style={styles.metaRow}>
-              {meta && (
-                <View style={styles.tagPill}>
-                  <Text style={styles.tagPillText}>{meta.emoji} {meta.label}</Text>
-                </View>
-              )}
-              {distance && <Text style={styles.distanceText}>📍 {distance}</Text>}
+              <Text style={styles.distanceText}>📍 {distance}</Text>
             </View>
           )}
 
@@ -471,7 +468,7 @@ const styles = StyleSheet.create({
 
   // Carousel
   carouselWrap: { position: 'relative', backgroundColor: '#000' },
-  carouselFallback: { alignItems: 'center', justifyContent: 'center', backgroundColor: '#151515' },
+  carouselFallback: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
   carouselFallbackEmoji: { fontSize: 64 },
 
   progressRow: {
@@ -490,19 +487,13 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center',
   },
 
-  scoreBadge: {
-    position: 'absolute', top: 20, right: 16,
-    width: 56, height: 56, borderRadius: 28,
-    alignItems: 'center', justifyContent: 'center',
-    borderWidth: 2, borderColor: 'rgba(255,255,255,0.25)',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.4, shadowRadius: 6, elevation: 4,
-  },
-  scoreBadgeNum: { fontWeight: '800', fontSize: 17, color: '#fff', lineHeight: 19 },
-  scoreBadgeDen: { fontSize: 9, color: 'rgba(255,255,255,0.7)', lineHeight: 11 },
-
   // Info block
   infoBlock: { paddingHorizontal: 20, paddingTop: 18 },
-  mealName: { fontSize: 22, fontWeight: '800', color: C.white, letterSpacing: -0.3, marginBottom: 8 },
+  nameScoreRow: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12 },
+  mealName: { flex: 1, fontFamily: C.serif, fontSize: 26, color: C.white },
+  scoreInline: { fontFamily: C.serif, fontSize: 28, lineHeight: 30 },
+  metaLine: { fontSize: 13, color: 'rgba(245,245,247,0.5)', marginTop: 3 },
+  divider: { height: 1, backgroundColor: C.glassBorder, marginVertical: 16 },
 
   placeRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 5 },
   placeName: { fontSize: 13, color: C.gray1, flexShrink: 1 },
@@ -510,11 +501,6 @@ const styles = StyleSheet.create({
   timestamp: { fontSize: 12, color: C.gray2, marginBottom: 12 },
 
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 14 },
-  tagPill: {
-    backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
-    borderRadius: 10, paddingHorizontal: 10, paddingVertical: 5,
-  },
-  tagPillText: { fontSize: 12, fontWeight: '700', color: C.gray1 },
   distanceText: { fontSize: 12, fontWeight: '600', color: C.gray1 },
 
   caption: { fontSize: 15, color: 'rgba(255,255,255,0.9)', lineHeight: 21, marginBottom: 16 },

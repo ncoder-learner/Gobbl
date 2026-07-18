@@ -11,15 +11,9 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
+import { THEME as C } from '../lib/theme';
 
 const { width: W } = Dimensions.get('window');
-
-const C = {
-  bg: '#0d0d0d',
-  purple: '#8855cc',
-  white: '#ffffff',
-  gray1: '#888888',
-};
 
 // Pure carousel UI, no completion/persistence logic — OnboardingScreen wraps
 // this for the real first-run flow (marks onboarding_completed), AccountScreen's
@@ -76,7 +70,7 @@ export default function OnboardingCarousel({ slides, finalCtaLabel = "Let's eat!
           <View key={i} style={styles.slide}>
             <View style={styles.artBox}>
               <LinearGradient
-                colors={['#1e0a38', '#2a0d4a']}
+                colors={['#161616', '#000000']}
                 style={StyleSheet.absoluteFill}
               />
               <Text style={styles.slideEmoji}>{slide.emoji}</Text>
@@ -107,12 +101,6 @@ export default function OnboardingCarousel({ slides, finalCtaLabel = "Let's eat!
           onPress={handleNext}
           activeOpacity={0.85}
         >
-          <LinearGradient
-            colors={['#8855cc', '#6633aa']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            style={StyleSheet.absoluteFill}
-          />
           <Text style={styles.ctaBtnText}>
             {isLastSlide ? finalCtaLabel : 'Next →'}
           </Text>
@@ -151,16 +139,15 @@ const styles = StyleSheet.create({
     marginBottom: 32,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: '#3a1a5a',
+    borderColor: C.glassBorder,
   },
   slideEmoji: { fontSize: 58 },
 
   slideTitle: {
-    fontSize: 26,
-    fontWeight: '800',
+    fontFamily: C.serif,
+    fontSize: 30,
     color: C.white,
     textAlign: 'center',
-    letterSpacing: -0.5,
     marginBottom: 14,
   },
   slideBody: {
@@ -178,15 +165,15 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     paddingBottom: 8,
   },
-  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.15)' },
-  dotActive: { width: 20, height: 6, borderRadius: 3, backgroundColor: C.purple },
+  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: 'rgba(245,245,247,0.15)' },
+  dotActive: { width: 20, height: 6, borderRadius: 3, backgroundColor: C.orange },
 
   ctaWrap: { paddingHorizontal: 24, paddingBottom: 20, paddingTop: 8 },
   ctaBtn: {
-    borderRadius: 16,
+    borderRadius: C.pill,
     paddingVertical: 16,
     alignItems: 'center',
-    overflow: 'hidden',
+    backgroundColor: C.white,
   },
-  ctaBtnText: { fontSize: 16, fontWeight: '700', color: C.white, letterSpacing: 0.2 },
+  ctaBtnText: { fontSize: 16, fontWeight: '700', color: C.bg, letterSpacing: 0.2 },
 });

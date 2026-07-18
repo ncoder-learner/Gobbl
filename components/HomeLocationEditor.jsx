@@ -9,12 +9,7 @@ import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import * as Location from 'expo-location';
 import * as Crypto from 'expo-crypto';
 import { supabase } from '../lib/supabase';
-
-const C = {
-  bg: '#0d0d0d', border: '#2a2a2a',
-  orange: '#FF6B3D', purple: '#8855cc',
-  white: '#ffffff', gray1: '#888888', gray2: '#666666', gray4: '#444444',
-};
+import { THEME as C } from '../lib/theme';
 
 const DEFAULT_MAP_REGION = {
   latitude: 39.5, longitude: -98.35, latitudeDelta: 40, longitudeDelta: 40,
@@ -174,7 +169,7 @@ export default function HomeLocationEditor({ value, onSave, onClear, saving, lab
         </View>
       )}
       <TouchableOpacity style={styles.pinDropBtn} onPress={openPinModal} activeOpacity={0.75}>
-        <Ionicons name="pin-outline" size={14} color={C.purple} />
+        <Ionicons name="pin-outline" size={14} color={C.orange} />
         <Text style={styles.pinDropBtnText}>Or drop a pin on the map</Text>
       </TouchableOpacity>
 
@@ -254,10 +249,10 @@ const styles = StyleSheet.create({
   suggestionMain: { fontSize: 13, color: C.white, fontWeight: '500', marginBottom: 1 },
   suggestionSub: { fontSize: 11, color: C.gray2 },
   pinDropBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10, alignSelf: 'flex-start' },
-  pinDropBtnText: { fontSize: 12, color: C.purple, fontWeight: '600' },
+  pinDropBtnText: { fontSize: 12, color: C.orange, fontWeight: '600' },
   saveBtn: {
-    backgroundColor: C.purple,
-    borderRadius: 10,
+    backgroundColor: C.orange,
+    borderRadius: C.pill,
     paddingVertical: 11,
     alignItems: 'center',
   },

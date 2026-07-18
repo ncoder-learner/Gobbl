@@ -7,6 +7,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { useFonts, InstrumentSerif_400Regular, InstrumentSerif_400Regular_Italic } from '@expo-google-fonts/instrument-serif';
 import { supabase } from './lib/supabase';
 import { withTimeout } from './lib/withTimeout';
 import { setupNotificationHandler } from './lib/notifications';
@@ -35,6 +36,7 @@ import DuelLiveListener from './components/DuelLiveListener';
 import TourOverlay from './components/TourOverlay';
 import { TourProvider, useTour } from './lib/tourContext';
 import { navigationRef } from './lib/navigationRef';
+import { THEME as C } from './lib/theme';
 
 const Tab  = createBottomTabNavigator();
 const Root = createNativeStackNavigator();
@@ -56,12 +58,12 @@ const linking = {
 const NAV_THEME = {
   dark: true,
   colors: {
-    primary: '#FF6B3D',
-    background: '#0d0d0d',
-    card: '#0d0d0d',
-    text: '#ffffff',
-    border: '#2a2a2a',
-    notification: '#FF6B3D',
+    primary: C.orange,
+    background: C.bg,
+    card: C.bg,
+    text: C.white,
+    border: C.glassBorder,
+    notification: C.orange,
   },
   fonts: {
     regular: { fontFamily: 'System', fontWeight: '400' },
@@ -78,10 +80,10 @@ function TabNavigator() {
     <Tab.Navigator
       screenOptions={{
         headerShown: false,
-        tabBarStyle: { backgroundColor: '#0d0d0d', borderTopColor: '#2a2a2a' },
-        tabBarActiveTintColor: '#FF6B3D',
-        tabBarInactiveTintColor: '#666666',
-        sceneContainerStyle: { backgroundColor: '#0d0d0d' },
+        tabBarStyle: { backgroundColor: C.bg, borderTopColor: C.glassBorder },
+        tabBarActiveTintColor: C.orange,
+        tabBarInactiveTintColor: C.gray2,
+        sceneContainerStyle: { backgroundColor: C.bg },
       }}
     >
       <Tab.Screen
@@ -132,7 +134,7 @@ function AppNavigator() {
   return (
     <NavigationContainer ref={navigationRef} theme={NAV_THEME} linking={linking}>
       <DuelLiveListener />
-      <Root.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#0d0d0d' } }}>
+      <Root.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: C.bg } }}>
         <Root.Screen name="Tabs" component={TabNavigator} />
         <Root.Screen
           name="UserProfile"
@@ -254,6 +256,10 @@ export default function App() {
   const [hasUsername, setHasUsername]       = useState(undefined);
   const [autoStartTour, setAutoStartTour]   = useState(false);
   const lastCheckedUserRef                  = useRef(null);
+  const [fontsLoaded]                       = useFonts({
+    InstrumentSerif_400Regular,
+    InstrumentSerif_400Regular_Italic,
+  });
 
   async function checkProfile(userId) {
     if (lastCheckedUserRef.current === userId) return;
@@ -424,6 +430,7 @@ export default function App() {
   }
 
   const isLoading =
+    !fontsLoaded ||
     session === undefined ||
     (session !== null && onboardingDone === undefined) ||
     (session !== null && onboardingDone === true && hasProfileInfo === undefined) ||
@@ -433,11 +440,11 @@ export default function App() {
   // This prevents the GestureHandlerRootView + SafeAreaProvider from unmounting
   // and remounting between the loading and content phases (which caused a white flash).
   return (
-    <GestureHandlerRootView style={{ flex: 1, backgroundColor: '#0d0d0d' }}>
+    <GestureHandlerRootView style={{ flex: 1, backgroundColor: C.bg }}>
       <SafeAreaProvider>
         {isLoading ? (
-          <View style={{ flex: 1, backgroundColor: '#0d0d0d', alignItems: 'center', justifyContent: 'center' }}>
-            <ActivityIndicator color="#FF6B3D" />
+          <View style={{ flex: 1, backgroundColor: C.bg, alignItems: 'center', justifyContent: 'center' }}>
+            <ActivityIndicator color={C.orange} />
           </View>
         ) : !session ? (
           <AuthScreen />

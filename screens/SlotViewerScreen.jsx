@@ -14,21 +14,18 @@ import { displayPlaceName } from '../lib/homePrivacy';
 import Avatar from '../components/Avatar';
 import { useFirstVisit, FirstVisitTooltip } from '../lib/firstVisit';
 import { TourTarget } from '../lib/tourContext';
+import { THEME as C } from '../lib/theme';
+import StripedPlaceholder from '../components/StripedPlaceholder';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
-
-const C = {
-  bg: '#000', surface: '#1a1a1a', border: '#2a2a2a',
-  orange: '#FF6B3D', white: '#ffffff', gray1: '#888888', gray2: '#666666',
-};
 
 function scoreToneColor(score) {
   const n = Number(score);
   if (n < 3) return '#e5484d';
   if (n < 5) return '#f5a524';
   if (n < 7) return C.orange;
-  if (n < 9) return '#00c896';
-  return '#ffd166';
+  if (n < 9) return C.green;
+  return C.gold;
 }
 function formatScore(score) {
   const n = Number(score);
@@ -68,9 +65,11 @@ function PersonPage({ person, data, likeInfo, commentCount, onLike, onSubmitComm
           item.url ? (
             <Image source={{ uri: item.url }} style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT }} resizeMode="cover" />
           ) : (
-            <View style={[{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT }, styles.photoFallback]}>
-              <Text style={styles.photoFallbackEmoji}>{meal.emoji || '🍽️'}</Text>
-            </View>
+            <StripedPlaceholder style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT }}>
+              <View style={styles.photoFallback}>
+                <Text style={styles.photoFallbackEmoji}>{meal.emoji || '🍽️'}</Text>
+              </View>
+            </StripedPlaceholder>
           )
         )}
         horizontal
@@ -400,7 +399,7 @@ const styles = StyleSheet.create({
   },
 
   // Photo pager
-  photoFallback: { alignItems: 'center', justifyContent: 'center', backgroundColor: '#151515' },
+  photoFallback: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
   photoFallbackEmoji: { fontSize: 64 },
 
   // Bottom overlay
@@ -414,7 +413,7 @@ const styles = StyleSheet.create({
   posterUsername: { fontSize: 15, fontWeight: '700', color: C.white, flex: 1 },
   scoreBadge: { borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3 },
   scoreBadgeText: { fontSize: 12, fontWeight: '800', color: '#fff' },
-  mealName: { fontSize: 15, fontWeight: '600', color: C.white, marginBottom: 2 },
+  mealName: { fontFamily: C.serif, fontSize: 22, color: C.white, marginBottom: 2 },
   placeName: { fontSize: 12, color: 'rgba(255,255,255,0.75)', marginBottom: 10 },
 
   engageRow: { flexDirection: 'row', alignItems: 'center', gap: 20, marginTop: 8, marginBottom: 12 },

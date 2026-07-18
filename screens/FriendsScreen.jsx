@@ -7,19 +7,13 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { supabase } from '../lib/supabase';
 import { shareProfileLink } from '../lib/profileLink';
+import { THEME as C } from '../lib/theme';
 
 const SEARCH_LIMIT = 20;
 const SEARCH_DEBOUNCE_MS = 280;
-
-const C = {
-  bg: '#0d0d0d', surface: '#1a1a1a', border: '#2a2a2a',
-  orange: '#FF6B3D', purple: '#8855cc', purpleDim: '#1a0d1a', purpleBorder: '#3a2a4a',
-  purpleText: '#ddb8ff', white: '#ffffff', gray1: '#888888', gray2: '#666666',
-  gray4: '#444444', green: '#00c896', red: '#ff4444', redDim: '#2a0a0a',
-  inputBg: '#161616',
-};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -150,18 +144,22 @@ function RequestRow({ row, myId, onAccepted, onDeclined }) {
         <Text style={styles.requestLabel}>Wants to be friends</Text>
       </View>
       <View style={styles.requestActions}>
-        {loading === 'accept' ? (
-          <ActivityIndicator color={C.orange} size="small" />
-        ) : (
-          <TouchableOpacity style={styles.acceptBtn} onPress={accept} disabled={!!loading}>
-            <Text style={styles.acceptBtnText}>✓</Text>
-          </TouchableOpacity>
-        )}
         {loading === 'decline' ? (
           <ActivityIndicator color={C.gray2} size="small" />
         ) : (
           <TouchableOpacity style={styles.declineBtn} onPress={decline} disabled={!!loading}>
             <Text style={styles.declineBtnText}>✕</Text>
+          </TouchableOpacity>
+        )}
+        {loading === 'accept' ? (
+          <View style={styles.acceptBtn}>
+            <ActivityIndicator color={C.bg} size="small" />
+          </View>
+        ) : (
+          <TouchableOpacity onPress={accept} disabled={!!loading} activeOpacity={0.85}>
+            <LinearGradient colors={[C.orange, C.orangeDim]} style={styles.acceptBtn}>
+              <Text style={styles.acceptBtnText}>Accept</Text>
+            </LinearGradient>
           </TouchableOpacity>
         )}
       </View>
@@ -372,11 +370,11 @@ export default function FriendsScreen() {
         <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={12}>
           <Ionicons name="arrow-back" size={22} color={C.white} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Friends</Text>
         <TouchableOpacity onPress={() => shareProfileLink(myUsername)} hitSlop={12}>
           <Ionicons name="share-outline" size={22} color={C.white} />
         </TouchableOpacity>
       </View>
+      <Text style={styles.pageTitle}>Friends</Text>
 
       <KeyboardAvoidingView
         style={{ flex: 1 }}
@@ -514,10 +512,11 @@ const styles = StyleSheet.create({
 
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 20, paddingVertical: 14,
+    paddingHorizontal: 20, paddingTop: 14,
   },
-  headerTitle: {
-    fontWeight: '700', fontSize: 17, color: C.white, fontWeight: '700',
+  pageTitle: {
+    fontFamily: C.serif, fontSize: 34, color: C.white,
+    paddingHorizontal: 20, paddingTop: 8, paddingBottom: 4,
   },
 
   searchSection: {
@@ -532,8 +531,8 @@ const styles = StyleSheet.create({
 
   searchInputWrap: {
     flexDirection: 'row', alignItems: 'center', marginBottom: 10,
-    backgroundColor: C.inputBg, borderWidth: 0.5, borderColor: C.border,
-    borderRadius: 12, paddingHorizontal: 12, height: 44,
+    backgroundColor: C.inputBg, borderWidth: 1, borderColor: C.glassBorder,
+    borderRadius: 14, paddingHorizontal: 14, height: 44,
   },
   searchAt: { fontSize: 16, color: C.gray2, marginRight: 4 },
   searchInput: { flex: 1, fontSize: 15, color: C.white },
@@ -546,22 +545,21 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   avatar: {
-    backgroundColor: C.purpleDim, borderWidth: 1, borderColor: C.purpleBorder,
+    backgroundColor: '#242424', borderWidth: 1, borderColor: C.glassBorder,
     alignItems: 'center', justifyContent: 'center',
   },
-  avatarLetter: { color: C.purpleText, fontWeight: '700' },
+  avatarLetter: { fontFamily: C.serif, color: C.white },
   personInfo: { flex: 1 },
   personUsername: { fontSize: 14, fontWeight: '600', color: C.white },
   personDisplay: { fontSize: 12, color: C.gray1, marginTop: 1 },
   requestLabel: { fontSize: 11, color: C.gray2, marginTop: 2 },
 
-  requestActions: { flexDirection: 'row', gap: 6 },
+  requestActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   acceptBtn: {
-    width: 32, height: 32, borderRadius: 16,
-    backgroundColor: '#0a2a18', borderWidth: 1, borderColor: '#1a4a2a',
+    paddingHorizontal: 16, height: 32, borderRadius: C.pill,
     alignItems: 'center', justifyContent: 'center',
   },
-  acceptBtnText: { fontSize: 15, color: C.green, fontWeight: '700' },
+  acceptBtnText: { fontSize: 13, color: C.bg, fontWeight: '700' },
   declineBtn: {
     width: 32, height: 32, borderRadius: 16,
     backgroundColor: '#2a0a0a', borderWidth: 1, borderColor: '#4a1a1a',
@@ -570,12 +568,12 @@ const styles = StyleSheet.create({
   declineBtnText: { fontSize: 14, color: C.red, fontWeight: '600' },
 
   addBtn: {
-    backgroundColor: C.orange, borderRadius: 10,
+    backgroundColor: C.orange, borderRadius: C.pill,
     paddingHorizontal: 14, paddingVertical: 7,
   },
-  addBtnText: { fontSize: 13, fontWeight: '600', color: C.white },
+  addBtnText: { fontSize: 13, fontWeight: '700', color: C.white },
   statusPill: {
-    borderWidth: 1, borderColor: C.green, borderRadius: 10,
+    borderWidth: 1, borderColor: C.green, borderRadius: C.pill,
     paddingHorizontal: 12, paddingVertical: 5,
   },
   statusPillText: { fontSize: 12, color: C.green, fontWeight: '600' },

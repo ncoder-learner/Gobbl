@@ -13,6 +13,8 @@ import { bannerColorHex } from '../lib/profileTheme';
 import { winsForMonth } from '../lib/postVotes';
 import { shareProfileLink } from '../lib/profileLink';
 import Avatar from '../components/Avatar';
+import { THEME as C } from '../lib/theme';
+import StripedPlaceholder from '../components/StripedPlaceholder';
 
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -38,20 +40,13 @@ const GRID_GAP   = 10;
 const CARD_WIDTH  = (SCREEN_WIDTH - 32 - GRID_GAP) / GRID_COLS;
 const CARD_HEIGHT = CARD_WIDTH * 1.4;
 
-const C = {
-  bg: '#0d0d0d', surface: '#1a1a1a', border: '#2a2a2a',
-  orange: '#FF6B3D', purple: '#8855cc', purpleDim: '#1a0d1a', purpleBorder: '#3a2a4a',
-  purpleText: '#ddb8ff', white: '#ffffff', gray1: '#888888', gray2: '#666666',
-  gray4: '#444444', green: '#00c896',
-};
-
 function scoreToneColor(score) {
   const n = typeof score === 'number' ? score : Number(score);
   if (n < 3) return '#e5484d';
   if (n < 5) return '#f5a524';
-  if (n < 7) return '#FF6B3D';
-  if (n < 9) return '#00c896';
-  return '#ffd166';
+  if (n < 7) return C.orange;
+  if (n < 9) return C.green;
+  return C.gold;
 }
 
 function formatScore(score) {
@@ -95,9 +90,11 @@ function MiniPostCard({ post, onPress }) {
       {meal.photo_url ? (
         <Image source={{ uri: meal.photo_url }} style={StyleSheet.absoluteFill} resizeMode="cover" />
       ) : (
-        <View style={[StyleSheet.absoluteFill, styles.gridNoPhoto]}>
-          <Text style={styles.gridEmoji}>{meal.emoji || '🍽️'}</Text>
-        </View>
+        <StripedPlaceholder style={StyleSheet.absoluteFill}>
+          <View style={styles.gridNoPhoto}>
+            <Text style={styles.gridEmoji}>{meal.emoji || '🍽️'}</Text>
+          </View>
+        </StripedPlaceholder>
       )}
       <LinearGradient
         colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.82)']}
@@ -139,18 +136,16 @@ function MiniPostCard({ post, onPress }) {
 function StatsRow({ totalMeals, avgScore, streak }) {
   return (
     <View style={styles.statsRow}>
-      <View style={styles.statItem}>
+      <View style={styles.statCard}>
         <Text style={styles.statValue}>{totalMeals}</Text>
         <Text style={styles.statLabel}>meals</Text>
       </View>
-      <View style={styles.statDivider} />
-      <View style={styles.statItem}>
-        <Text style={styles.statValue}>{avgScore !== null ? avgScore.toFixed(1) : '—'}</Text>
+      <View style={styles.statCard}>
+        <Text style={[styles.statValue, { color: C.orange }]}>{avgScore !== null ? avgScore.toFixed(1) : '—'}</Text>
         <Text style={styles.statLabel}>avg score</Text>
       </View>
-      <View style={styles.statDivider} />
-      <View style={styles.statItem}>
-        <Text style={styles.statValue}>{streak > 0 ? `${streak} 🔥` : '—'}</Text>
+      <View style={styles.statCard}>
+        <Text style={[styles.statValue, { color: C.orange }]}>{streak > 0 ? streak : '—'}</Text>
         <Text style={styles.statLabel}>streak</Text>
       </View>
     </View>
@@ -167,7 +162,7 @@ function WinsCard({ wins, history }) {
   return (
     <View style={styles.winsCard}>
       <View style={styles.winsHeaderRow}>
-        <Ionicons name="trophy" size={18} color="#ffd166" />
+        <Ionicons name="trophy" size={18} color={C.gold} />
         <Text style={styles.winsHeaderLabel}>{MONTH_NAMES[now.getMonth()]} wins</Text>
       </View>
       <Text style={styles.winsCurrentValue}>{wins}</Text>
@@ -268,49 +263,57 @@ export default function MyProfileScreen() {
 
   const listHeader = (
     <View style={styles.profileHeader}>
-      <View style={[styles.banner, { backgroundColor: bannerHex }]}>
-        <View style={styles.bannerActions}>
-          <TouchableOpacity
-            onPress={() => shareProfileLink(profile?.username)}
-            hitSlop={12}
-            style={styles.gearBtn}
-          >
-            <Ionicons name="share-outline" size={22} color="rgba(255,255,255,0.9)" />
-          </TouchableOpacity>
+      <LinearGradient
+        colors={[bannerHex, '#7a2f12']}
+        style={styles.banner}
+      >
+        <TouchableOpacity
+          onPress={() => shareProfileLink(profile?.username)}
+          hitSlop={12}
+          style={styles.shareBtn}
+        >
+          <Ionicons name="share-outline" size={20} color="rgba(255,255,255,0.9)" />
+        </TouchableOpacity>
+      </LinearGradient>
+
+      <View style={styles.headerRow}>
+        <View style={styles.avatarWrap}>
+          <Avatar
+            uri={profile?.avatar_url}
+            firstName={profile?.first_name}
+            lastName={profile?.last_name}
+            displayName={profile?.display_name}
+            username={profile?.username}
+            size={80}
+            style={styles.bigAvatar}
+            textStyle={styles.bigAvatarLetter}
+          />
+          {currentMonthWins > 0 && (
+            <View style={styles.avatarWinsBadge}>
+              <Ionicons name="trophy" size={10} color={C.bg} />
+              <Text style={styles.avatarWinsBadgeText}>{currentMonthWins}</Text>
+            </View>
+          )}
+        </View>
+
+        <View style={styles.nameRow}>
+          <View style={{ flex: 1 }}>
+            {profile?.display_name ? (
+              <Text style={styles.displayName}>{profile.display_name}</Text>
+            ) : null}
+            <Text style={styles.username}>@{profile?.username ?? '…'}</Text>
+          </View>
           <TouchableOpacity
             onPress={() => navigation.navigate('AccountSettings')}
-            hitSlop={12}
-            style={styles.gearBtn}
+            style={styles.editBtn}
+            activeOpacity={0.8}
           >
-            <Ionicons name="settings-outline" size={22} color="rgba(255,255,255,0.9)" />
+            <Text style={styles.editBtnText}>Edit</Text>
           </TouchableOpacity>
         </View>
       </View>
 
-      <View style={styles.avatarWrap}>
-        <Avatar
-          uri={profile?.avatar_url}
-          firstName={profile?.first_name}
-          lastName={profile?.last_name}
-          displayName={profile?.display_name}
-          username={profile?.username}
-          size={80}
-          style={styles.bigAvatar}
-          textStyle={styles.bigAvatarLetter}
-        />
-        {currentMonthWins > 0 && (
-          <View style={styles.avatarWinsBadge}>
-            <Ionicons name="trophy" size={10} color="#3a2c00" />
-            <Text style={styles.avatarWinsBadgeText}>{currentMonthWins}</Text>
-          </View>
-        )}
-      </View>
-
       <View style={styles.profileBody}>
-        {profile?.display_name ? (
-          <Text style={styles.displayName}>{profile.display_name}</Text>
-        ) : null}
-        <Text style={styles.username}>@{profile?.username ?? '…'}</Text>
         {profile?.bio ? (
           <Text style={styles.bio} numberOfLines={3}>{profile.bio}</Text>
         ) : null}
@@ -320,9 +323,7 @@ export default function MyProfileScreen() {
         <WinsCard wins={currentMonthWins} history={winsHistory} />
 
         <View style={styles.postsSectionHeader}>
-          <Text style={styles.postsSectionTitle}>
-            {posts.length} post{posts.length !== 1 ? 's' : ''}
-          </Text>
+          <Text style={styles.postsSectionTitle}>Recent meals</Text>
         </View>
       </View>
     </View>
@@ -375,54 +376,62 @@ const styles = StyleSheet.create({
   listContent: { paddingBottom: 40 },
 
   profileHeader: {
-    alignItems: 'center', paddingBottom: 4,
+    width: '100%', paddingBottom: 4,
   },
   banner: {
-    width: '100%', height: 88, justifyContent: 'flex-start', alignItems: 'flex-end',
-    paddingTop: 10, paddingHorizontal: 16,
+    width: '100%', height: 130,
   },
-  bannerActions: { flexDirection: 'row', gap: 12 },
-  gearBtn: { padding: 4 },
-  avatarWrap: { marginTop: -40 },
+  shareBtn: {
+    position: 'absolute', top: 10, right: 16, padding: 4,
+  },
+  headerRow: { paddingHorizontal: 20, marginTop: -40 },
+  avatarWrap: {},
   bigAvatar: {
-    backgroundColor: C.purpleDim, borderWidth: 3, borderColor: C.bg,
+    backgroundColor: '#242424', borderWidth: 3, borderColor: C.bg,
   },
-  bigAvatarLetter: { color: C.purpleText },
+  bigAvatarLetter: { color: C.white },
   avatarWinsBadge: {
     position: 'absolute', bottom: -2, right: -2,
     flexDirection: 'row', alignItems: 'center', gap: 3,
-    backgroundColor: '#ffd166', borderRadius: 10,
+    backgroundColor: C.gold, borderRadius: 10,
     minWidth: 22, height: 20, paddingHorizontal: 5,
     borderWidth: 2, borderColor: C.bg,
   },
-  avatarWinsBadgeText: { fontSize: 10, fontWeight: '800', color: '#3a2c00' },
+  avatarWinsBadgeText: { fontSize: 10, fontWeight: '800', color: C.bg },
 
-  profileBody: { alignItems: 'center', width: '100%', paddingHorizontal: 24, paddingTop: 10 },
-  displayName: { fontSize: 18, fontWeight: '700', color: C.white, marginBottom: 4 },
-  username: { fontSize: 14, color: C.gray1, marginBottom: 12 },
-  bio: { fontSize: 13, color: C.gray1, textAlign: 'center', lineHeight: 18, marginTop: -6, marginBottom: 16, paddingHorizontal: 8 },
+  nameRow: { flexDirection: 'row', alignItems: 'center', marginTop: 12 },
+  editBtn: {
+    paddingVertical: 9, paddingHorizontal: 18, borderRadius: C.pill,
+    borderWidth: 1, borderColor: 'rgba(245,245,247,0.2)',
+  },
+  editBtnText: { fontSize: 13, fontWeight: '600', color: C.white },
+
+  profileBody: { alignItems: 'flex-start', width: '100%', paddingHorizontal: 20, paddingTop: 12 },
+  displayName: { fontFamily: C.serif, fontSize: 24, color: C.white, marginBottom: 1 },
+  username: { fontSize: 13, color: 'rgba(245,245,247,0.45)' },
+  bio: { fontSize: 13, color: 'rgba(245,245,247,0.6)', lineHeight: 20, marginTop: 12, marginBottom: 20 },
 
   statsRow: {
-    flexDirection: 'row', alignItems: 'center',
-    backgroundColor: C.surface, borderRadius: 16,
-    paddingVertical: 16, paddingHorizontal: 12,
+    flexDirection: 'row', gap: 10,
     marginBottom: 24, width: '100%',
-    borderWidth: 0.5, borderColor: C.border,
   },
-  statItem: { flex: 1, alignItems: 'center' },
-  statValue: { fontSize: 20, fontWeight: '800', color: C.white, marginBottom: 2 },
-  statLabel: { fontSize: 11, color: C.gray2, fontWeight: '500', textTransform: 'uppercase', letterSpacing: 0.5 },
-  statDivider: { width: 0.5, height: 32, backgroundColor: C.border },
+  statCard: {
+    flex: 1, alignItems: 'center', paddingVertical: 14,
+    backgroundColor: C.glassBg, borderRadius: 16,
+    borderWidth: 1, borderColor: 'rgba(245,245,247,0.08)',
+  },
+  statValue: { fontFamily: C.serif, fontSize: 24, color: C.white, lineHeight: 26 },
+  statLabel: { fontSize: 10, color: 'rgba(245,245,247,0.45)', marginTop: 4 },
 
   winsCard: {
-    backgroundColor: C.surface, borderRadius: 16,
+    backgroundColor: C.glassBg, borderRadius: 16,
     paddingVertical: 16, paddingHorizontal: 16,
     marginBottom: 24, width: '100%',
-    borderWidth: 0.5, borderColor: C.border,
+    borderWidth: 1, borderColor: C.glassBorder,
   },
   winsHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
   winsHeaderLabel: { fontSize: 12, color: C.gray1, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 },
-  winsCurrentValue: { fontSize: 30, fontWeight: '800', color: C.white },
+  winsCurrentValue: { fontFamily: C.serif, fontSize: 30, color: C.orange },
   winsHistoryList: {
     marginTop: 14, paddingTop: 12,
     borderTopWidth: 0.5, borderTopColor: C.border,
@@ -433,17 +442,16 @@ const styles = StyleSheet.create({
   winsHistoryCount: { fontSize: 13, color: C.white, fontWeight: '600' },
 
   postsSectionHeader: {
-    width: '100%', paddingBottom: 12, borderBottomWidth: 0.5, borderBottomColor: C.border,
-    marginBottom: 4,
+    width: '100%', marginBottom: 12,
   },
-  postsSectionTitle: { fontSize: 13, color: C.gray2, fontWeight: '600' },
+  postsSectionTitle: { fontSize: 13, color: C.white, fontWeight: '700' },
 
   gridRow: { paddingHorizontal: 16, gap: GRID_GAP, marginBottom: GRID_GAP },
   gridCard: {
     width: CARD_WIDTH, height: CARD_HEIGHT,
     borderRadius: 14, overflow: 'hidden', backgroundColor: '#111',
   },
-  gridNoPhoto: { alignItems: 'center', justifyContent: 'center', backgroundColor: '#111' },
+  gridNoPhoto: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
   gridEmoji: { fontSize: 44 },
   gridScoreBadge: {
     position: 'absolute', top: 8, right: 8,

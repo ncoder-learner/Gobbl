@@ -10,19 +10,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import { bannerColorHex } from '../lib/profileTheme';
 import Avatar from '../components/Avatar';
+import { THEME as C } from '../lib/theme';
+import StripedPlaceholder from '../components/StripedPlaceholder';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const GRID_COLS  = 2;
 const GRID_GAP   = 10;
 const CARD_WIDTH = (SCREEN_WIDTH - 32 - GRID_GAP) / GRID_COLS;
 const CARD_HEIGHT = CARD_WIDTH * 1.4;
-
-const C = {
-  bg: '#0d0d0d', surface: '#1a1a1a', border: '#2a2a2a',
-  orange: '#FF6B3D', purple: '#8855cc', purpleDim: '#1a0d1a', purpleBorder: '#3a2a4a',
-  purpleText: '#ddb8ff', white: '#ffffff', gray1: '#888888', gray2: '#666666',
-  gray4: '#444444', green: '#00c896', red: '#ff4444',
-};
 
 const REPORT_REASONS = [
   { value: 'spam', label: 'Spam' },
@@ -36,9 +31,9 @@ function scoreToneColor(score) {
   const n = typeof score === 'number' ? score : Number(score);
   if (n < 3) return '#e5484d';
   if (n < 5) return '#f5a524';
-  if (n < 7) return '#FF6B3D';
-  if (n < 9) return '#00c896';
-  return '#ffd166';
+  if (n < 7) return C.orange;
+  if (n < 9) return C.green;
+  return C.gold;
 }
 
 function formatScore(score) {
@@ -58,9 +53,11 @@ function MiniPostCard({ post }) {
       {meal.photo_url ? (
         <Image source={{ uri: meal.photo_url }} style={StyleSheet.absoluteFill} resizeMode="cover" />
       ) : (
-        <View style={[StyleSheet.absoluteFill, styles.gridNoPhoto]}>
-          <Text style={styles.gridEmoji}>{meal.emoji || '🍽️'}</Text>
-        </View>
+        <StripedPlaceholder style={StyleSheet.absoluteFill}>
+          <View style={styles.gridNoPhoto}>
+            <Text style={styles.gridEmoji}>{meal.emoji || '🍽️'}</Text>
+          </View>
+        </StripedPlaceholder>
       )}
       <LinearGradient
         colors={['rgba(0,0,0,0)', 'rgba(0,0,0,0.82)']}
@@ -527,22 +524,22 @@ const styles = StyleSheet.create({
   },
   banner: { width: '100%', height: 76 },
   bigAvatar: {
-    backgroundColor: C.purpleDim, borderWidth: 3, borderColor: C.bg,
+    backgroundColor: '#242424', borderWidth: 3, borderColor: C.bg,
     marginTop: -40,
   },
-  bigAvatarLetter: { color: C.purpleText },
+  bigAvatarLetter: { fontFamily: C.serif, color: C.white },
   profileBody: { alignItems: 'center', width: '100%', paddingHorizontal: 24, paddingTop: 10 },
-  displayName: { fontSize: 18, fontWeight: '700', color: C.white, marginBottom: 4 },
+  displayName: { fontFamily: C.serif, fontSize: 22, color: C.white, marginBottom: 4 },
   username: { fontSize: 14, color: C.gray1, marginBottom: 12 },
   bio: { fontSize: 13, color: C.gray1, textAlign: 'center', lineHeight: 18, marginTop: -6, marginBottom: 16, paddingHorizontal: 8 },
 
   friendBtn: {
-    backgroundColor: C.orange, borderRadius: 14,
+    backgroundColor: C.orange, borderRadius: C.pill,
     paddingHorizontal: 24, paddingVertical: 11, marginBottom: 20,
   },
   friendBtnText: { fontSize: 14, fontWeight: '700', color: C.white },
   friendBtnOutline: {
-    borderWidth: 1, borderColor: C.border, borderRadius: 14,
+    borderWidth: 1, borderColor: C.glassBorder, borderRadius: C.pill,
     paddingHorizontal: 20, paddingVertical: 10, marginBottom: 20,
   },
   friendBtnOutlineText: { fontSize: 13, color: C.gray1 },

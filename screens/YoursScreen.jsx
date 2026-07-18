@@ -1,18 +1,15 @@
 import { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, StatusBar } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
 import HistoryScreen from './HistoryScreen';
 import TierListScreen from './TierListScreen';
 import RecapsScreen from './RecapsScreen';
-
-const C = {
-  bg: '#0d0d0d', surface: '#1a1a1a', border: '#2a2a2a',
-  orange: '#FF6B3D', white: '#ffffff', gray2: '#666666',
-};
+import { THEME as C } from '../lib/theme';
 
 const SEGMENTS = [
-  ['rank', 'Rank'],
   ['history', 'History'],
+  ['rank', 'Tier List'],
   ['recaps', 'Recaps'],
 ];
 
@@ -22,11 +19,19 @@ function YoursSegmentedControl({ value, onChange }) {
       {SEGMENTS.map(([key, label]) => (
         <TouchableOpacity
           key={key}
-          style={[styles.segBtn, value === key && styles.segBtnActive]}
           onPress={() => onChange(key)}
           activeOpacity={0.8}
+          style={styles.segBtnTouch}
         >
-          <Text style={[styles.segBtnText, value === key && styles.segBtnTextActive]}>{label}</Text>
+          {value === key ? (
+            <LinearGradient colors={[C.orange, C.orangeDim]} style={styles.segBtn}>
+              <Text style={[styles.segBtnText, styles.segBtnTextActive]}>{label}</Text>
+            </LinearGradient>
+          ) : (
+            <View style={styles.segBtn}>
+              <Text style={styles.segBtnText}>{label}</Text>
+            </View>
+          )}
         </TouchableOpacity>
       ))}
     </View>
@@ -78,16 +83,16 @@ const styles = StyleSheet.create({
 
   header: { backgroundColor: C.bg, paddingHorizontal: 24, paddingBottom: 12 },
   headerTitle: {
-    fontSize: 26, fontWeight: '800', color: C.white, letterSpacing: -0.5,
+    fontFamily: C.serif, fontSize: 34, color: C.white,
     marginTop: 4, marginBottom: 14,
   },
 
   segWrap: {
-    flexDirection: 'row', backgroundColor: C.surface,
-    borderRadius: 12, borderWidth: 1, borderColor: C.border, padding: 3,
+    flexDirection: 'row', backgroundColor: C.glassBg,
+    borderRadius: 13, borderWidth: 1, borderColor: C.glassBorder, padding: 4,
   },
-  segBtn: { flex: 1, paddingVertical: 8, borderRadius: 10, alignItems: 'center' },
-  segBtnActive: { backgroundColor: C.orange },
-  segBtnText: { fontWeight: '700', fontSize: 13, color: C.gray2 },
-  segBtnTextActive: { color: C.white },
+  segBtnTouch: { flex: 1 },
+  segBtn: { paddingVertical: 8, borderRadius: 10, alignItems: 'center' },
+  segBtnText: { fontWeight: '500', fontSize: 12, color: 'rgba(245,245,247,0.5)' },
+  segBtnTextActive: { color: C.bg, fontWeight: '700' },
 });

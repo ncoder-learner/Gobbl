@@ -15,11 +15,8 @@ import { displayPlaceName } from '../lib/homePrivacy';
 import { isDuelUnlocked } from '../lib/postVotes';
 import { useFirstVisit, FirstVisitTooltip } from '../lib/firstVisit';
 import { useTour, TourTarget } from '../lib/tourContext';
-
-const C = {
-  bg: '#0d0d0d', surface: '#1a1a1a', border: '#2a2a2a',
-  orange: '#FF6B3D', white: '#ffffff', gray1: '#888888', gray2: '#666666', gray4: '#444444',
-};
+import { THEME as C } from '../lib/theme';
+import StripedPlaceholder from '../components/StripedPlaceholder';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -39,9 +36,9 @@ function scoreToneColor(score) {
   const n = typeof score === 'number' ? score : Number(score);
   if (n < 3) return '#e5484d';
   if (n < 5) return '#f5a524';
-  if (n < 7) return '#FF6B3D';
-  if (n < 9) return '#00c896';
-  return '#ffd166';
+  if (n < 7) return C.orange;
+  if (n < 9) return C.green;
+  return C.gold;
 }
 function formatScore(score) {
   const n = typeof score === 'number' ? score : Number(score);
@@ -125,6 +122,26 @@ function FadeScaleIn({ delay = 0, style, children }) {
   );
 }
 
+// A springy press-scale wrapper — the tactile "give" iOS controls have on
+// touch. Separate from FadeScaleIn (that's a one-time mount animation; this
+// runs on every press) so the two compose cleanly on the same tile.
+function PressableScale({ onPress, style, children, activeScale = 0.96 }) {
+  const scale = useRef(new Animated.Value(1)).current;
+  function pressIn() {
+    Animated.spring(scale, { toValue: activeScale, useNativeDriver: true, speed: 50, bounciness: 0 }).start();
+  }
+  function pressOut() {
+    Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 20, bounciness: 9 }).start();
+  }
+  return (
+    <Pressable onPress={onPress} onPressIn={pressIn} onPressOut={pressOut}>
+      <Animated.View style={[style, { transform: [{ scale }] }]}>
+        {children}
+      </Animated.View>
+    </Pressable>
+  );
+}
+
 // One meal-in-a-slot tile — the unit of display here, not the post. Several
 // tiles across different rows can come from the same post if it has
 // multiple slots filled. Shadow lives on a separate, non-clipping wrapper —
@@ -136,18 +153,20 @@ function BoardTile({ tile, onPress, delay, onFire, likeCount, commentCount, isLe
   const showBadge = likeCount > 0 || commentCount > 0;
   return (
     <FadeScaleIn delay={delay} style={styles.tileShadowWrap}>
-      <TouchableOpacity style={[styles.tile, isMine && styles.tileMine]} onPress={onPress} activeOpacity={0.85}>
+      <PressableScale style={[styles.tile, isLeader && styles.tileLeader, isMine && styles.tileMine]} onPress={onPress}>
         {isLeader && (
           <View style={styles.tileCrownBadge}>
-            <Ionicons name="trophy" size={13} color="#3a2c00" />
+            <Ionicons name="star" size={12} color={C.bg} />
           </View>
         )}
         {meal.photo_url ? (
           <Image source={{ uri: meal.photo_url }} style={StyleSheet.absoluteFill} resizeMode="cover" />
         ) : (
-          <View style={[StyleSheet.absoluteFill, styles.tileFallback]}>
-            <Text style={styles.tileFallbackEmoji}>{meal.emoji || '🍽️'}</Text>
-          </View>
+          <StripedPlaceholder style={StyleSheet.absoluteFill}>
+            <View style={styles.tileFallback}>
+              <Text style={styles.tileFallbackEmoji}>{meal.emoji || '🍽️'}</Text>
+            </View>
+          </StripedPlaceholder>
         )}
         <LinearGradient
           colors={['transparent', 'rgba(0,0,0,0.8)']}
@@ -172,7 +191,7 @@ function BoardTile({ tile, onPress, delay, onFire, likeCount, commentCount, isLe
             )}
           </View>
         )}
-      </TouchableOpacity>
+      </PressableScale>
       {isMine && onFire && <FireRing />}
     </FadeScaleIn>
   );
@@ -181,10 +200,10 @@ function BoardTile({ tile, onPress, delay, onFire, likeCount, commentCount, isLe
 function YouEmptyTile({ onPress, delay }) {
   return (
     <FadeScaleIn delay={delay} style={styles.youTileShadowWrap}>
-      <TouchableOpacity style={styles.youTile} onPress={onPress} activeOpacity={0.75}>
+      <PressableScale style={styles.youTile} onPress={onPress}>
         <Ionicons name="add" size={26} color={C.orange} />
         <Text style={styles.youTileLabel}>you</Text>
-      </TouchableOpacity>
+      </PressableScale>
     </FadeScaleIn>
   );
 }
@@ -319,18 +338,18 @@ function DuelCard({ tag, voted, delay, onPress }) {
   const meta = TAG_META[tag];
   return (
     <FadeScaleIn delay={delay} style={styles.duelCardWrap}>
-      <TouchableOpacity style={styles.duelCard} onPress={onPress} activeOpacity={0.85}>
-        <View style={styles.duelIconWrap}>
-          <Ionicons name={voted ? 'trophy' : 'trophy-outline'} size={18} color={voted ? '#3a2c00' : C.orange} />
+      <PressableScale style={styles.duelCard} onPress={onPress} activeScale={0.97}>
+        <View style={styles.duelVsBadge}>
+          <Text style={styles.duelVsBadgeText}>VS</Text>
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={styles.duelTitle}>{voted ? 'You voted' : 'Tier Duel is ready'}</Text>
+          <Text style={styles.duelTitle}>{voted ? `${meta.label} Duel is live` : `${meta.label} Duel is ready`}</Text>
           <Text style={styles.duelSub}>
-            {voted ? `See how ${meta.label.toLowerCase()}'s duel is going` : `Pick your favorite ${meta.label.toLowerCase()}`}
+            {voted ? 'You voted · tap to see how it\'s going' : `Pick your favorite ${meta.label.toLowerCase()}`}
           </Text>
         </View>
-        <Ionicons name="chevron-forward" size={18} color={C.gray2} />
-      </TouchableOpacity>
+        <Text style={styles.duelChevron}>›</Text>
+      </PressableScale>
     </FadeScaleIn>
   );
 }
@@ -433,9 +452,9 @@ export default function DayBoardScreen() {
           .from('posts')
           .select(`
             id, user_id, created_at,
-            breakfast:meals!breakfast_meal_id(id, name, photo_url, emoji, score, place_id, places(lat, lng, name)),
-            lunch:meals!lunch_meal_id(id, name, photo_url, emoji, score, place_id, places(lat, lng, name)),
-            dinner:meals!dinner_meal_id(id, name, photo_url, emoji, score, place_id, places(lat, lng, name)),
+            breakfast:meals!breakfast_meal_id(id, name, photo_url, emoji, score, place_id, created_at, places(lat, lng, name)),
+            lunch:meals!lunch_meal_id(id, name, photo_url, emoji, score, place_id, created_at, places(lat, lng, name)),
+            dinner:meals!dinner_meal_id(id, name, photo_url, emoji, score, place_id, created_at, places(lat, lng, name)),
             profiles!posts_user_id_fkey(id, username, first_name, last_name, display_name, avatar_url)
           `)
           .gte('created_at', dayStart)
@@ -589,6 +608,7 @@ export default function DayBoardScreen() {
         placeName: displayPlaceName(meal),
         mealName: meal.name,
         photoUrl: meal.photo_url ?? null,
+        createdAt: meal.created_at ?? null,
       })),
     });
   }
@@ -643,7 +663,7 @@ export default function DayBoardScreen() {
       {/* Subtle top-to-bottom gradient instead of flat black — cheap depth
           cue across the whole screen. */}
       <LinearGradient
-        colors={['#1c1c1c', C.bg]}
+        colors={['#161616', C.bg]}
         locations={[0, 0.4]}
         style={StyleSheet.absoluteFill}
         pointerEvents="none"
@@ -707,9 +727,11 @@ export default function DayBoardScreen() {
                     {meal.photo_url ? (
                       <Image source={{ uri: meal.photo_url }} style={styles.pickerThumb} resizeMode="cover" />
                     ) : (
-                      <View style={[styles.pickerThumb, styles.pickerThumbFallback]}>
-                        <Text style={{ fontSize: 22 }}>{meal.emoji || '🍽️'}</Text>
-                      </View>
+                      <StripedPlaceholder style={styles.pickerThumb}>
+                        <View style={styles.pickerThumbFallback}>
+                          <Text style={{ fontSize: 22 }}>{meal.emoji || '🍽️'}</Text>
+                        </View>
+                      </StripedPlaceholder>
                     )}
                     <View style={styles.pickerRowInfo}>
                       <Text style={styles.pickerRowName} numberOfLines={1}>{meal.name}</Text>
@@ -731,40 +753,29 @@ export default function DayBoardScreen() {
         visible={shareTarget !== null}
         meal={shareTarget}
         onDismiss={() => setShareTarget(null)}
-        onPosted={() => setShareTarget(null)}
+        onPosted={() => { setShareTarget(null); load(); }}
       />
 
       <View style={styles.navBar}>
-        <Text style={styles.navTitle}>Gobbl</Text>
+        <Text style={styles.navTitle}>
+          Gob<Text style={styles.navTitleItalic}>b</Text>l
+        </Text>
         <View style={styles.headerActions}>
           {/* Persistent way back into a live, interactive walkthrough — the
               one-shot tooltips are gone for good once seen/dismissed, so
               this is the only in-context help left once someone's burned
               through them. */}
-          <TouchableOpacity
-            onPress={startTour}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          >
-            <Ionicons name="help-circle-outline" size={24} color={C.orange} />
+          <TouchableOpacity style={styles.iconChip} onPress={startTour} hitSlop={8}>
+            <Ionicons name="help-outline" size={16} color={C.white} />
           </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => navigation.navigate('Map')}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          >
-            <Ionicons name="map-outline" size={24} color={C.orange} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={handleCompose}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          >
-            <Ionicons name="add-circle-outline" size={26} color={C.orange} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={handleAddFriends}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          >
-            <View>
-              <Ionicons name="people-outline" size={24} color={C.orange} />
+          <TourTarget id="board.map" action={() => navigation.navigate('Map')}>
+            <TouchableOpacity style={styles.iconChip} onPress={() => navigation.navigate('Map')} hitSlop={8}>
+              <Ionicons name="map-outline" size={15} color={C.white} />
+            </TouchableOpacity>
+          </TourTarget>
+          <TourTarget id="board.friends" action={handleAddFriends}>
+            <TouchableOpacity style={styles.iconChip} onPress={handleAddFriends} hitSlop={8}>
+              <Ionicons name="people-outline" size={16} color={C.white} />
               {pendingRequests > 0 && (
                 <View style={styles.badge}>
                   <Text style={styles.badgeText}>
@@ -772,8 +783,15 @@ export default function DayBoardScreen() {
                   </Text>
                 </View>
               )}
-            </View>
-          </TouchableOpacity>
+            </TouchableOpacity>
+          </TourTarget>
+          <TourTarget id="board.compose" action={handleCompose}>
+            <TouchableOpacity onPress={handleCompose} hitSlop={8} activeOpacity={0.8}>
+              <LinearGradient colors={[C.orange, C.orangeDim]} style={styles.composeChip}>
+                <Ionicons name="add" size={18} color={C.bg} />
+              </LinearGradient>
+            </TouchableOpacity>
+          </TourTarget>
         </View>
       </View>
 
@@ -866,9 +884,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 20, paddingTop: 10, paddingBottom: 8,
   },
-  navTitle: { fontWeight: '800', fontSize: 22, color: C.white, letterSpacing: -0.5 },
+  navTitle: { fontFamily: C.serif, fontSize: 26, color: C.white },
+  navTitleItalic: { fontFamily: C.serifItalic, color: C.orange },
   headerActions: {
-    flexDirection: 'row', alignItems: 'center', gap: 18,
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+  },
+  iconChip: {
+    width: 34, height: 34, borderRadius: 17,
+    backgroundColor: 'rgba(245,245,247,0.08)', borderWidth: 1, borderColor: 'rgba(245,245,247,0.12)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  composeChip: {
+    width: 34, height: 34, borderRadius: 17,
+    alignItems: 'center', justifyContent: 'center',
   },
 
   // Friend request badge
@@ -889,14 +917,14 @@ const styles = StyleSheet.create({
     overflow: 'hidden', maxHeight: '80%',
   },
   pickerHandle: {
-    width: 36, height: 4, borderRadius: 2, backgroundColor: C.border,
+    width: 36, height: 4, borderRadius: 2, backgroundColor: C.glassBorder,
     alignSelf: 'center', marginTop: 12,
   },
   pickerHeader: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 24, paddingTop: 20, paddingBottom: 16,
   },
-  pickerTitle: { fontSize: 17, fontWeight: '700', color: C.white },
+  pickerTitle: { fontFamily: C.serif, fontSize: 20, color: C.white },
   pickerCancel: { fontSize: 15, color: C.gray1, fontWeight: '500' },
   pickerLoading: { paddingVertical: 48, alignItems: 'center' },
   pickerEmpty: {
@@ -915,15 +943,14 @@ const styles = StyleSheet.create({
     width: 50, height: 50, borderRadius: 10, backgroundColor: C.surface,
   },
   pickerThumbFallback: {
-    alignItems: 'center', justifyContent: 'center',
-    borderWidth: 0.5, borderColor: C.border,
+    ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center',
   },
   pickerRowInfo: { flex: 1 },
   pickerRowName: { fontSize: 15, fontWeight: '600', color: C.white },
-  pickerRowScore: { fontSize: 16, fontWeight: '800', letterSpacing: -0.3 },
+  pickerRowScore: { fontFamily: C.serif, fontSize: 20 },
 
   dateHeader: {
-    fontSize: 28, fontWeight: '800', color: C.white, letterSpacing: -0.5,
+    fontFamily: C.serif, fontSize: 40, color: C.white,
     paddingHorizontal: 20, marginTop: 8,
   },
   friendCount: {
@@ -959,13 +986,15 @@ const styles = StyleSheet.create({
   duelCardWrap: { marginHorizontal: 20, marginTop: 12 },
   duelCard: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
-    backgroundColor: '#2a2107', borderWidth: 1, borderColor: '#ffd16655',
-    borderRadius: 16, padding: 14,
+    backgroundColor: 'rgba(251,114,56,0.1)', borderWidth: 1, borderColor: 'rgba(251,114,56,0.3)',
+    borderRadius: 18, padding: 14,
   },
-  duelIconWrap: {
-    width: 34, height: 34, borderRadius: 17,
-    backgroundColor: '#ffd166', alignItems: 'center', justifyContent: 'center',
+  duelVsBadge: {
+    width: 34, height: 34, borderRadius: C.pill,
+    backgroundColor: C.orange, alignItems: 'center', justifyContent: 'center',
   },
+  duelVsBadgeText: { fontFamily: C.serifItalic, fontSize: 13, color: C.bg },
+  duelChevron: { fontSize: 16, color: C.orange },
   duelTitle: { fontSize: 14, fontWeight: '700', color: C.white },
   duelSub: { fontSize: 12, color: C.gray1, marginTop: 1 },
 
@@ -984,7 +1013,11 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: C.border,
   },
   tileMine: { borderWidth: 2.5, borderColor: C.orange },
-  tileFallback: { alignItems: 'center', justifyContent: 'center', backgroundColor: '#151515' },
+  tileLeader: {
+    borderWidth: 2, borderColor: C.gold,
+    shadowColor: C.gold, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.5, shadowRadius: 8, elevation: 6,
+  },
+  tileFallback: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
   tileFallbackEmoji: { fontSize: 36 },
   tileUsername: {
     fontSize: 12, fontWeight: '700', color: '#fff',
@@ -1007,7 +1040,7 @@ const styles = StyleSheet.create({
   // the meal currently leading its slot's vote count.
   tileCrownBadge: {
     position: 'absolute', top: 6, left: 6, zIndex: 1,
-    backgroundColor: '#ffd166', borderRadius: 8,
+    backgroundColor: C.gold, borderRadius: C.pill,
     width: 22, height: 22, alignItems: 'center', justifyContent: 'center',
   },
 
@@ -1040,8 +1073,8 @@ const styles = StyleSheet.create({
   // unlocked, not another routine section.
   trailCardWrap: {
     marginHorizontal: 20, marginTop: Math.round(SECTION_GAP * 0.6),
-    backgroundColor: C.surface, borderWidth: 1, borderColor: C.orange + '55',
-    borderRadius: 18, padding: 16,
+    backgroundColor: C.glassBg, borderWidth: 1, borderColor: C.orange + '55',
+    borderRadius: 22, padding: 16,
     shadowColor: C.orange, shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.25, shadowRadius: 14, elevation: 4,
   },
@@ -1062,7 +1095,7 @@ const styles = StyleSheet.create({
   trailMapWrap: { marginBottom: 14 },
   trailStatsRow: { flexDirection: 'row', alignItems: 'center' },
   trailStat: { flex: 1, alignItems: 'center' },
-  trailStatNum: { fontSize: 17, fontWeight: '800', color: C.white },
+  trailStatNum: { fontFamily: C.serif, fontSize: 22, color: C.white },
   trailStatLabel: { fontSize: 11, color: C.gray2, fontWeight: '500', marginTop: 2 },
   trailStatDivider: { width: 0.5, height: 28, backgroundColor: C.border },
 
@@ -1070,12 +1103,12 @@ const styles = StyleSheet.create({
   // space below the three sections.
   footerCard: {
     marginHorizontal: 20, marginTop: Math.round(SECTION_GAP * 0.4),
-    backgroundColor: C.surface, borderWidth: 0.5, borderColor: C.border,
-    borderRadius: 16, padding: 16,
+    backgroundColor: C.glassBg, borderWidth: 1, borderColor: C.glassBorder,
+    borderRadius: 22, padding: 16,
   },
   footerRow: { flexDirection: 'row', alignItems: 'center' },
   footerFlame: { fontSize: 20, marginRight: 8 },
-  footerStreakNum: { fontSize: 20, fontWeight: '800', color: C.orange, marginRight: 6 },
+  footerStreakNum: { fontFamily: C.serif, fontSize: 26, color: C.orange, marginRight: 6 },
   footerStreakLabel: { fontSize: 13, color: C.gray1, flex: 1 },
   footerDivider: { height: 0.5, backgroundColor: C.border, marginVertical: 12 },
   footerStat: { fontSize: 13, color: C.gray2, fontWeight: '500' },

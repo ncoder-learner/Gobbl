@@ -7,13 +7,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import Avatar from './Avatar';
-
-const C = {
-  bg: '#0d0d0d', surface: '#1a1a1a', border: '#2a2a2a',
-  orange: '#FF6B3D', white: '#ffffff', gray1: '#888888', gray2: '#666666',
-  inputBg: '#161616', purple: '#8855cc', purpleDim: '#1a0d1a', purpleBorder: '#3a2a4a',
-  purpleText: '#ddb8ff',
-};
+import { THEME as C } from '../lib/theme';
 
 function timeAgo(iso) {
   const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
@@ -156,7 +150,9 @@ export default function CommentSheet({ visible, postId, mealId, postOwnerId, onD
           <Pressable style={styles.sheet} onPress={() => {}}>
             <View style={styles.handle} />
             <View style={styles.sheetHeader}>
-              <Text style={styles.sheetTitle}>Comments</Text>
+              <Text style={styles.sheetTitle}>
+                Comments{comments.length > 0 ? ` · ${comments.length}` : ''}
+              </Text>
               <TouchableOpacity onPress={onDismiss} hitSlop={10}>
                 <Ionicons name="close" size={20} color={C.gray1} />
               </TouchableOpacity>
@@ -168,7 +164,9 @@ export default function CommentSheet({ visible, postId, mealId, postOwnerId, onD
               </View>
             ) : comments.length === 0 ? (
               <View style={styles.emptyBox}>
-                <Text style={styles.emptyText}>No comments yet. Be the first!</Text>
+                <Ionicons name="chatbubble-outline" size={26} color={C.gray4} />
+                <Text style={styles.emptyText}>No comments yet</Text>
+                <Text style={styles.emptySub}>Be the first to say something</Text>
               </View>
             ) : (
               <FlatList
@@ -220,37 +218,38 @@ const styles = StyleSheet.create({
   },
   sheetWrap: { justifyContent: 'flex-end' },
   sheet: {
-    backgroundColor: C.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20,
+    backgroundColor: C.bg, borderTopLeftRadius: 24, borderTopRightRadius: 24,
     maxHeight: '75%', minHeight: 280,
-    borderTopWidth: 0.5, borderColor: C.border,
+    borderTopWidth: 1, borderColor: C.glassBorder,
   },
   handle: {
-    width: 36, height: 4, backgroundColor: C.border,
+    width: 36, height: 4, backgroundColor: C.glassBorder,
     borderRadius: 2, alignSelf: 'center', marginTop: 10, marginBottom: 4,
   },
   sheetHeader: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 20, paddingVertical: 12,
-    borderBottomWidth: 0.5, borderBottomColor: C.border,
+    paddingHorizontal: 20, paddingVertical: 14,
+    borderBottomWidth: 1, borderBottomColor: C.glassBorder,
   },
-  sheetTitle: { fontSize: 15, fontWeight: '700', color: C.white },
+  sheetTitle: { fontFamily: C.serif, fontSize: 20, color: C.white },
 
   loadingBox: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 40 },
-  emptyBox: { padding: 32, alignItems: 'center' },
-  emptyText: { fontSize: 14, color: C.gray2, textAlign: 'center' },
+  emptyBox: { padding: 36, alignItems: 'center', gap: 4 },
+  emptyText: { fontSize: 14, fontWeight: '600', color: C.white, marginTop: 8 },
+  emptySub: { fontSize: 12, color: C.gray2 },
 
   list: { flex: 1 },
 
   commentRow: {
     flexDirection: 'row', alignItems: 'flex-start',
-    paddingHorizontal: 16, paddingVertical: 10,
-    borderBottomWidth: 0.5, borderBottomColor: C.border,
+    paddingHorizontal: 20, paddingVertical: 12,
+    borderBottomWidth: 1, borderBottomColor: C.glassBorder,
   },
   commentAvatar: {
-    backgroundColor: C.purpleDim, borderWidth: 1, borderColor: C.purpleBorder,
+    backgroundColor: '#242424', borderWidth: 1, borderColor: C.glassBorder,
     marginRight: 10, marginTop: 1,
   },
-  commentAvatarLetter: { color: C.purpleText },
+  commentAvatarLetter: { fontFamily: C.serif, color: C.white },
   commentBody: { flex: 1 },
   commentMeta: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 3 },
   commentUsername: { fontSize: 12, fontWeight: '700', color: C.white },
@@ -260,18 +259,18 @@ const styles = StyleSheet.create({
 
   inputRow: {
     flexDirection: 'row', alignItems: 'flex-end',
-    paddingHorizontal: 14, paddingVertical: 12,
-    borderTopWidth: 0.5, borderTopColor: C.border, gap: 10,
+    paddingHorizontal: 16, paddingVertical: 14,
+    borderTopWidth: 1, borderTopColor: C.glassBorder, gap: 10,
   },
   input: {
-    flex: 1, backgroundColor: C.inputBg, borderRadius: 18,
-    paddingHorizontal: 14, paddingVertical: 9,
+    flex: 1, backgroundColor: C.inputBg, borderRadius: C.pill,
+    paddingHorizontal: 16, paddingVertical: 10,
     color: C.white, fontSize: 14, maxHeight: 80,
-    borderWidth: 0.5, borderColor: C.border,
+    borderWidth: 1, borderColor: C.glassBorder,
   },
   sendBtn: {
-    width: 36, height: 36, borderRadius: 18,
+    width: 36, height: 36, borderRadius: C.pill,
     backgroundColor: C.orange, alignItems: 'center', justifyContent: 'center',
   },
-  sendBtnDisabled: { backgroundColor: C.border },
+  sendBtnDisabled: { backgroundColor: C.glassBorder },
 });

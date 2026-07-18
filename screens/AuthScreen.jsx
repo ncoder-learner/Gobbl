@@ -13,28 +13,18 @@ import {
   Linking as RNLinking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { GobblMark } from '../components/GobblMark';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import { supabase } from '../lib/supabase';
 import { withTimeout } from '../lib/withTimeout';
+import { THEME as C } from '../lib/theme';
 
 const TERMS_URL = 'https://ncoder-learner.github.io/gobbl-legal/terms.html';
 const PRIVACY_URL = 'https://ncoder-learner.github.io/gobbl-legal/privacy.html';
 
 WebBrowser.maybeCompleteAuthSession();
-
-const C = {
-  bg: '#0d0d0d',
-  surface: '#1a1a1a',
-  border: '#2a2a2a',
-  orange: '#FF6B3D',
-  white: '#ffffff',
-  gray1: '#888888',
-  gray2: '#666666',
-  gray4: '#444444',
-  inputBg: '#161616',
-};
 
 async function handleOAuthCallback(url) {
   // This runs the instant the browser session closes and control returns to
@@ -74,6 +64,7 @@ export default function AuthScreen() {
   const [appleLoading, setAppleLoading] = useState(false);
   const [error, setError] = useState(null);
   const [agreedToTerms, setAgreedToTerms] = useState(false);
+  const [showEmailForm, setShowEmailForm] = useState(false);
 
   const signupBlocked = mode === 'signup' && !agreedToTerms;
 
@@ -175,145 +166,150 @@ export default function AuthScreen() {
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.header}>
-            <Text style={styles.logo}>🍽️</Text>
-            <Text style={styles.appName}>Gobbl</Text>
-            <Text style={styles.tagline}>Your year in food</Text>
+            <View style={styles.logoBadgeShadow}>
+              <GobblMark size={54} bg={C.bg} />
+            </View>
+            <Text style={styles.appName}>
+              Track every meal,{'\n'}
+              <Text style={styles.appNameItalic}>together.</Text>
+            </Text>
+            <Text style={styles.tagline}>Log your day, see your friends' day, and settle who ate best.</Text>
           </View>
 
-          <View style={styles.card}>
-            <View style={styles.toggle}>
-              <TouchableOpacity
-                style={[styles.toggleBtn, mode === 'login' && styles.toggleBtnActive]}
-                onPress={() => switchMode('login')}
-              >
-                <Text style={[styles.toggleText, mode === 'login' && styles.toggleTextActive]}>
-                  Log in
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.toggleBtn, mode === 'signup' && styles.toggleBtnActive]}
-                onPress={() => switchMode('signup')}
-              >
-                <Text style={[styles.toggleText, mode === 'signup' && styles.toggleTextActive]}>
-                  Sign up
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.fieldGroup}>
-              <Text style={styles.fieldLabel}>Email</Text>
-              <TextInput
-                style={styles.input}
-                value={email}
-                onChangeText={setEmail}
-                placeholder="you@example.com"
-                placeholderTextColor={C.gray4}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoCorrect={false}
-                returnKeyType="next"
-              />
-            </View>
-
-            <View style={styles.fieldGroup}>
-              <Text style={styles.fieldLabel}>Password</Text>
-              <TextInput
-                style={styles.input}
-                value={password}
-                onChangeText={setPassword}
-                placeholder={mode === 'signup' ? 'At least 6 characters' : '••••••••'}
-                placeholderTextColor={C.gray4}
-                secureTextEntry
-                returnKeyType="done"
-                onSubmitEditing={handleSubmit}
-              />
-            </View>
-
-            {mode === 'signup' && (
-              <TouchableOpacity
-                style={styles.consentRow}
-                onPress={() => setAgreedToTerms(v => !v)}
-                activeOpacity={0.7}
-              >
-                <View style={[styles.checkbox, agreedToTerms && styles.checkboxChecked]}>
-                  {agreedToTerms && <Text style={styles.checkboxMark}>✓</Text>}
+          <View style={styles.primaryStack}>
+            {Platform.OS === 'ios' && (
+              appleLoading ? (
+                <View style={styles.appleBtnLoading}>
+                  <ActivityIndicator color={C.bg} size="small" />
+                  <Text style={[styles.socialText, { color: C.bg }]}>Signing in…</Text>
                 </View>
-                <Text style={styles.consentText}>
-                  I agree to the{' '}
-                  <Text style={styles.consentLink} onPress={() => RNLinking.openURL(TERMS_URL)}>
-                    Terms of Service
-                  </Text>{' '}
-                  and{' '}
-                  <Text style={styles.consentLink} onPress={() => RNLinking.openURL(PRIVACY_URL)}>
-                    Privacy Policy
-                  </Text>
-                </Text>
-              </TouchableOpacity>
+              ) : (
+                <AppleAuthentication.AppleAuthenticationButton
+                  buttonType={AppleAuthentication.AppleAuthenticationButtonType.CONTINUE}
+                  buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.WHITE}
+                  cornerRadius={27}
+                  style={styles.appleBtn}
+                  onPress={handleApple}
+                />
+              )
             )}
 
-            {error ? (
-              <View style={styles.errorBox}>
-                <Text style={styles.errorText}>{error}</Text>
-              </View>
-            ) : null}
-
             <TouchableOpacity
-              style={[styles.submitBtn, (loading || signupBlocked) && styles.submitBtnDisabled]}
-              onPress={handleSubmit}
-              disabled={loading || signupBlocked}
-            >
-              {loading ? (
-                <ActivityIndicator color={C.white} />
-              ) : (
-                <Text style={styles.submitText}>
-                  {mode === 'login' ? 'Log in' : 'Create account'}
-                </Text>
-              )}
-            </TouchableOpacity>
-
-            <View style={styles.dividerRow}>
-              <View style={styles.dividerLine} />
-              <Text style={styles.dividerText}>or continue with</Text>
-              <View style={styles.dividerLine} />
-            </View>
-
-            <TouchableOpacity
-              style={[styles.socialBtn, (googleLoading || signupBlocked) && styles.submitBtnDisabled]}
+              style={[styles.socialBtn, googleLoading && styles.submitBtnDisabled]}
               onPress={handleGoogle}
-              disabled={googleLoading || signupBlocked}
+              disabled={googleLoading}
             >
               {googleLoading ? (
                 <ActivityIndicator color={C.white} size="small" />
               ) : (
-                <>
-                  <Text style={styles.socialIcon}>G</Text>
-                  <Text style={styles.socialText}>Continue with Google</Text>
-                </>
+                <Text style={styles.socialText}>Continue with Google</Text>
               )}
             </TouchableOpacity>
 
-            {Platform.OS === 'ios' && (
-              appleLoading ? (
-                <View style={styles.appleBtnLoading}>
-                  <ActivityIndicator color={C.white} size="small" />
-                  <Text style={styles.socialText}>Signing in…</Text>
-                </View>
-              ) : (
-                <View
-                  style={signupBlocked && styles.appleBtnDisabled}
-                  pointerEvents={signupBlocked ? 'none' : 'auto'}
-                >
-                  <AppleAuthentication.AppleAuthenticationButton
-                    buttonType={AppleAuthentication.AppleAuthenticationButtonType.CONTINUE}
-                    buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
-                    cornerRadius={14}
-                    style={styles.appleBtn}
-                    onPress={handleApple}
-                  />
-                </View>
-              )
-            )}
+            <TouchableOpacity onPress={() => setShowEmailForm(v => !v)} activeOpacity={0.7}>
+              <Text style={styles.emailLink}>Continue with email</Text>
+            </TouchableOpacity>
+
+            <Text style={styles.footnote}>By continuing you agree to our{' '}
+              <Text style={styles.consentLink} onPress={() => RNLinking.openURL(TERMS_URL)}>Terms</Text>
+              {' '}&{' '}
+              <Text style={styles.consentLink} onPress={() => RNLinking.openURL(PRIVACY_URL)}>Privacy Policy</Text>
+            </Text>
           </View>
+
+          {showEmailForm && (
+            <View style={styles.card}>
+              <View style={styles.toggle}>
+                <TouchableOpacity
+                  style={[styles.toggleBtn, mode === 'login' && styles.toggleBtnActive]}
+                  onPress={() => switchMode('login')}
+                >
+                  <Text style={[styles.toggleText, mode === 'login' && styles.toggleTextActive]}>
+                    Log in
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.toggleBtn, mode === 'signup' && styles.toggleBtnActive]}
+                  onPress={() => switchMode('signup')}
+                >
+                  <Text style={[styles.toggleText, mode === 'signup' && styles.toggleTextActive]}>
+                    Sign up
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.fieldGroup}>
+                <Text style={styles.fieldLabel}>Email</Text>
+                <TextInput
+                  style={styles.input}
+                  value={email}
+                  onChangeText={setEmail}
+                  placeholder="you@example.com"
+                  placeholderTextColor={C.gray4}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  returnKeyType="next"
+                />
+              </View>
+
+              <View style={styles.fieldGroup}>
+                <Text style={styles.fieldLabel}>Password</Text>
+                <TextInput
+                  style={styles.input}
+                  value={password}
+                  onChangeText={setPassword}
+                  placeholder={mode === 'signup' ? 'At least 6 characters' : '••••••••'}
+                  placeholderTextColor={C.gray4}
+                  secureTextEntry
+                  returnKeyType="done"
+                  onSubmitEditing={handleSubmit}
+                />
+              </View>
+
+              {mode === 'signup' && (
+                <TouchableOpacity
+                  style={styles.consentRow}
+                  onPress={() => setAgreedToTerms(v => !v)}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.checkbox, agreedToTerms && styles.checkboxChecked]}>
+                    {agreedToTerms && <Text style={styles.checkboxMark}>✓</Text>}
+                  </View>
+                  <Text style={styles.consentText}>
+                    I agree to the{' '}
+                    <Text style={styles.consentLink} onPress={() => RNLinking.openURL(TERMS_URL)}>
+                      Terms of Service
+                    </Text>{' '}
+                    and{' '}
+                    <Text style={styles.consentLink} onPress={() => RNLinking.openURL(PRIVACY_URL)}>
+                      Privacy Policy
+                    </Text>
+                  </Text>
+                </TouchableOpacity>
+              )}
+
+              {error ? (
+                <View style={styles.errorBox}>
+                  <Text style={styles.errorText}>{error}</Text>
+                </View>
+              ) : null}
+
+              <TouchableOpacity
+                style={[styles.submitBtn, (loading || signupBlocked) && styles.submitBtnDisabled]}
+                onPress={handleSubmit}
+                disabled={loading || signupBlocked}
+              >
+                {loading ? (
+                  <ActivityIndicator color={C.bg} />
+                ) : (
+                  <Text style={styles.submitText}>
+                    {mode === 'login' ? 'Log in' : 'Create account'}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          )}
         </ScrollView>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -324,27 +320,35 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: C.bg },
   scrollContent: { flexGrow: 1, justifyContent: 'center', padding: 24 },
 
-  header: { alignItems: 'center', marginBottom: 40 },
-  logo: { fontSize: 52, marginBottom: 12 },
-  appName: { fontSize: 28, fontWeight: '800', color: C.white, letterSpacing: -0.5, marginBottom: 6 },
-  tagline: { fontSize: 14, color: C.gray1 },
+  header: { marginBottom: 32 },
+  logoBadgeShadow: {
+    marginBottom: 24, alignSelf: 'flex-start',
+    shadowColor: C.orange, shadowOpacity: 0.35, shadowRadius: 20, shadowOffset: { width: 0, height: 10 },
+  },
+  appName: { fontFamily: C.serif, fontSize: 38, color: C.white, lineHeight: 42 },
+  appNameItalic: { fontFamily: C.serifItalic, color: C.orange },
+  tagline: { fontSize: 14, color: C.gray1, marginTop: 12, lineHeight: 20, maxWidth: 280 },
+
+  primaryStack: { marginBottom: 20 },
+  emailLink: { fontSize: 13, fontWeight: '600', color: C.orange, textAlign: 'center', marginTop: 6 },
+  footnote: { fontSize: 11, color: C.gray3, textAlign: 'center', marginTop: 18, lineHeight: 16 },
 
   card: {
-    backgroundColor: C.surface,
-    borderWidth: 0.5,
-    borderColor: C.border,
-    borderRadius: 20,
+    backgroundColor: C.glassBg,
+    borderWidth: 1,
+    borderColor: C.glassBorder,
+    borderRadius: 24,
     padding: 24,
   },
 
   toggle: {
     flexDirection: 'row',
     backgroundColor: C.bg,
-    borderRadius: 12,
+    borderRadius: C.pill,
     padding: 4,
     marginBottom: 24,
   },
-  toggleBtn: { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 10 },
+  toggleBtn: { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: C.pill },
   toggleBtnActive: { backgroundColor: C.orange },
   toggleText: { fontSize: 14, fontWeight: '600', color: C.gray2 },
   toggleTextActive: { color: C.white },
@@ -353,9 +357,9 @@ const styles = StyleSheet.create({
   fieldLabel: { fontSize: 13, color: C.gray2, marginBottom: 8, fontWeight: '500' },
   input: {
     backgroundColor: C.inputBg,
-    borderWidth: 0.5,
-    borderColor: C.border,
-    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: C.glassBorder,
+    borderRadius: 14,
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 15,
@@ -387,55 +391,46 @@ const styles = StyleSheet.create({
   consentLink: { color: C.orange, fontWeight: '600' },
 
   errorBox: {
-    backgroundColor: '#2a0a0a',
+    backgroundColor: C.redDim,
     borderWidth: 0.5,
-    borderColor: '#5a1a1a',
-    borderRadius: 10,
+    borderColor: C.redBorder,
+    borderRadius: 14,
     padding: 12,
     marginBottom: 16,
   },
-  errorText: { fontSize: 13, color: '#ff6b6b', lineHeight: 18 },
+  errorText: { fontSize: 13, color: C.red, lineHeight: 18 },
 
   submitBtn: {
-    backgroundColor: C.orange,
-    borderRadius: 14,
+    backgroundColor: C.white,
+    borderRadius: C.pill,
     paddingVertical: 15,
     alignItems: 'center',
     marginTop: 4,
   },
   submitBtnDisabled: { opacity: 0.6 },
-  submitText: { fontSize: 16, fontWeight: '700', color: C.white },
-
-  dividerRow: { flexDirection: 'row', alignItems: 'center', marginVertical: 20, gap: 10 },
-  dividerLine: { flex: 1, height: 0.5, backgroundColor: C.border },
-  dividerText: { fontSize: 12, color: C.gray2 },
+  submitText: { fontSize: 16, fontWeight: '700', color: C.bg },
 
   socialBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 10,
-    backgroundColor: C.inputBg,
-    borderWidth: 0.5,
-    borderColor: C.border,
-    borderRadius: 14,
-    paddingVertical: 14,
-    marginBottom: 12,
+    height: 54,
+    borderWidth: 1,
+    borderColor: 'rgba(245,245,247,0.18)',
+    borderRadius: C.pill,
+    marginTop: 10,
   },
-  socialIcon: { fontSize: 15, fontWeight: '800', color: C.white, width: 20, textAlign: 'center' },
   socialText: { fontSize: 15, fontWeight: '600', color: C.white },
 
-  appleBtn: { width: '100%', height: 48 },
+  appleBtn: { width: '100%', height: 54 },
   appleBtnDisabled: { opacity: 0.6 },
   appleBtnLoading: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 10,
-    backgroundColor: '#1a1a1a',
-    borderWidth: 0.5,
-    borderColor: C.border,
-    borderRadius: 14,
-    height: 48,
+    backgroundColor: C.white,
+    borderRadius: C.pill,
+    height: 54,
   },
 });

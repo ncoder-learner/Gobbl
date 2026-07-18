@@ -7,12 +7,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
-
-const C = {
-  bg: '#0d0d0d', surface: '#1a1a1a', border: '#2a2a2a',
-  orange: '#FF6B3D', purpleDim: '#1a0d1a', purpleBorder: '#3a2a4a', purpleText: '#ddb8ff',
-  white: '#ffffff', gray1: '#888888', gray2: '#666666', gray4: '#444444',
-};
+import { THEME as C } from '../lib/theme';
 
 function BlockedRow({ block, onUnblock }) {
   const [loading, setLoading] = useState(false);
@@ -136,25 +131,25 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 20, paddingVertical: 14,
   },
-  navTitle: { fontSize: 15, fontWeight: '600', color: C.white },
+  navTitle: { fontSize: 17, fontWeight: '700', color: C.white },
 
   row: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
-    paddingVertical: 12, borderBottomWidth: 0.5, borderBottomColor: C.border,
+    paddingVertical: 12, borderBottomWidth: 0.5, borderBottomColor: C.glassBorder,
   },
   avatar: {
-    width: 40, height: 40, borderRadius: 20,
-    backgroundColor: C.purpleDim, borderWidth: 1, borderColor: C.purpleBorder,
+    width: 42, height: 42, borderRadius: 21,
+    backgroundColor: 'rgba(245,245,247,0.12)',
     alignItems: 'center', justifyContent: 'center',
   },
-  avatarLetter: { fontSize: 15, fontWeight: '700', color: C.purpleText },
-  rowLabel: { flex: 1, fontSize: 14, fontWeight: '600', color: C.white },
+  avatarLetter: { fontSize: 15, fontWeight: '700', color: C.white },
+  rowLabel: { flex: 1, fontSize: 14, fontWeight: '700', color: C.white },
 
   unblockBtn: {
-    borderWidth: 1, borderColor: C.border, borderRadius: 12,
-    paddingHorizontal: 14, paddingVertical: 8,
+    borderWidth: 1, borderColor: 'rgba(245,245,247,0.2)', borderRadius: C.pill,
+    paddingHorizontal: 15, paddingVertical: 8,
   },
-  unblockBtnText: { fontSize: 13, fontWeight: '600', color: C.gray1 },
+  unblockBtnText: { fontSize: 12, fontWeight: '600', color: C.white },
 
   emptyBox: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 60 },
   emptyText: { fontSize: 14, color: C.gray2 },

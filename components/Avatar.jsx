@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { View, Image, Text, StyleSheet } from 'react-native';
+import { THEME as C } from '../lib/theme';
 
 // One initial per word — a single-word name ("rizx") gets one letter, not
 // first+last-character ("RZ"), which read as a made-up pair of initials.
@@ -54,8 +55,8 @@ export default function Avatar({ uri, firstName, lastName, displayName, username
 
 const styles = StyleSheet.create({
   wrap: {
-    backgroundColor: '#2a2a2a',
+    backgroundColor: '#242424',
     alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
   },
-  initials: { fontWeight: '700', color: '#ffffff' },
+  initials: { fontFamily: C.serif, color: C.white },
 });

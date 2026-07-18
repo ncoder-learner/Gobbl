@@ -1,7 +1,7 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import {
-  View, Text, TouchableOpacity, Image, FlatList, StyleSheet,
-  StatusBar, Dimensions, Animated,
+  View, Text, TouchableOpacity, Image, StyleSheet,
+  StatusBar, Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -11,80 +11,105 @@ import { supabase } from '../lib/supabase';
 import { TAG_META, TAG_ICON } from '../lib/postUtils';
 import { castVote, tallyMealVotes } from '../lib/postVotes';
 import Avatar from '../components/Avatar';
+import { THEME as C } from '../lib/theme';
+import StripedPlaceholder from '../components/StripedPlaceholder';
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const SLOT_CLOSE_LABEL = { breakfast: '11:00', lunch: '16:00', dinner: '21:00' };
 
-const C = {
-  bg: '#000', surface: '#1a1a1a', border: '#2a2a2a',
-  orange: '#FF6B3D', gold: '#ffd166', white: '#ffffff', gray1: '#888888', gray2: '#666666',
-};
+// Splits a round into 2-up pairs. An odd contestant out gets a bye — they
+// skip straight to next round instead of sitting out the whole duel.
+function buildPairs(contestants) {
+  const arr = [...contestants];
+  const byes = arr.length % 2 === 1 ? [arr.pop()] : [];
+  const pairs = [];
+  for (let i = 0; i < arr.length; i += 2) pairs.push([arr[i], arr[i + 1]]);
+  return { pairs, byes };
+}
 
-// ─── One meal's page — full-bleed photo, same vertical-pager model as
-// SlotViewerScreen (this *is* that screen's interaction pattern, just with
-// a vote button instead of like/comment). ──────────────────────────────────
-function DuelPage({ tile, selected, voteCount, voting, onVote }) {
-  const pop = useRef(new Animated.Value(1)).current;
-
-  useEffect(() => {
-    if (!selected) return;
-    pop.setValue(1);
-    Animated.sequence([
-      Animated.spring(pop, { toValue: 1.15, useNativeDriver: true, speed: 26, bounciness: 16 }),
-      Animated.spring(pop, { toValue: 1, useNativeDriver: true, speed: 18, bounciness: 8 }),
-    ]).start();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected]);
-
+// ─── One side of a head-to-head pair ──────────────────────────────────────────
+function PairCard({ tile, pct, voteCount, onPress, style }) {
   return (
-    <View style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT }}>
+    <TouchableOpacity style={[styles.pairCard, style]} onPress={onPress} activeOpacity={0.9}>
       {tile.meal.photo_url ? (
-        <Image source={{ uri: tile.meal.photo_url }} style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT }} resizeMode="cover" />
+        <Image source={{ uri: tile.meal.photo_url }} style={StyleSheet.absoluteFill} resizeMode="cover" />
       ) : (
-        <View style={[{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT }, styles.photoFallback]}>
-          <Text style={styles.photoFallbackEmoji}>{tile.meal.emoji || '🍽️'}</Text>
-        </View>
+        <StripedPlaceholder style={StyleSheet.absoluteFill}>
+          <View style={styles.pairFallback}>
+            <Text style={styles.pairFallbackEmoji}>{tile.meal.emoji || '🍽️'}</Text>
+          </View>
+        </StripedPlaceholder>
       )}
-
-      <View style={styles.bottomOverlay}>
-        <LinearGradient
-          colors={['transparent', 'rgba(0,0,0,0.85)']}
-          style={StyleSheet.absoluteFill}
-          pointerEvents="none"
-        />
-
-        <View style={styles.posterRow}>
+      <LinearGradient
+        colors={['transparent', 'rgba(0,0,0,0.9)']}
+        locations={[0.3, 1]}
+        style={StyleSheet.absoluteFill}
+        pointerEvents="none"
+      />
+      <View style={styles.pairBottom}>
+        <View style={styles.pairPosterRow}>
           <Avatar
             uri={tile.poster?.avatar_url}
             firstName={tile.poster?.first_name}
             lastName={tile.poster?.last_name}
             displayName={tile.poster?.display_name}
             username={tile.poster?.username}
-            size={30}
-            style={styles.posterAvatar}
-            textStyle={styles.posterInitial}
+            size={26}
+            style={styles.pairAvatar}
+            textStyle={styles.pairAvatarLetter}
           />
-          <Text style={styles.posterUsername}>@{tile.poster?.username ?? 'unknown'}</Text>
-          <View style={styles.voteCountBadge}>
-            <Ionicons name="trophy" size={13} color="#3a2c00" />
-            <Text style={styles.voteCountText}>{voteCount}</Text>
-          </View>
+          <Text style={styles.pairUsername} numberOfLines={1}>@{tile.poster?.username ?? 'unknown'}</Text>
+          <Text style={styles.pairPct}>{pct}%</Text>
         </View>
-        <Text style={styles.mealName} numberOfLines={1}>{tile.meal.name}</Text>
-
-        <Animated.View style={{ transform: [{ scale: pop }] }}>
-          <TouchableOpacity
-            style={[styles.voteBtn, selected && styles.voteBtnSelected]}
-            onPress={onVote}
-            disabled={voting}
-            activeOpacity={0.85}
-          >
-            <Ionicons name={selected ? 'trophy' : 'trophy-outline'} size={20} color={selected ? '#3a2c00' : C.white} />
-            <Text style={[styles.voteBtnText, selected && styles.voteBtnTextSelected]}>
-              {selected ? 'Your vote' : 'Vote for this'}
-            </Text>
-          </TouchableOpacity>
-        </Animated.View>
+        <Text style={styles.pairName} numberOfLines={1}>{tile.meal.name}</Text>
+        <View style={styles.pairBarTrack}>
+          <View style={[styles.pairBarFill, { width: `${pct}%` }]} />
+        </View>
+        <Text style={styles.pairVotes}>{voteCount} {voteCount === 1 ? 'vote' : 'votes'}</Text>
       </View>
+    </TouchableOpacity>
+  );
+}
+
+// ─── Results — shown once you've voted (or reached the end of the bracket) ────
+function ResultsList({ people, voteCounts, myVoteMealId, onRedo }) {
+  const totalVotes = people.reduce((sum, p) => sum + (voteCounts[p.mealId] || 0), 0);
+  const maxCount = Math.max(0, ...people.map(p => voteCounts[p.mealId] || 0));
+  const sorted = [...people].sort((a, b) => (voteCounts[b.mealId] || 0) - (voteCounts[a.mealId] || 0));
+
+  return (
+    <View style={styles.resultsWrap}>
+      {sorted.map(tile => {
+        const count = voteCounts[tile.mealId] || 0;
+        const isLeader = count > 0 && count === maxCount;
+        const isMine = tile.mealId === myVoteMealId;
+        const pct = totalVotes > 0 ? Math.round((count / totalVotes) * 100) : 0;
+        return (
+          <View key={tile.mealId} style={[styles.resultRow, isLeader && styles.resultRowLeader]}>
+            {tile.meal.photo_url ? (
+              <Image source={{ uri: tile.meal.photo_url }} style={styles.resultThumb} resizeMode="cover" />
+            ) : (
+              <StripedPlaceholder style={styles.resultThumb}>
+                <View style={styles.resultThumbFallback}>
+                  <Text style={{ fontSize: 18 }}>{tile.meal.emoji || '🍽️'}</Text>
+                </View>
+              </StripedPlaceholder>
+            )}
+            <View style={{ flex: 1 }}>
+              <Text style={styles.resultName} numberOfLines={1}>{tile.meal.name}</Text>
+              <Text style={styles.resultMeta} numberOfLines={1}>
+                @{tile.poster?.username ?? 'unknown'}{isMine ? ' · your vote' : ''}
+              </Text>
+            </View>
+            {isLeader && <Ionicons name="trophy" size={16} color={C.gold} style={{ marginRight: 4 }} />}
+            <Text style={[styles.resultCount, isLeader && { color: C.gold }]}>{pct}%</Text>
+          </View>
+        );
+      })}
+
+      <TouchableOpacity style={styles.redoBtn} onPress={onRedo} activeOpacity={0.85}>
+        <Ionicons name="refresh" size={16} color={C.white} />
+        <Text style={styles.redoBtnText}>Redo bracket</Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -98,12 +123,25 @@ export default function DuelScreen() {
   // Own meal never appears in the deck — there's nothing to vote for there.
   const people = allPeople.filter(p => !p.isMine);
 
-  const [activeIndex, setActiveIndex] = useState(0);
   const [currentUserId, setCurrentUserId] = useState(null);
   const [voteCounts, setVoteCounts] = useState({});     // mealId -> count
   const [myVoteMealId, setMyVoteMealId] = useState(null);
   const [voting, setVoting] = useState(false);
   const [error, setError] = useState(null);
+  const [loaded, setLoaded] = useState(false);
+  const [viewMode, setViewMode] = useState(null); // 'bracket' | 'results'
+
+  // ── Bracket state ──
+  const [round, setRound] = useState(people);
+  const [pairIndex, setPairIndex] = useState(0);
+  const [winnersAcc, setWinnersAcc] = useState([]);
+  const { pairs, byes } = useMemo(() => buildPairs(round), [round]);
+
+  useEffect(() => {
+    setWinnersAcc(byes);
+    setPairIndex(0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [round]);
 
   useEffect(() => {
     (async () => {
@@ -119,10 +157,15 @@ export default function DuelScreen() {
         const tally = tallyMealVotes(data, user?.id ?? null);
         setVoteCounts(tally.counts);
         setMyVoteMealId(tally.myVoteMealId);
+        setViewMode(tally.myVoteMealId ? 'results' : 'bracket');
       } catch (err) {
         console.warn('[Duel] failed to load votes:', err.message);
+        setViewMode('bracket');
+      } finally {
+        setLoaded(true);
       }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tag, day]);
 
   // Live tally — anyone else voting (or moving their vote) while this
@@ -133,12 +176,6 @@ export default function DuelScreen() {
     const channel = supabase
       .channel(`duel:${day}:${tag}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'post_votes', filter: `slot=eq.${tag}` }, payload => {
-        // "Moving" a vote to a different meal is an UPDATE that changes
-        // meal_id itself (upsert target is UNIQUE(voter_id, slot, day), not
-        // the PK) — old.meal_id is still available since meal_id is part of
-        // the PK, which Postgres always includes in the old tuple regardless
-        // of REPLICA IDENTITY. Own votes are skipped here since the local
-        // optimistic update in handleVote already accounts for them.
         if (payload.eventType === 'INSERT') {
           const row = payload.new;
           if (row.day !== day || row.voter_id === currentUserId) return;
@@ -166,19 +203,21 @@ export default function DuelScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tag, day, currentUserId]);
 
-  async function handleVote(tile) {
-    if (!currentUserId || tile.isMine || voting) return;
+  // Only the final bracket winner is ever written — post_votes is unique on
+  // (voter_id, slot, day), so intermediate picks along the way are UI-only.
+  async function finalizeWinner(tile) {
     const prevVoteMealId = myVoteMealId;
     const prevCounts = voteCounts;
-    if (prevVoteMealId === tile.mealId) return; // already your pick
-
     setVoting(true);
     setError(null);
     const nextCounts = { ...voteCounts };
-    if (prevVoteMealId) nextCounts[prevVoteMealId] = Math.max(0, (nextCounts[prevVoteMealId] || 0) - 1);
+    if (prevVoteMealId && prevVoteMealId !== tile.mealId) {
+      nextCounts[prevVoteMealId] = Math.max(0, (nextCounts[prevVoteMealId] || 0) - 1);
+    }
     nextCounts[tile.mealId] = (nextCounts[tile.mealId] || 0) + 1;
     setVoteCounts(nextCounts);
     setMyVoteMealId(tile.mealId);
+    setViewMode('results');
 
     try {
       await castVote(currentUserId, tile.mealId, tag, day);
@@ -191,9 +230,26 @@ export default function DuelScreen() {
     }
   }
 
-  function onMomentumEnd(e) {
-    const idx = Math.round(e.nativeEvent.contentOffset.y / SCREEN_HEIGHT);
-    setActiveIndex(idx);
+  function pickWinner(tile) {
+    if (voting) return;
+    const nextWinners = [...winnersAcc, tile];
+    const nextPairIndex = pairIndex + 1;
+    if (nextPairIndex < pairs.length) {
+      setWinnersAcc(nextWinners);
+      setPairIndex(nextPairIndex);
+      return;
+    }
+    // Round complete.
+    if (nextWinners.length <= 1) {
+      finalizeWinner(nextWinners[0] ?? tile);
+    } else {
+      setRound(nextWinners);
+    }
+  }
+
+  function redoBracket() {
+    setRound(people);
+    setViewMode('bracket');
   }
 
   if (people.length === 0) {
@@ -210,60 +266,82 @@ export default function DuelScreen() {
     );
   }
 
+  const currentPair = pairs[pairIndex];
+  const totalVotes = people.reduce((sum, p) => sum + (voteCounts[p.mealId] || 0), 0);
+  const pctOf = mealId => totalVotes > 0 ? Math.round(((voteCounts[mealId] || 0) / totalVotes) * 100) : 0;
+
   return (
-    <View style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
       <StatusBar barStyle="light-content" backgroundColor={C.bg} />
 
-      <FlatList
-        data={people}
-        keyExtractor={t => t.mealId}
-        pagingEnabled
-        showsVerticalScrollIndicator={false}
-        getItemLayout={(_, i) => ({ length: SCREEN_HEIGHT, offset: SCREEN_HEIGHT * i, index: i })}
-        onMomentumScrollEnd={onMomentumEnd}
-        renderItem={({ item }) => (
-          <DuelPage
-            tile={item}
-            selected={myVoteMealId === item.mealId}
-            voteCount={voteCounts[item.mealId] || 0}
-            voting={voting}
-            onVote={() => handleVote(item)}
-          />
-        )}
-      />
+      <View style={styles.topRow}>
+        <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={12}>
+          <Ionicons name="chevron-back" size={24} color={C.white} />
+        </TouchableOpacity>
+        <View style={styles.titleWrap}>
+          {TAG_ICON[tag] && <Feather name={TAG_ICON[tag]} size={13} color={C.gold} />}
+          <Text style={styles.title}>{meta.label} Duel</Text>
+        </View>
+        <View style={styles.closesChip}>
+          <Text style={styles.closesChipText}>closes {SLOT_CLOSE_LABEL[tag] ?? ''}</Text>
+        </View>
+      </View>
 
-      <SafeAreaView style={styles.topOverlay} edges={['top']} pointerEvents="box-none">
-        <LinearGradient
-          colors={['rgba(0,0,0,0.7)', 'transparent']}
-          style={StyleSheet.absoluteFill}
-          pointerEvents="none"
+      {!loaded ? (
+        <View style={styles.center} />
+      ) : viewMode === 'results' ? (
+        <ResultsList
+          people={people}
+          voteCounts={voteCounts}
+          myVoteMealId={myVoteMealId}
+          onRedo={redoBracket}
         />
-        {/* Position across the meals in this duel — the one progress axis
-            that exists here (each meal is a single full-bleed page, so
-            there's no per-photo sub-bar the way SlotViewerScreen has). */}
-        <View style={styles.segmentRow}>
-          {people.map((_, i) => (
-            <View key={i} style={[styles.segment, i <= activeIndex && styles.segmentActive]} />
-          ))}
-        </View>
-        <View style={styles.topRow}>
-          <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={12}>
-            <Ionicons name="chevron-back" size={26} color={C.white} />
-          </TouchableOpacity>
-          <View style={styles.titleWrap}>
-            {TAG_ICON[tag] && <Feather name={TAG_ICON[tag]} size={14} color={C.gold} />}
-            <Text style={styles.title}>{meta.label} Duel</Text>
+      ) : !currentPair && round.length === 1 ? (
+        // Only one friend posted in this slot — nothing to bracket against,
+        // just a direct confirm rather than a matchup.
+        <View style={styles.bracketWrap}>
+          <Text style={styles.prompt}>Vote for {round[0].meal.name}?</Text>
+          <View style={styles.pairsWrap}>
+            <PairCard
+              tile={round[0]}
+              pct={pctOf(round[0].mealId)}
+              voteCount={voteCounts[round[0].mealId] || 0}
+              onPress={() => finalizeWinner(round[0])}
+            />
           </View>
-          <View style={{ width: 26 }} />
+          <Text style={styles.hint}>Tap to confirm your vote.</Text>
         </View>
-      </SafeAreaView>
+      ) : currentPair ? (
+        <View style={styles.bracketWrap}>
+          <Text style={styles.prompt}>Which {meta.label?.toLowerCase()} wins?</Text>
+          <View style={styles.pairsWrap}>
+            <PairCard
+              tile={currentPair[0]}
+              pct={pctOf(currentPair[0].mealId)}
+              voteCount={voteCounts[currentPair[0].mealId] || 0}
+              onPress={() => pickWinner(currentPair[0])}
+              style={{ marginBottom: 6 }}
+            />
+            <View style={styles.vsBadge}>
+              <Text style={styles.vsBadgeText}>VS</Text>
+            </View>
+            <PairCard
+              tile={currentPair[1]}
+              pct={pctOf(currentPair[1].mealId)}
+              voteCount={voteCounts[currentPair[1].mealId] || 0}
+              onPress={() => pickWinner(currentPair[1])}
+            />
+          </View>
+          <Text style={styles.hint}>Tap a meal to advance it — you can redo the bracket anytime.</Text>
+        </View>
+      ) : null}
 
       {error ? (
         <View style={styles.errorBanner} pointerEvents="none">
           <Text style={styles.errorText}>{error}</Text>
         </View>
       ) : null}
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -273,52 +351,74 @@ const styles = StyleSheet.create({
   emptyText: { fontSize: 14, color: C.gray1 },
   emptyBackBtn: { padding: 16 },
 
-  // Top overlay
-  topOverlay: { position: 'absolute', top: 0, left: 0, right: 0 },
-  segmentRow: { flexDirection: 'row', gap: 4, paddingHorizontal: 16, paddingTop: 10 },
-  segment: { flex: 1, height: 3, borderRadius: 1.5, backgroundColor: 'rgba(255,255,255,0.25)' },
-  segmentActive: { backgroundColor: C.gold },
   topRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 16, paddingTop: 6, paddingBottom: 10,
+    paddingHorizontal: 16, paddingVertical: 12,
   },
   titleWrap: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   title: { fontSize: 14, fontWeight: '700', color: C.white },
-
-  // Photo
-  photoFallback: { alignItems: 'center', justifyContent: 'center', backgroundColor: '#151515' },
-  photoFallbackEmoji: { fontSize: 64 },
-
-  // Bottom overlay
-  bottomOverlay: {
-    position: 'absolute', left: 0, right: 0, bottom: 0,
-    paddingHorizontal: 16, paddingTop: 40, paddingBottom: 28,
+  closesChip: {
+    paddingHorizontal: 10, paddingVertical: 4, borderRadius: C.pill,
+    backgroundColor: 'rgba(233,184,114,0.14)',
   },
-  posterRow: { flexDirection: 'row', alignItems: 'center', gap: 9, marginBottom: 6 },
-  posterAvatar: { borderWidth: 1, borderColor: C.border },
-  posterInitial: { color: C.white },
-  posterUsername: { fontSize: 15, fontWeight: '700', color: C.white, flex: 1 },
-  voteCountBadge: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    backgroundColor: C.gold, borderRadius: 10,
-    paddingHorizontal: 8, paddingVertical: 4,
-  },
-  voteCountText: { fontSize: 12, fontWeight: '800', color: '#3a2c00' },
-  mealName: { fontSize: 17, fontWeight: '700', color: C.white, marginBottom: 16 },
+  closesChipText: { fontSize: 11, color: C.gold, fontWeight: '600' },
 
-  voteBtn: {
+  // Bracket
+  bracketWrap: { flex: 1, paddingHorizontal: 20, paddingTop: 4 },
+  prompt: { fontFamily: C.serif, fontSize: 24, color: C.white, textAlign: 'center', marginBottom: 16 },
+  pairsWrap: { flex: 1, position: 'relative' },
+  hint: { fontSize: 12, color: C.gray1, textAlign: 'center', paddingVertical: 16 },
+
+  pairCard: {
+    flex: 1, borderRadius: 22, overflow: 'hidden', position: 'relative',
+    borderWidth: 1, borderColor: C.glassBorder, backgroundColor: '#1a1a1a',
+  },
+  pairFallback: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
+  pairFallbackEmoji: { fontSize: 44 },
+  pairBottom: { position: 'absolute', left: 14, right: 14, bottom: 12 },
+  pairPosterRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
+  pairAvatar: { borderWidth: 1, borderColor: C.glassBorder },
+  pairAvatarLetter: { color: C.white },
+  pairUsername: { flex: 1, fontSize: 13, fontWeight: '700', color: C.white },
+  pairPct: { fontFamily: C.serif, fontSize: 22, color: C.white },
+  pairName: { fontFamily: C.serif, fontSize: 20, color: C.white },
+  pairBarTrack: { height: 5, borderRadius: 3, backgroundColor: 'rgba(0,0,0,0.4)', overflow: 'hidden', marginTop: 8 },
+  pairBarFill: { height: '100%', borderRadius: 3, backgroundColor: C.orange },
+  pairVotes: { fontSize: 11, color: 'rgba(245,245,247,0.6)', marginTop: 5 },
+
+  vsBadge: {
+    position: 'absolute', top: '50%', left: '50%', marginLeft: -27, marginTop: -27,
+    zIndex: 3, width: 54, height: 54, borderRadius: 27,
+    backgroundColor: C.white, alignItems: 'center', justifyContent: 'center',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.4, shadowRadius: 10, elevation: 8,
+  },
+  vsBadgeText: { fontFamily: C.serifItalic, fontSize: 18, color: C.bg },
+
+  // Results
+  resultsWrap: { flex: 1, paddingHorizontal: 20, paddingTop: 8 },
+  resultRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: C.glassBg, borderWidth: 1, borderColor: C.glassBorder,
+    borderRadius: 16, padding: 12, marginBottom: 10,
+  },
+  resultRowLeader: { borderColor: C.gold },
+  resultThumb: { width: 46, height: 46, borderRadius: 12, backgroundColor: C.bg },
+  resultThumbFallback: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
+  resultName: { fontSize: 14, fontWeight: '600', color: C.white },
+  resultMeta: { fontSize: 12, color: C.gray2, marginTop: 1 },
+  resultCount: { fontFamily: C.serif, fontSize: 20, color: C.white },
+
+  redoBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
-    backgroundColor: 'rgba(255,255,255,0.14)', borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.3)',
-    borderRadius: 16, paddingVertical: 15,
+    marginTop: 8, paddingVertical: 14, borderRadius: C.pill,
+    borderWidth: 1, borderColor: C.glassBorder, backgroundColor: C.glassBg,
   },
-  voteBtnSelected: { backgroundColor: C.gold, borderColor: C.gold },
-  voteBtnText: { fontSize: 15, fontWeight: '700', color: C.white },
-  voteBtnTextSelected: { color: '#3a2c00' },
+  redoBtnText: { fontSize: 14, fontWeight: '700', color: C.white },
 
   errorBanner: {
-    position: 'absolute', bottom: 110, left: 16, right: 16,
-    backgroundColor: 'rgba(42,10,10,0.9)', borderWidth: 0.5, borderColor: '#5a1a1a',
+    position: 'absolute', bottom: 30, left: 16, right: 16,
+    backgroundColor: C.redDim, borderWidth: 0.5, borderColor: C.redBorder,
     borderRadius: 10, padding: 12,
   },
-  errorText: { fontSize: 13, color: '#ff6b6b', lineHeight: 18, textAlign: 'center' },
+  errorText: { fontSize: 13, color: C.red, lineHeight: 18, textAlign: 'center' },
 });

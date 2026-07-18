@@ -20,23 +20,17 @@ import * as Sharing from 'expo-sharing';
 import { supabase } from '../lib/supabase';
 import { FirstVisitTooltip, useFirstVisit } from '../lib/firstVisit';
 
-const C = {
-  bg: '#0d0d0d', surface: '#1a1a1a', border: '#2a2a2a',
-  orange: '#FF6B3D', green: '#00c896', purple: '#8855cc',
-  purpleDim: '#1a0d1a', purpleBorder: '#3a2a4a', purpleText: '#ddb8ff',
-  white: '#ffffff', gray1: '#888888', gray2: '#666666',
-  gray3: '#555555', gray4: '#444444', gray5: '#333333',
-};
+import { THEME as C } from '../lib/theme';
 
 const SLIDE_GRADIENT = {
-  teaser:      ['#1c0d00', '#0d0d0d'],
-  meals:       ['#1a0800', '#0d0d0d'],
-  cuisines:    ['#001a18', '#0d0d0d'],
-  streak:      ['#200400', '#0d0d0d'],
-  rating:      ['#1a1400', '#0d0d0d'],
-  mostLogged:  ['#0e0d1c', '#0d0d0d'],
-  topRated:    ['#001a0a', '#0d0d0d'],
-  personality: ['#14091f', '#0d0d0d'],
+  teaser:      ['#1c0d00', '#000000'],
+  meals:       ['#1a0800', '#000000'],
+  cuisines:    ['#001a18', '#000000'],
+  streak:      ['#200400', '#000000'],
+  rating:      ['#1a1400', '#000000'],
+  mostLogged:  ['#0e0d1c', '#000000'],
+  topRated:    ['#001a0a', '#000000'],
+  personality: ['#14091f', '#000000'],
 };
 
 export const MONTH_NAMES = [
@@ -166,7 +160,7 @@ function Slide({ active, direction, gradient, children, noPadding }) {
   if (!active) return null;
   return (
     <Animated.View style={[noPadding ? styles.slideFull : styles.slide, { opacity: fade, transform: [{ translateX: slideX }] }]}>
-      <LinearGradient colors={gradient ?? ['#0d0d0d', '#0d0d0d']} style={StyleSheet.absoluteFill} />
+      <LinearGradient colors={gradient ?? ['#000000', '#000000']} style={StyleSheet.absoluteFill} />
       {children}
     </Animated.View>
   );
@@ -246,7 +240,7 @@ function WrappedShareCard({ cardRef, personality, totalMeals, avgScore, cuisines
     <ViewShot ref={cardRef} options={{ format: 'png', quality: 1.0 }}>
       <View style={sc.card}>
         <LinearGradient
-          colors={['#2d1050', '#1a0828', '#110820', '#0d0d0d']}
+          colors={['#2d1050', '#1a0828', '#110820', '#000000']}
           locations={[0, 0.35, 0.65, 1]}
           style={StyleSheet.absoluteFill}
         />
@@ -314,14 +308,14 @@ const sc = StyleSheet.create({
   youAre: { fontSize: 11, letterSpacing: 3, color: '#c49aff', textTransform: 'uppercase', marginBottom: 4, opacity: 0.8 },
   name: { fontSize: 28, fontWeight: '800', color: '#ffffff', textAlign: 'center', letterSpacing: -0.5, lineHeight: 33 },
   tagline: { fontSize: 13, fontStyle: 'italic', color: '#ddb8ff', marginTop: 5, opacity: 0.85, textAlign: 'center' },
-  divider: { height: 1, backgroundColor: 'rgba(255,255,255,0.08)', marginBottom: 20 },
-  statsRow: { flexDirection: 'row', backgroundColor: 'rgba(255,255,255,0.04)', borderRadius: 16, borderWidth: 0.5, borderColor: 'rgba(255,255,255,0.07)', marginBottom: 20, overflow: 'hidden' },
+  divider: { height: 1, backgroundColor: 'rgba(255,255,255,0.18)', marginBottom: 20 },
+  statsRow: { flexDirection: 'row', backgroundColor: 'rgba(255,255,255,0.09)', borderRadius: 16, borderWidth: 0.5, borderColor: 'rgba(255,255,255,0.16)', marginBottom: 20, overflow: 'hidden' },
   statCell: { flex: 1, alignItems: 'center', paddingVertical: 14 },
-  statSep: { width: 0.5, backgroundColor: 'rgba(255,255,255,0.07)', marginVertical: 12 },
+  statSep: { width: 0.5, backgroundColor: 'rgba(255,255,255,0.16)', marginVertical: 12 },
   statNum: { fontSize: 28, fontWeight: '800', color: '#ffffff', letterSpacing: -1 },
   statDenom: { fontSize: 12, fontWeight: '600', color: '#666666' },
   statLabel: { fontSize: 8, letterSpacing: 1.5, color: '#555555', textTransform: 'uppercase', marginTop: 3, textAlign: 'center' },
-  mealSection: { backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 16, borderWidth: 0.5, borderColor: 'rgba(255,255,255,0.06)', padding: 14, marginBottom: 16 },
+  mealSection: { backgroundColor: 'rgba(255,255,255,0.18)', borderRadius: 16, borderWidth: 0.5, borderColor: 'rgba(255,255,255,0.14)', padding: 14, marginBottom: 16 },
   sectionLabel: { fontSize: 8.5, letterSpacing: 2, color: '#555555', textTransform: 'uppercase', fontWeight: '700', marginBottom: 10 },
   mealRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   mealPhoto: { width: 50, height: 50, borderRadius: 12, backgroundColor: '#1a1a1a' },
@@ -329,10 +323,10 @@ const sc = StyleSheet.create({
   mealName: { fontSize: 15, fontWeight: '700', color: '#ffffff', lineHeight: 20 },
   mealCuisine: { fontSize: 11, color: '#666666', marginTop: 2 },
   scoreBadge: { alignItems: 'flex-end' },
-  scoreNum: { fontSize: 24, fontWeight: '800', color: '#FF6B3D', letterSpacing: -1 },
+  scoreNum: { fontFamily: C.serif, fontSize: 26, color: C.orange },
   scoreDenom: { fontSize: 11, fontWeight: '600', color: '#666666' },
   pillsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 20 },
-  pill: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: 'rgba(255,255,255,0.05)', borderRadius: 20, borderWidth: 0.5, borderColor: 'rgba(255,255,255,0.08)', paddingHorizontal: 10, paddingVertical: 6 },
+  pill: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: 'rgba(255,255,255,0.10)', borderRadius: 20, borderWidth: 0.5, borderColor: 'rgba(255,255,255,0.18)', paddingHorizontal: 10, paddingVertical: 6 },
   pillIcon: { fontSize: 11 },
   pillText: { fontSize: 11, color: '#888888', fontWeight: '500' },
   footer: { alignItems: 'center', marginTop: 4 },
@@ -800,24 +794,24 @@ const styles = StyleSheet.create({
   starsRow: { flexDirection: 'row', gap: 4 },
   star:     { fontSize: 20 },
 
-  finaleAura: { position: 'absolute', width: 200, height: 200, borderRadius: 100, backgroundColor: C.purple, alignSelf: 'center', top: -24 },
+  finaleAura: { position: 'absolute', width: 200, height: 200, borderRadius: 100, backgroundColor: C.orange, alignSelf: 'center', top: -24 },
   finaleContent:     { paddingHorizontal: 22, paddingTop: 16, paddingBottom: 44 },
-  finaleKicker:      { fontSize: 10, fontWeight: '700', letterSpacing: 2.5, color: C.purple, textAlign: 'center', marginBottom: 20, opacity: 0.75 },
+  finaleKicker:      { fontSize: 10, fontWeight: '700', letterSpacing: 2.5, color: C.orange, textAlign: 'center', marginBottom: 20, opacity: 0.75 },
   finalePersonality: { alignItems: 'center', marginBottom: 20, paddingTop: 12 },
   finaleEmoji:       { fontSize: 96, marginBottom: 12 },
   finaleYoure:       { fontSize: 11, color: C.gray2, letterSpacing: 3, textTransform: 'uppercase', marginBottom: 6 },
   finaleName:        { fontWeight: '800', fontSize: 40, color: C.white, textAlign: 'center', letterSpacing: -0.5, lineHeight: 46 },
-  finaleTagline:     { fontSize: 14, color: C.purpleText, fontStyle: 'italic', marginTop: 8, textAlign: 'center', opacity: 0.85 },
-  finaleLine:        { height: 1, backgroundColor: 'rgba(255,255,255,0.06)', marginBottom: 18 },
+  finaleTagline:     { fontSize: 14, color: C.white, fontStyle: 'italic', marginTop: 8, textAlign: 'center', opacity: 0.85 },
+  finaleLine:        { height: 1, backgroundColor: 'rgba(255,255,255,0.14)', marginBottom: 18 },
 
-  finaleBigStats:    { flexDirection: 'row', backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 20, borderWidth: 0.5, borderColor: 'rgba(255,255,255,0.06)', marginBottom: 24, overflow: 'hidden' },
+  finaleBigStats:    { flexDirection: 'row', backgroundColor: 'rgba(255,255,255,0.18)', borderRadius: 20, borderWidth: 0.5, borderColor: 'rgba(255,255,255,0.14)', marginBottom: 24, overflow: 'hidden' },
   finaleStatCell:    { flex: 1, alignItems: 'center', paddingVertical: 18 },
-  finaleStatDivider: { width: 0.5, backgroundColor: 'rgba(255,255,255,0.07)', marginVertical: 14 },
+  finaleStatDivider: { width: 0.5, backgroundColor: 'rgba(255,255,255,0.16)', marginVertical: 14 },
   finaleStatNum:     { fontWeight: '800', fontSize: 34, color: C.white, letterSpacing: -1 },
   finaleStatSub:     { fontSize: 13, color: C.gray2, fontWeight: '600', paddingBottom: 2 },
   finaleStatLabel:   { fontSize: 9, color: C.gray3, letterSpacing: 1.5, textTransform: 'uppercase', marginTop: 4, textAlign: 'center' },
 
-  finaleBestWrap:       { backgroundColor: 'rgba(255,255,255,0.03)', borderRadius: 20, borderWidth: 0.5, borderColor: 'rgba(255,255,255,0.06)', padding: 16, marginBottom: 16 },
+  finaleBestWrap:       { backgroundColor: 'rgba(255,255,255,0.18)', borderRadius: 20, borderWidth: 0.5, borderColor: 'rgba(255,255,255,0.14)', padding: 16, marginBottom: 16 },
   finaleSectionLabel:   { fontSize: 9, color: C.gray3, letterSpacing: 2, textTransform: 'uppercase', fontWeight: '700', marginBottom: 12 },
   finaleBestRow:        { flexDirection: 'row', alignItems: 'center', gap: 12 },
   finaleBestPhoto:      { width: 52, height: 52, borderRadius: 12, backgroundColor: C.surface },
@@ -829,12 +823,12 @@ const styles = StyleSheet.create({
   finaleBestScoreDenom: { fontSize: 12, color: C.gray2, fontWeight: '600' },
 
   finaleInsights: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 24 },
-  insightPill:     { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(255,255,255,0.045)', borderRadius: 20, borderWidth: 0.5, borderColor: 'rgba(255,255,255,0.08)', paddingHorizontal: 12, paddingVertical: 8 },
+  insightPill:     { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(255,255,255,0.09)', borderRadius: 20, borderWidth: 0.5, borderColor: 'rgba(255,255,255,0.18)', paddingHorizontal: 12, paddingVertical: 8 },
   insightPillIcon: { fontSize: 13 },
   insightPillText: { fontSize: 12, color: C.gray1, fontWeight: '500' },
 
   finaleFooter:  { fontSize: 10, color: C.gray4, letterSpacing: 2, textTransform: 'uppercase', textAlign: 'center' },
-  shareBtn:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: C.purple, borderRadius: 16, paddingVertical: 16, paddingHorizontal: 24, borderWidth: 1, borderColor: 'rgba(136,85,204,0.5)', shadowColor: C.purple, shadowOpacity: 0.55, shadowRadius: 14, shadowOffset: { width: 0, height: 4 }, elevation: 8 },
+  shareBtn:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: C.orange, borderRadius: C.pill, paddingVertical: 16, paddingHorizontal: 24, borderWidth: 1, borderColor: 'rgba(251,114,56,0.5)', shadowColor: C.orange, shadowOpacity: 0.35, shadowRadius: 14, shadowOffset: { width: 0, height: 4 }, elevation: 8 },
   shareBtnIcon:  { fontSize: 16, color: C.white },
   shareBtnText:  { fontSize: 15, fontWeight: '700', color: C.white, letterSpacing: 0.2 },
 });

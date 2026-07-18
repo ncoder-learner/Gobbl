@@ -31,22 +31,7 @@ import ShareBottomSheet from '../components/ShareBottomSheet';
 import * as Location from 'expo-location';
 import * as Crypto from 'expo-crypto';
 import { isHomeMeal } from '../lib/homePrivacy';
-
-// ─── Theme (matches HomeScreen) ───────────────────────────────────────────────
-const C = {
-  bg: '#0d0d0d',
-  surface: '#1a1a1a',
-  border: '#2a2a2a',
-  orange: '#FF6B3D',
-  green: '#00c896',
-  white: '#ffffff',
-  gray1: '#888888',
-  gray2: '#666666',
-  gray3: '#555555',
-  gray4: '#444444',
-  gray5: '#333333',
-  inputBg: '#161616',
-};
+import { THEME as C } from '../lib/theme';
 
 // ─── Stages ───────────────────────────────────────────────────────────────────
 // 'camera' → 'preview' → 'identifying' → 'confirm' → 'saving' → 'done'
@@ -91,15 +76,22 @@ const TAG_OPTIONS = [
 function MealTagPicker({ value, onChange }) {
   return (
     <View style={styles.tagPickerWrap}>
-      {TAG_OPTIONS.map(([key, emoji, label]) => (
+      {TAG_OPTIONS.map(([key, , label]) => (
         <TouchableOpacity
           key={key}
-          style={[styles.tagPickerBtn, value === key && styles.tagPickerBtnActive]}
           onPress={() => onChange(key)}
           activeOpacity={0.8}
+          style={styles.tagPickerTouch}
         >
-          <Text style={styles.tagPickerEmoji}>{emoji}</Text>
-          <Text style={[styles.tagPickerText, value === key && styles.tagPickerTextActive]}>{label}</Text>
+          {value === key ? (
+            <LinearGradient colors={[C.orange, C.orangeDim]} style={styles.tagPickerBtn}>
+              <Text style={[styles.tagPickerText, styles.tagPickerTextActive]}>{label}</Text>
+            </LinearGradient>
+          ) : (
+            <View style={styles.tagPickerBtn}>
+              <Text style={styles.tagPickerText}>{label}</Text>
+            </View>
+          )}
         </TouchableOpacity>
       ))}
     </View>
@@ -118,7 +110,7 @@ function scoreTone(score) {
   if (score < 5) return { label: 'Meh', color: '#f5a524' };
   if (score < 7) return { label: 'Good', color: C.orange };
   if (score < 9) return { label: 'Great', color: C.green };
-  return { label: 'Amazing', color: '#ffd166' };
+  return { label: 'Amazing', color: C.gold };
 }
 
 function ScoreSlider({ value, onChange }) {
@@ -1086,15 +1078,20 @@ export default function LogMealScreen() {
                   pointerEvents="none"
                 />
                 <View style={styles.heroIdentifiedOverlay}>
-                  <Text style={styles.identifiedEmoji}>{identified.emoji}</Text>
-                  <View style={styles.identifiedText}>
-                    <Text style={styles.identifiedName}>{identified.name}</Text>
-                    {identified.cuisine ? (
-                      <Text style={styles.identifiedCuisine}>{identified.cuisine}</Text>
-                    ) : null}
-                    {identified.confidence === 'low' && (
-                      <Text style={styles.identifiedLow}>Low confidence — check the name</Text>
-                    )}
+                  <View style={styles.identifiedRow}>
+                    <Text style={styles.identifiedEmoji}>{identified.emoji}</Text>
+                    <View style={styles.identifiedText}>
+                      <Text style={styles.identifiedName}>{identified.name}</Text>
+                      {identified.cuisine ? (
+                        <Text style={styles.identifiedCuisine}>{identified.cuisine}</Text>
+                      ) : null}
+                    </View>
+                  </View>
+                  <View style={styles.aiChip}>
+                    <View style={styles.aiChipDot} />
+                    <Text style={styles.aiChipText}>
+                      {identified.confidence === 'low' ? 'Low confidence — tap to fix' : 'Identified by AI — tap to fix'}
+                    </Text>
                   </View>
                 </View>
               </>
@@ -1309,6 +1306,10 @@ export default function LogMealScreen() {
             onPress={saveMeal}
             disabled={stage === 'saving'}
           >
+            <LinearGradient
+              colors={[C.orange, C.orangeDim]}
+              style={StyleSheet.absoluteFill}
+            />
             {stage === 'saving' ? (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                 <ActivityIndicator color={C.white} size="small" />
@@ -1317,7 +1318,7 @@ export default function LogMealScreen() {
                 </Text>
               </View>
             ) : (
-              <Text style={styles.saveBtnText}>Save meal</Text>
+              <Text style={styles.saveBtnText}>Save Meal</Text>
             )}
           </TouchableOpacity>
         </ScrollView>
@@ -1365,7 +1366,7 @@ const styles = StyleSheet.create({
 
   // Preview
   previewBox: { flex: 1, position: 'relative' },
-  previewImg: { width: '100%', height: 320 },
+  previewImg: { ...StyleSheet.absoluteFillObject },
   identifyingOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center', gap: 16 },
   identifyingText: { fontSize: 16, color: C.white, fontWeight: '500' },
   previewErrBox: { backgroundColor: '#1a0d00', borderTopWidth: 0.5, borderTopColor: '#4a2a00', paddingHorizontal: 20, paddingVertical: 14 },
@@ -1379,24 +1380,30 @@ const styles = StyleSheet.create({
   // Confirm
   confirmHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 24, paddingTop: 16, paddingBottom: 8 },
   backArrow: { fontSize: 22, color: C.gray1 },
-  confirmTitle: { fontWeight: '700', fontSize: 18, color: C.white },
+  confirmTitle: { fontFamily: C.serif, fontSize: 22, color: C.white },
   // Photo — enlarged into a hero card (was a small 80x80 side thumbnail)
   // since it's a core feature of logging a meal, not incidental metadata.
   heroPhotoWrap: {
     margin: 24, marginBottom: 0, borderRadius: 20, overflow: 'hidden',
     backgroundColor: C.surface, position: 'relative',
   },
-  heroPhoto: { width: '100%', height: 220 },
+  heroPhoto: { width: '100%', height: 230 },
   heroIdentifiedOverlay: {
     position: 'absolute', left: 0, right: 0, bottom: 0,
-    flexDirection: 'row', alignItems: 'center', gap: 10,
     paddingHorizontal: 16, paddingVertical: 14,
   },
-  identifiedEmoji: { fontSize: 28 },
+  identifiedRow: { flexDirection: 'row', alignItems: 'center', gap: 9 },
+  identifiedEmoji: { fontSize: 26 },
   identifiedText: { flex: 1 },
-  identifiedName: { fontSize: 16, fontWeight: '700', color: C.white, marginBottom: 2 },
-  identifiedCuisine: { fontSize: 13, color: 'rgba(255,255,255,0.7)' },
-  identifiedLow: { fontSize: 11, color: C.orange, marginTop: 2 },
+  identifiedName: { fontFamily: C.serif, fontSize: 20, color: C.white },
+  identifiedCuisine: { fontSize: 12, color: 'rgba(245,245,247,0.6)' },
+  aiChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    alignSelf: 'flex-start', marginTop: 8, paddingHorizontal: 9, paddingVertical: 4,
+    borderRadius: C.pill, backgroundColor: 'rgba(0,0,0,0.4)',
+  },
+  aiChipDot: { width: 5, height: 5, borderRadius: 2.5, backgroundColor: C.gold },
+  aiChipText: { fontSize: 10, color: 'rgba(245,245,247,0.6)' },
 
   // Business tag
   bizTag: { marginHorizontal: 24, marginTop: 16, backgroundColor: '#0f1a0f', borderWidth: 0.5, borderColor: '#1a4a1a', borderRadius: 12, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 8 },
@@ -1411,17 +1418,16 @@ const styles = StyleSheet.create({
 
   // Meal tag picker
   tagPickerWrap: {
-    flexDirection: 'row', backgroundColor: C.surface,
-    borderRadius: 12, borderWidth: 1, borderColor: C.border, padding: 3, gap: 3,
+    flexDirection: 'row', backgroundColor: C.glassBg,
+    borderRadius: 13, borderWidth: 1, borderColor: C.glassBorder, padding: 4, gap: 4,
   },
+  tagPickerTouch: { flex: 1 },
   tagPickerBtn: {
-    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 6, paddingVertical: 10, borderRadius: 10,
+    alignItems: 'center', justifyContent: 'center',
+    paddingVertical: 9, borderRadius: 10,
   },
-  tagPickerBtnActive: { backgroundColor: C.orange },
-  tagPickerEmoji: { fontSize: 14 },
-  tagPickerText: { fontWeight: '700', fontSize: 13, color: C.gray2 },
-  tagPickerTextActive: { color: C.white },
+  tagPickerText: { fontWeight: '500', fontSize: 13, color: 'rgba(245,245,247,0.5)' },
+  tagPickerTextActive: { color: C.bg, fontWeight: '700' },
   textInput: { backgroundColor: C.inputBg, borderWidth: 0.5, borderColor: C.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: C.white },
   textArea: { height: 88, textAlignVertical: 'top' },
   nameRow: { flexDirection: 'row', gap: 10 },
@@ -1454,7 +1460,7 @@ const styles = StyleSheet.create({
 
   // Score slider
   scoreReadout: { flexDirection: 'row', alignItems: 'baseline', gap: 8, marginBottom: 14 },
-  scoreReadoutNum: { fontWeight: '800', fontSize: 40, letterSpacing: -0.5 },
+  scoreReadoutNum: { fontFamily: C.serif, fontSize: 40 },
   scoreReadoutLabel: { fontSize: 16, fontWeight: '700' },
   sliderTrack: {
     height: 40,
@@ -1491,32 +1497,36 @@ const styles = StyleSheet.create({
   sliderScaleText: { fontSize: 11, color: C.gray3, fontWeight: '600' },
 
   // Save
-  saveBtn: { marginHorizontal: 24, marginTop: 32, backgroundColor: C.orange, borderRadius: 16, paddingVertical: 16, alignItems: 'center' },
+  saveBtn: {
+    marginHorizontal: 24, marginTop: 32, borderRadius: 16, paddingVertical: 16, alignItems: 'center',
+    overflow: 'hidden',
+    shadowColor: C.orange, shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.3, shadowRadius: 20,
+  },
   saveBtnDisabled: { opacity: 0.6 },
-  saveBtnText: { fontWeight: '700', fontSize: 16, color: C.white },
+  saveBtnText: { fontWeight: '700', fontSize: 16, color: C.bg },
 
   // Identify error
   identifyErrBox: {
     marginHorizontal: 24,
     marginTop: 16,
-    backgroundColor: '#2a0a0a',
+    backgroundColor: C.redDim,
     borderWidth: 0.5,
-    borderColor: '#5a1a1a',
-    borderRadius: 12,
+    borderColor: C.redBorder,
+    borderRadius: 14,
     padding: 14,
     gap: 10,
   },
-  identifyErrText: { fontSize: 13, color: '#ff6b6b', lineHeight: 19 },
+  identifyErrText: { fontSize: 13, color: C.red, lineHeight: 19 },
   identifyRetryBtn: { alignSelf: 'flex-start' },
   identifyRetryText: { fontSize: 13, color: C.orange, fontWeight: '600' },
 
   // Done celebration
   doneBox: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
   doneEmoji: { fontSize: 64, marginBottom: 16 },
-  doneTitle: { fontWeight: '800', fontSize: 32, color: C.white, marginBottom: 4, textAlign: 'center' },
+  doneTitle: { fontFamily: C.serif, fontSize: 36, color: C.white, marginBottom: 4, textAlign: 'center' },
   doneSub: { fontSize: 16, color: C.gray1, marginBottom: 8, textAlign: 'center', maxWidth: 260 },
   doneScoreWrap: { alignItems: 'center', marginTop: 22 },
-  doneScoreNum: { fontWeight: '800', fontSize: 56, letterSpacing: -1 },
+  doneScoreNum: { fontFamily: C.serif, fontSize: 60 },
   doneScoreLabel: { fontWeight: '700', fontSize: 16, marginTop: 2 },
   doneHint: { fontSize: 13, color: C.gray2, marginTop: 28 },
 
@@ -1545,7 +1555,7 @@ const styles = StyleSheet.create({
   sharePromptTitle: { fontSize: 14, fontWeight: '700', color: C.white },
   sharePromptSub: { fontSize: 12, color: C.gray2, marginTop: 1 },
   sharePromptBtn: {
-    backgroundColor: '#8855cc', borderRadius: 10,
+    backgroundColor: C.orange, borderRadius: C.pill,
     paddingHorizontal: 14, paddingVertical: 8,
   },
   sharePromptBtnText: { fontSize: 13, fontWeight: '700', color: C.white },
@@ -1559,8 +1569,8 @@ const styles = StyleSheet.create({
   // secondary fields like Notes.
   locationSection: {
     marginHorizontal: 24, marginTop: 24,
-    backgroundColor: C.surface, borderWidth: 0.5, borderColor: C.border,
-    borderRadius: 16, padding: 14,
+    backgroundColor: C.glassBg, borderWidth: 1, borderColor: C.glassBorder,
+    borderRadius: 18, padding: 14,
   },
   locationHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 10 },
   locationSectionLabel: { fontSize: 15, fontWeight: '700', color: C.white },
@@ -1580,8 +1590,8 @@ const styles = StyleSheet.create({
   placeChipName: { fontSize: 14, fontWeight: '500', color: C.white, marginBottom: 1 },
   homeChip: {
     flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start',
-    backgroundColor: C.inputBg, borderWidth: 0.5, borderColor: C.orange,
-    borderRadius: 20, paddingHorizontal: 12, paddingVertical: 7, marginBottom: 10,
+    backgroundColor: 'rgba(251,114,56,0.14)', borderWidth: 1, borderColor: 'rgba(251,114,56,0.3)',
+    borderRadius: 12, paddingHorizontal: 14, paddingVertical: 8, marginBottom: 10,
   },
   homeChipText: { fontSize: 13, fontWeight: '600', color: C.orange },
   placeChipAddr: { fontSize: 12, color: C.gray2 },

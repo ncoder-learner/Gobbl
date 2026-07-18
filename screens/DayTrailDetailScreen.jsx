@@ -1,15 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
-import { View, Text, Image, TouchableOpacity, StyleSheet, StatusBar } from 'react-native';
+import { View, Text, Image, TouchableOpacity, StyleSheet, StatusBar, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
 import { TAG_META } from '../lib/postUtils';
+import { THEME as C } from '../lib/theme';
 
-const C = {
-  bg: '#0d0d0d', surface: '#1a1a1a', border: '#2a2a2a',
-  orange: '#FF6B3D', white: '#ffffff', gray1: '#888888', gray2: '#666666',
-};
+const MAP_CARD_HEIGHT = 260;
 
 function regionFromCoords(coords) {
   const lats = coords.map(c => c.latitude);
@@ -33,12 +31,17 @@ function lerpCoord(a, b, t) {
   };
 }
 
+function formatStopTime(iso) {
+  if (!iso) return null;
+  return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
+
 const MS_PER_SEGMENT = 550;
 
 export default function DayTrailDetailScreen() {
   const navigation = useNavigation();
   const route = useRoute();
-  // [{tag, kind: 'mapped'|'home', lat, lng, placeName, mealName, photoUrl}],
+  // [{tag, kind: 'mapped'|'home', lat, lng, placeName, mealName, photoUrl, createdAt}],
   // breakfast→lunch→dinner order. `kind: 'home'` stops carry no lat/lng —
   // see lib/homePrivacy.js — and must never be plotted on the map, only
   // listed below it in sequence.
@@ -92,6 +95,8 @@ export default function DayTrailDetailScreen() {
     requestAnimationFrame(() => runAnimation());
   }
 
+  const dayLabel = `${new Date().toLocaleDateString([], { weekday: 'long' })}'s Trail`;
+
   if (locations.length === 0) {
     return (
       <SafeAreaView style={styles.safe} edges={['top']}>
@@ -100,7 +105,7 @@ export default function DayTrailDetailScreen() {
           <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={12}>
             <Ionicons name="arrow-back" size={22} color={C.white} />
           </TouchableOpacity>
-          <Text style={styles.navTitle}>Day Trail</Text>
+          <Text style={styles.navTitle}>{dayLabel}</Text>
           <View style={{ width: 22 }} />
         </View>
         <View style={styles.emptyBox}>
@@ -120,7 +125,7 @@ export default function DayTrailDetailScreen() {
         <TouchableOpacity onPress={() => navigation.goBack()} hitSlop={12}>
           <Ionicons name="arrow-back" size={22} color={C.white} />
         </TouchableOpacity>
-        <Text style={styles.navTitle}>Day Trail</Text>
+        <Text style={styles.navTitle}>{dayLabel}</Text>
         {hasMap ? (
           <TouchableOpacity onPress={replay} hitSlop={12}>
             <Ionicons name="refresh" size={20} color={C.orange} />
@@ -130,62 +135,82 @@ export default function DayTrailDetailScreen() {
         )}
       </View>
 
-      {hasMap ? (
-        <View style={styles.mapWrap}>
-          <MapView
-            style={StyleSheet.absoluteFill}
-            provider={PROVIDER_GOOGLE}
-            initialRegion={region}
-          >
-            {drawnCoords.length >= 2 && (
-              <Polyline coordinates={drawnCoords} strokeColor={C.orange} strokeWidth={3.5} />
-            )}
-            {mapped.map(loc => (
-              <Marker key={loc.tag} coordinate={{ latitude: loc.lat, longitude: loc.lng }} title={loc.mealName} description={loc.placeName}>
-                <View style={styles.pin}>
-                  {loc.photoUrl ? (
-                    <Image source={{ uri: loc.photoUrl }} style={styles.pinPhoto} />
-                  ) : (
-                    <Text style={styles.pinEmoji}>{TAG_META[loc.tag]?.emoji ?? '📍'}</Text>
-                  )}
-                </View>
-              </Marker>
-            ))}
-          </MapView>
-        </View>
-      ) : (
-        <View style={styles.noMapBox}>
-          <Ionicons name="home" size={40} color={C.orange} />
-          <Text style={styles.noMapText}>This day was spent at home</Text>
-        </View>
-      )}
-
-      <View style={styles.legend}>
-        {locations.map(loc => (
-          <View key={loc.tag} style={styles.legendRow}>
-            <View style={[styles.legendIconWrap, loc.kind === 'home' && styles.legendIconWrapHome]}>
-              <Text style={styles.legendEmoji}>{loc.kind === 'home' ? '🏠' : (TAG_META[loc.tag]?.emoji ?? '📍')}</Text>
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.legendName} numberOfLines={1}>{loc.mealName}</Text>
-              {loc.placeName ? <Text style={styles.legendPlace} numberOfLines={1}>{loc.placeName}</Text> : null}
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+        {hasMap ? (
+          <View style={styles.mapCard}>
+            <MapView
+              style={StyleSheet.absoluteFill}
+              provider={PROVIDER_GOOGLE}
+              initialRegion={region}
+            >
+              {drawnCoords.length >= 2 && (
+                <Polyline coordinates={drawnCoords} strokeColor={C.orange} strokeWidth={3.5} />
+              )}
+              {mapped.map(loc => (
+                <Marker key={loc.tag} coordinate={{ latitude: loc.lat, longitude: loc.lng }} title={loc.mealName} description={loc.placeName}>
+                  <View style={styles.pin}>
+                    {loc.photoUrl ? (
+                      <Image source={{ uri: loc.photoUrl }} style={styles.pinPhoto} />
+                    ) : (
+                      <Text style={styles.pinEmoji}>{TAG_META[loc.tag]?.emoji ?? '📍'}</Text>
+                    )}
+                  </View>
+                </Marker>
+              ))}
+            </MapView>
+          </View>
+        ) : (
+          <View style={styles.mapCard}>
+            <View style={styles.noMapBox}>
+              <Ionicons name="home" size={36} color={C.orange} />
+              <Text style={styles.noMapText}>This day was spent at home</Text>
             </View>
           </View>
-        ))}
-      </View>
+        )}
+
+        {/* Connected timeline — dot + line per stop, in order */}
+        <View style={styles.timeline}>
+          {locations.map((loc, i) => {
+            const isLast = i === locations.length - 1;
+            const dotColor = isLast ? C.orange : C.white;
+            return (
+              <View key={loc.tag} style={styles.timelineRow}>
+                <View style={styles.timelineRail}>
+                  <View style={[styles.timelineDot, { backgroundColor: dotColor }, isLast && styles.timelineDotActive]} />
+                  {!isLast && <View style={styles.timelineLine} />}
+                </View>
+                <View style={styles.timelineBody}>
+                  {formatStopTime(loc.createdAt) ? (
+                    <Text style={styles.timelineTime}>{formatStopTime(loc.createdAt)}</Text>
+                  ) : null}
+                  <Text style={styles.timelinePlace} numberOfLines={1}>
+                    {loc.kind === 'home' ? '🏠 Home' : (loc.placeName || TAG_META[loc.tag]?.label || 'Somewhere')}
+                  </Text>
+                  <Text style={styles.timelineMeal} numberOfLines={1}>{loc.mealName}</Text>
+                </View>
+              </View>
+            );
+          })}
+        </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: C.bg },
+  scrollContent: { paddingBottom: 40 },
   navBar: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 20, paddingVertical: 14,
   },
-  navTitle: { fontSize: 15, fontWeight: '600', color: C.white },
+  navTitle: { fontFamily: C.serif, fontSize: 20, color: C.white },
 
-  mapWrap: { flex: 1 },
+  mapCard: {
+    height: MAP_CARD_HEIGHT, marginHorizontal: 20, marginTop: 4,
+    borderRadius: 22, overflow: 'hidden', position: 'relative',
+    backgroundColor: '#161616',
+  },
   pin: {
     width: 30, height: 30, borderRadius: 15,
     backgroundColor: C.surface, borderWidth: 1.5, borderColor: C.orange,
@@ -197,18 +222,17 @@ const styles = StyleSheet.create({
   noMapBox: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 },
   noMapText: { fontSize: 14, color: C.gray1 },
 
-  legend: {
-    paddingHorizontal: 20, paddingTop: 12, paddingBottom: 20, gap: 10,
-    borderTopWidth: 0.5, borderTopColor: C.border,
-  },
-  legendRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  legendIconWrap: {
-    width: 26, height: 26, borderRadius: 13, alignItems: 'center', justifyContent: 'center',
-  },
-  legendIconWrapHome: { borderWidth: 1, borderColor: C.orange },
-  legendEmoji: { fontSize: 16 },
-  legendName: { fontSize: 14, fontWeight: '600', color: C.white },
-  legendPlace: { fontSize: 12, color: C.gray2, marginTop: 1 },
+  // Connected timeline
+  timeline: { paddingHorizontal: 20, paddingTop: 26 },
+  timelineRow: { flexDirection: 'row', gap: 14 },
+  timelineRail: { alignItems: 'center', width: 10 },
+  timelineDot: { width: 10, height: 10, borderRadius: 5, marginTop: 4 },
+  timelineDotActive: { shadowColor: C.orange, shadowOpacity: 0.6, shadowRadius: 5, elevation: 4 },
+  timelineLine: { width: 1, flex: 1, backgroundColor: C.glassBorder, minHeight: 40 },
+  timelineBody: { flex: 1, paddingBottom: 24 },
+  timelineTime: { fontSize: 12, color: 'rgba(245,245,247,0.4)' },
+  timelinePlace: { fontSize: 15, fontWeight: '700', color: C.white, marginTop: 2 },
+  timelineMeal: { fontSize: 12, color: 'rgba(245,245,247,0.5)', marginTop: 1 },
 
   emptyBox: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   emptyText: { fontSize: 14, color: C.gray1 },

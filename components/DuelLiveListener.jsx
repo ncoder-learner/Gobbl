@@ -9,6 +9,7 @@ import { supabase } from '../lib/supabase';
 import { withTimeout } from '../lib/withTimeout';
 import { MEAL_TAGS } from '../lib/postUtils';
 import { isDuelUnlocked, markWinsSeen, getWinsSeenAt, newWinsSince, winsForMonth } from '../lib/postVotes';
+import { THEME as C } from '../lib/theme';
 
 const CONFETTI_EMOJI = ['🎉', '✨', '🏆', '⭐', '🎊'];
 const CONFETTI_COUNT = 18;
@@ -64,8 +65,6 @@ function localDateKey(date) {
   const d = String(date.getDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
 }
-
-const C = { bg: '#000', gold: '#ffd166', white: '#ffffff', gray1: '#aaaaaa' };
 
 // Mounted once at the app root (see App.js) — the single home for the wins
 // celebration, covering both cases with the same full-screen overlay:
@@ -315,7 +314,7 @@ export default function DuelLiveListener() {
             { transform: [{ scale: trophyScale }, { rotate: trophyRotateDeg }] },
           ]}
         >
-          <Ionicons name="trophy" size={44} color="#3a2c00" />
+          <Ionicons name="trophy" size={44} color={C.bg} />
         </Animated.View>
 
         <Text style={styles.count}>{displayedCount}</Text>
@@ -348,7 +347,7 @@ const styles = StyleSheet.create({
   // primitive without a new dependency.
   glow: {
     position: 'absolute', width: 260, height: 260, borderRadius: 130,
-    backgroundColor: '#ffd16633',
+    backgroundColor: 'rgba(233,184,114,0.2)',
   },
 
   trophyBadge: {
@@ -359,8 +358,8 @@ const styles = StyleSheet.create({
   },
 
   count: {
-    fontSize: 84, fontWeight: '800', color: C.white, marginTop: 20, letterSpacing: -2,
-    textShadowColor: '#ffd16688', textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 20,
+    fontFamily: C.serif, fontSize: 96, color: C.white, marginTop: 20,
+    textShadowColor: 'rgba(233,184,114,0.55)', textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 20,
   },
   label: {
     fontSize: 16, fontWeight: '700', color: C.gold, textTransform: 'uppercase',
