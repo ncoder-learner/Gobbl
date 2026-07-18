@@ -113,19 +113,25 @@ function FriendButton({ status, friendshipId, targetId, myId, onStatusChange }) 
   async function cancelRequest() {
     setLoading(true);
     try {
-      await supabase.from('friendships').delete().eq('id', friendshipId);
+      const { error } = await supabase.from('friendships').delete().eq('id', friendshipId);
+      if (error) throw error;
       onStatusChange(null, null);
-    } catch { } finally { setLoading(false); }
+    } catch (err) {
+      Alert.alert('Error', err.message || 'Could not cancel the request. Please try again.');
+    } finally { setLoading(false); }
   }
 
   async function acceptRequest() {
     setLoading(true);
     try {
-      await supabase.from('friendships')
+      const { error } = await supabase.from('friendships')
         .update({ status: 'accepted', updated_at: new Date().toISOString() })
         .eq('id', friendshipId);
+      if (error) throw error;
       onStatusChange('accepted', friendshipId);
-    } catch { } finally { setLoading(false); }
+    } catch (err) {
+      Alert.alert('Error', err.message || 'Could not accept the request. Please try again.');
+    } finally { setLoading(false); }
   }
 
   async function removeFriend() {
@@ -135,9 +141,12 @@ function FriendButton({ status, friendshipId, targetId, myId, onStatusChange }) 
         text: 'Remove', style: 'destructive', onPress: async () => {
           setLoading(true);
           try {
-            await supabase.from('friendships').delete().eq('id', friendshipId);
+            const { error } = await supabase.from('friendships').delete().eq('id', friendshipId);
+            if (error) throw error;
             onStatusChange(null, null);
-          } catch { } finally { setLoading(false); }
+          } catch (err) {
+            Alert.alert('Error', err.message || 'Could not remove this friend. Please try again.');
+          } finally { setLoading(false); }
         },
       },
     ]);

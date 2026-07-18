@@ -391,13 +391,13 @@ export default function LogMealScreen() {
         if (!user) return;
         currentUserIdRef.current = user.id;
         const { data, error: homeErr } = await supabase
-          .from('profiles')
-          .select('home_lat, home_lng, home_place_name')
-          .eq('id', user.id)
-          .single();
+          .from('profile_home_locations')
+          .select('lat, lng, place_name')
+          .eq('user_id', user.id)
+          .maybeSingle();
         if (homeErr) throw homeErr;
-        if (data?.home_lat != null && data?.home_lng != null) {
-          setHomeLocation({ lat: data.home_lat, lng: data.home_lng, name: data.home_place_name || 'Home' });
+        if (data?.lat != null && data?.lng != null) {
+          setHomeLocation({ lat: data.lat, lng: data.lng, name: data.place_name || 'Home' });
         }
       } catch (err) {
         // non-fatal — quick option just won't be offered, but log so a

@@ -150,19 +150,30 @@ export default function AccountScreen() {
         setNotifEnabled(prefs.enabled);
         setReminderHour(prefs.reminderHour);
         if (u) {
-          const { data, error: profileError } = await supabase
-            .from('profiles')
-            .select('display_name, username, city, bio, banner_color, avatar_url, home_lat, home_lng, home_place_name')
-            .eq('id', u.id)
-            .single();
+          const [{ data, error: profileError }, { data: homeRow, error: homeError }] = await Promise.all([
+            supabase
+              .from('profiles')
+              .select('display_name, username, city, bio, banner_color, avatar_url')
+              .eq('id', u.id)
+              .single(),
+            // Own-only table (023_profile_home_location_privacy.sql) — home
+            // coordinates used to live directly on `profiles`, which is
+            // readable by any authenticated user.
+            supabase
+              .from('profile_home_locations')
+              .select('lat, lng, place_name')
+              .eq('user_id', u.id)
+              .maybeSingle(),
+          ]);
           if (profileError) throw profileError;
+          if (homeError) throw homeError;
           setProfile(data);
           setEditName(data?.display_name ?? '');
           setEditCity(data?.city ?? '');
           setEditBio(data?.bio ?? '');
           setEditBannerColor(data?.banner_color ?? BANNER_COLORS[0].key);
-          if (data?.home_lat != null && data?.home_lng != null) {
-            setHomeLocation({ lat: data.home_lat, lng: data.home_lng, name: data.home_place_name });
+          if (homeRow?.lat != null && homeRow?.lng != null) {
+            setHomeLocation({ lat: homeRow.lat, lng: homeRow.lng, name: homeRow.place_name });
           }
         }
       } catch (err) {
@@ -210,13 +221,13 @@ export default function AccountScreen() {
     try {
       const { data: { user: u } } = await supabase.auth.getUser();
       if (!u) return;
-      const { error: saveError } = await supabase.from('profiles').upsert({
-        id: u.id,
-        home_lat: place.lat,
-        home_lng: place.lng,
-        home_place_name: place.name,
+      const { error: saveError } = await supabase.from('profile_home_locations').upsert({
+        user_id: u.id,
+        lat: place.lat,
+        lng: place.lng,
+        place_name: place.name,
         updated_at: new Date().toISOString(),
-      });
+      }, { onConflict: 'user_id' });
       if (saveError) throw saveError;
       setHomeLocation(place);
     } catch (err) {
@@ -231,13 +242,12 @@ export default function AccountScreen() {
     try {
       const { data: { user: u } } = await supabase.auth.getUser();
       if (!u) return;
-      const { error: clearError } = await supabase.from('profiles').upsert({
-        id: u.id,
-        home_lat: null,
-        home_lng: null,
-        home_place_name: null,
-        updated_at: new Date().toISOString(),
-      });
+      // lat/lng are NOT NULL on profile_home_locations, so "clearing" means
+      // deleting the row, not nulling columns out.
+      const { error: clearError } = await supabase
+        .from('profile_home_locations')
+        .delete()
+        .eq('user_id', u.id);
       if (clearError) throw clearError;
       setHomeLocation(null);
     } catch (err) {

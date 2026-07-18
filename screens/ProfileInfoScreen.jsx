@@ -31,13 +31,13 @@ export default function ProfileInfoScreen({ onDone }) {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-      const { error: saveError } = await supabase.from('profiles').upsert({
-        id: user.id,
-        home_lat: place.lat,
-        home_lng: place.lng,
-        home_place_name: place.name,
+      const { error: saveError } = await supabase.from('profile_home_locations').upsert({
+        user_id: user.id,
+        lat: place.lat,
+        lng: place.lng,
+        place_name: place.name,
         updated_at: new Date().toISOString(),
-      });
+      }, { onConflict: 'user_id' });
       if (saveError) throw saveError;
       setHomeLocation(place);
     } catch (err) {
@@ -52,13 +52,10 @@ export default function ProfileInfoScreen({ onDone }) {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-      const { error: clearError } = await supabase.from('profiles').upsert({
-        id: user.id,
-        home_lat: null,
-        home_lng: null,
-        home_place_name: null,
-        updated_at: new Date().toISOString(),
-      });
+      const { error: clearError } = await supabase
+        .from('profile_home_locations')
+        .delete()
+        .eq('user_id', user.id);
       if (clearError) throw clearError;
       setHomeLocation(null);
     } catch (err) {
