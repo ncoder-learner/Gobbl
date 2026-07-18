@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import {
   View, Text, Image, ScrollView, TouchableOpacity, StyleSheet,
-  StatusBar, ActivityIndicator, Modal, Pressable, Dimensions, Animated,
+  StatusBar, ActivityIndicator, Modal, Pressable, Dimensions, Animated, Alert,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -11,6 +11,7 @@ import { supabase } from '../lib/supabase';
 import ShareBottomSheet from '../components/ShareBottomSheet';
 import DayTrail from '../components/DayTrail';
 import { fetchPostedMealIds, MEAL_TAGS, TAG_META, TAG_ICON } from '../lib/postUtils';
+import { skipMeal, unskipMeal } from '../lib/skips';
 import { displayPlaceName } from '../lib/homePrivacy';
 import { isDuelUnlocked } from '../lib/postVotes';
 import { useFirstVisit, FirstVisitTooltip } from '../lib/firstVisit';
@@ -66,9 +67,13 @@ function localDateKey(date) {
   const d = String(date.getDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
 }
-function computeStreak(rows) {
-  if (!rows?.length) return { streak: 0, loggedToday: false };
-  const dateSet = new Set(rows.map(r => localDateKey(new Date(r.created_at))));
+// extraDayKeys are days resolved by a skip (not a logged meal) — a day
+// marked skipped counts as resolved same as a day with a meal logged, so it
+// merges straight into the same date set the backward-walk uses.
+function computeStreak(rows, extraDayKeys) {
+  const dateSet = new Set((rows || []).map(r => localDateKey(new Date(r.created_at))));
+  if (extraDayKeys) for (const k of extraDayKeys) dateSet.add(k);
+  if (dateSet.size === 0) return { streak: 0, loggedToday: false };
   const todayKey = localDateKey(new Date());
   const loggedToday = dateSet.has(todayKey);
   let streak = 0;
@@ -125,7 +130,7 @@ function FadeScaleIn({ delay = 0, style, children }) {
 // A springy press-scale wrapper — the tactile "give" iOS controls have on
 // touch. Separate from FadeScaleIn (that's a one-time mount animation; this
 // runs on every press) so the two compose cleanly on the same tile.
-function PressableScale({ onPress, style, children, activeScale = 0.96 }) {
+function PressableScale({ onPress, onLongPress, style, children, activeScale = 0.96 }) {
   const scale = useRef(new Animated.Value(1)).current;
   function pressIn() {
     Animated.spring(scale, { toValue: activeScale, useNativeDriver: true, speed: 50, bounciness: 0 }).start();
@@ -134,7 +139,7 @@ function PressableScale({ onPress, style, children, activeScale = 0.96 }) {
     Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 20, bounciness: 9 }).start();
   }
   return (
-    <Pressable onPress={onPress} onPressIn={pressIn} onPressOut={pressOut}>
+    <Pressable onPress={onPress} onLongPress={onLongPress} onPressIn={pressIn} onPressOut={pressOut}>
       <Animated.View style={[style, { transform: [{ scale }] }]}>
         {children}
       </Animated.View>
@@ -197,6 +202,8 @@ function BoardTile({ tile, onPress, delay, onFire, likeCount, commentCount, isLe
   );
 }
 
+// Tapping opens the log/skip action sheet (see YouActionSheet) — both
+// options equally visible, rather than hiding "skip" behind a long-press.
 function YouEmptyTile({ onPress, delay }) {
   return (
     <FadeScaleIn delay={delay} style={styles.youTileShadowWrap}>
@@ -205,6 +212,51 @@ function YouEmptyTile({ onPress, delay }) {
         <Text style={styles.youTileLabel}>you</Text>
       </PressableScale>
     </FadeScaleIn>
+  );
+}
+
+// Muted stand-in for "+ you" once the slot's been marked skipped — private
+// to the viewer (skippedTags never reaches a friend's board, since
+// meal_skips has no friend-read policy), so this only ever renders on your
+// own board. Tapping un-skips and drops straight into logging, per spec
+// ("tapping a skipped slot lets the user un-skip and log normally").
+function SkippedTile({ onPress, delay }) {
+  return (
+    <FadeScaleIn delay={delay} style={styles.skippedTileShadowWrap}>
+      <PressableScale style={styles.skippedTile} onPress={onPress}>
+        <Ionicons name="remove-circle-outline" size={22} color={C.gray1} />
+        <Text style={styles.skippedTileLabel}>skipped</Text>
+      </PressableScale>
+    </FadeScaleIn>
+  );
+}
+
+// Small bottom sheet opened by tapping an empty "+ you" tile — "log" and
+// "skip" surfaced as two equally-visible rows rather than hiding skip behind
+// a long-press. Mirrors the meal-picker sheet's overlay/handle/sheet shape
+// so it reads as the same family of control, just shorter.
+function YouActionSheet({ visible, tag, onDismiss, onLogMeal, onSkip }) {
+  const meta = tag ? TAG_META[tag] : null;
+  return (
+    <Modal visible={visible} transparent animationType="slide" statusBarTranslucent onRequestClose={onDismiss}>
+      <Pressable style={styles.actionSheetOverlay} onPress={onDismiss}>
+        <Pressable style={styles.actionSheetSheet} onPress={() => {}}>
+          <View style={styles.pickerHandle} />
+          {meta && <Text style={styles.actionSheetTitle}>{meta.label}</Text>}
+          <TouchableOpacity style={styles.actionSheetRow} activeOpacity={0.72} onPress={onLogMeal}>
+            <Ionicons name="add-circle-outline" size={20} color={C.orange} />
+            <Text style={styles.actionSheetRowText}>Log a meal</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.actionSheetRow} activeOpacity={0.72} onPress={onSkip}>
+            <Ionicons name="remove-circle-outline" size={20} color={C.gray1} />
+            <Text style={[styles.actionSheetRowText, { color: C.gray1 }]}>Skip this meal</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.actionSheetCancelRow} activeOpacity={0.72} onPress={onDismiss}>
+            <Text style={styles.actionSheetCancelText}>Cancel</Text>
+          </TouchableOpacity>
+        </Pressable>
+      </Pressable>
+    </Modal>
   );
 }
 
@@ -220,7 +272,7 @@ const STAGGER_SECTION = 110;
 const STAGGER_TILE = 55;
 
 function BoardSection({
-  tag, sectionIndex, tiles, onPressTile, onPressYou, onFire, likeCounts, commentCounts, leaderMealIds,
+  tag, sectionIndex, tiles, onPressTile, onPressYou, onPressSkipped, isSkipped, onFire, likeCounts, commentCounts, leaderMealIds,
   duelUnlocked, duelVoted, onPressDuel,
   showYouTooltip, onDismissYouTooltip, showDuelTooltip, onDismissDuelTooltip,
   isFirstYouTarget, isFirstTileTarget, isFirstDuelTarget,
@@ -244,6 +296,8 @@ function BoardSection({
         isLeader={leaderMealIds.includes(mineTile.mealId)}
         onPress={() => onPressTile(tag, orderedTiles, 0)}
       />
+    : isSkipped
+    ? <SkippedTile delay={sectionDelay} onPress={() => onPressSkipped(tag)} />
     : <YouEmptyTile delay={sectionDelay} onPress={() => onPressYou(tag)} />;
 
   return (
@@ -254,7 +308,7 @@ function BoardSection({
           <Text style={styles.sectionTitle}>{meta.label}</Text>
         </View>
         <Text style={styles.sectionCount}>
-          {tiles.length === 0 ? 'tap + to fill this in' : `${tiles.length} posted`}
+          {isSkipped && tiles.length === 0 ? 'skipped' : tiles.length === 0 ? 'tap + to fill this in' : `${tiles.length} posted`}
         </Text>
       </View>
 
@@ -419,6 +473,8 @@ export default function DayBoardScreen() {
   const [commentCounts, setCommentCounts] = useState({}); // mealId -> count
   const [voteCounts, setVoteCounts] = useState({});    // mealId -> Tier Duel vote count
   const [myVoteMealIdByTag, setMyVoteMealIdByTag] = useState({}); // tag -> mealId the viewer voted for today, or undefined
+  const [skippedTags, setSkippedTags] = useState(new Set()); // tags the viewer has marked skipped today — private, never sent to friends
+  const [youActionTag, setYouActionTag] = useState(null); // tag whose log/skip action sheet is open, or null
 
   // Compose / meal picker — ported verbatim from FeedScreen.jsx
   const [pickerVisible, setPickerVisible] = useState(false);
@@ -444,10 +500,11 @@ export default function DayBoardScreen() {
       const now = new Date();
       const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
       const dayEnd   = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).toISOString();
+      const todayKey = localDateKey(now);
 
       // RLS (see_own_and_friends_posts) already scopes this to the caller's
       // own posts plus accepted friends' — no extra filtering needed here.
-      const [{ data, error: err }, pendingResult, streakResult] = await Promise.all([
+      const [{ data, error: err }, pendingResult, streakResult, skipTodayResult, skipDayKeysResult] = await Promise.all([
         supabase
           .from('posts')
           .select(`
@@ -470,11 +527,28 @@ export default function DayBoardScreen() {
           .eq('user_id', user.id)
           .order('created_at', { ascending: false })
           .limit(500),
+        // Private — meal_skips has no friend-read policy, so this can only
+        // ever return the viewer's own skips.
+        supabase
+          .from('meal_skips')
+          .select('slot')
+          .eq('user_id', user.id)
+          .eq('day', todayKey),
+        supabase
+          .from('meal_skips')
+          .select('day')
+          .eq('user_id', user.id)
+          .order('day', { ascending: false })
+          .limit(500),
       ]);
       if (err) throw err;
       setPosts(data || []);
       setPendingRequests(pendingResult.count ?? 0);
-      const { streak: s, loggedToday: lt } = computeStreak(streakResult.data);
+      setSkippedTags(new Set((skipTodayResult.data || []).map(r => r.slot)));
+      // A day resolved purely by skipping counts the same as a day with a
+      // meal logged, so it's merged into the streak's date set here.
+      const skipDayKeys = new Set((skipDayKeysResult.data || []).map(r => r.day));
+      const { streak: s, loggedToday: lt } = computeStreak(streakResult.data, skipDayKeys);
       setStreak(s);
       setLoggedToday(lt);
 
@@ -484,7 +558,6 @@ export default function DayBoardScreen() {
       const mealIds = (data || [])
         .flatMap(p => [p.breakfast?.id, p.lunch?.id, p.dinner?.id])
         .filter(Boolean);
-      const todayKey = localDateKey(now);
       if (mealIds.length > 0) {
         const [{ data: likeRows }, { data: commentRows }, { data: voteRows }] = await Promise.all([
           supabase.from('post_likes').select('meal_id').in('meal_id', mealIds),
@@ -573,7 +646,7 @@ export default function DayBoardScreen() {
 
   // Which single section shows the "+ you" / duel tooltip — never more than
   // one at once, even though up to 3 sections could otherwise qualify.
-  const firstEmptyYouTag = MEAL_TAGS.find(tag => !tilesByTag[tag].some(t => t.isMine));
+  const firstEmptyYouTag = MEAL_TAGS.find(tag => !tilesByTag[tag].some(t => t.isMine) && !skippedTags.has(tag));
   const firstDuelTag = MEAL_TAGS.find(tag => duelUnlockedByTag[tag]);
   const firstTileTag = MEAL_TAGS.find(tag => tilesByTag[tag].length > 0);
 
@@ -619,7 +692,47 @@ export default function DayBoardScreen() {
     navigation.navigate('SlotViewer', { tag, people: orderedTiles, initialIndex: index });
   }
 
+  // Opens the log/skip action sheet — the primary tap target on an empty
+  // "+ you" tile now branches into a visible choice instead of jumping
+  // straight to LogMeal.
   function handlePressYou(tag) {
+    setYouActionTag(tag);
+  }
+
+  function handleDismissYouAction() {
+    setYouActionTag(null);
+  }
+
+  function handleActionLogMeal() {
+    const tag = youActionTag;
+    setYouActionTag(null);
+    navigation.navigate('LogMeal', { forceTag: tag });
+  }
+
+  async function handleActionSkip() {
+    const tag = youActionTag;
+    setYouActionTag(null);
+    try {
+      await skipMeal(currentUserId, todayKey, tag);
+      setSkippedTags(prev => new Set(prev).add(tag));
+    } catch {
+      Alert.alert("Couldn't skip", 'Please try again.');
+    }
+  }
+
+  // Un-skip and drop straight into logging — per spec, a skipped slot is
+  // meant to be undoable by just tapping back into the normal log flow.
+  async function handlePressSkipped(tag) {
+    try {
+      await unskipMeal(currentUserId, todayKey, tag);
+      setSkippedTags(prev => {
+        const next = new Set(prev);
+        next.delete(tag);
+        return next;
+      });
+    } catch {
+      // Non-fatal — worst case the tile stays muted until next load.
+    }
     navigation.navigate('LogMeal', { forceTag: tag });
   }
 
@@ -756,6 +869,15 @@ export default function DayBoardScreen() {
         onPosted={() => { setShareTarget(null); load(); }}
       />
 
+      {/* ── Log/skip action sheet (from an empty "+ you" tile) ─────────────── */}
+      <YouActionSheet
+        visible={youActionTag !== null}
+        tag={youActionTag}
+        onDismiss={handleDismissYouAction}
+        onLogMeal={handleActionLogMeal}
+        onSkip={handleActionSkip}
+      />
+
       <View style={styles.navBar}>
         <Text style={styles.navTitle}>
           Gob<Text style={styles.navTitleItalic}>b</Text>l
@@ -818,6 +940,8 @@ export default function DayBoardScreen() {
               tiles={tilesByTag[tag]}
               onPressTile={handlePressTile}
               onPressYou={handlePressYou}
+              onPressSkipped={handlePressSkipped}
+              isSkipped={skippedTags.has(tag)}
               onFire={streak > 0}
               likeCounts={likeCounts}
               commentCounts={commentCounts}
@@ -949,6 +1073,30 @@ const styles = StyleSheet.create({
   pickerRowName: { fontSize: 15, fontWeight: '600', color: C.white },
   pickerRowScore: { fontFamily: C.serif, fontSize: 20 },
 
+  // Log/skip action sheet from an empty "+ you" tile — same overlay/sheet
+  // shape as the meal picker, just short (two rows + cancel) instead of a
+  // scrollable list, so it doesn't need a maxHeight cap of its own.
+  actionSheetOverlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end',
+  },
+  actionSheetSheet: {
+    backgroundColor: C.bg, borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    paddingBottom: 24,
+  },
+  actionSheetTitle: {
+    fontFamily: C.serif, fontSize: 18, color: C.white,
+    textAlign: 'center', marginTop: 14, marginBottom: 6,
+  },
+  actionSheetRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    paddingHorizontal: 24, paddingVertical: 16,
+  },
+  actionSheetRowText: { fontSize: 16, fontWeight: '600', color: C.white },
+  actionSheetCancelRow: {
+    marginTop: 4, paddingVertical: 14, alignItems: 'center',
+  },
+  actionSheetCancelText: { fontSize: 15, color: C.gray1, fontWeight: '500' },
+
   dateHeader: {
     fontFamily: C.serif, fontSize: 40, color: C.white,
     paddingHorizontal: 20, marginTop: 8,
@@ -1061,6 +1209,17 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,107,61,0.06)',
   },
   youTileLabel: { fontSize: 13, fontWeight: '700', color: C.orange },
+
+  // Muted "skipped" state — no shadow/glow at all (unlike the "+ you" tile),
+  // so it visually reads as dormant/resolved rather than an active prompt.
+  skippedTileShadowWrap: { borderRadius: 18 },
+  skippedTile: {
+    width: TILE_SIZE, height: TILE_SIZE, borderRadius: 18,
+    borderWidth: 1, borderColor: C.border, borderStyle: 'dashed',
+    alignItems: 'center', justifyContent: 'center', gap: 5,
+    backgroundColor: 'rgba(255,255,255,0.02)',
+  },
+  skippedTileLabel: { fontSize: 12, fontWeight: '600', color: C.gray1 },
 
   // Pulsing ring on your own tile while you're on a streak
   fireRing: {

@@ -15,6 +15,7 @@ import DayTrail from '../components/DayTrail';
 import { syncStreakRiskNotification, loadNotifPrefs } from '../lib/notifications';
 import { FirstVisitTooltip, useFirstVisit } from '../lib/firstVisit';
 import { fetchPostedMealIds, MEAL_TAGS, TAG_META } from '../lib/postUtils';
+import { fetchSkipDayKeys } from '../lib/skips';
 import Avatar from '../components/Avatar';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -81,9 +82,12 @@ function DayHeader({ label }) {
   );
 }
 
-function computeStreak(rows) {
-  if (!rows?.length) return { streak: 0, loggedToday: false };
-  const dateSet = new Set(rows.map(r => localDateKey(new Date(r.created_at))));
+// extraDayKeys are days resolved by a skip (not a logged meal) — merged in
+// so a skipped day counts the same as a logged one for streak purposes.
+function computeStreak(rows, extraDayKeys) {
+  const dateSet = new Set((rows || []).map(r => localDateKey(new Date(r.created_at))));
+  if (extraDayKeys) for (const k of extraDayKeys) dateSet.add(k);
+  if (dateSet.size === 0) return { streak: 0, loggedToday: false };
   const todayKey = localDateKey(new Date());
   const loggedToday = dateSet.has(todayKey);
   let streak = 0;
@@ -417,7 +421,7 @@ export default function FeedScreen() {
         postsQuery = postsQuery.neq('user_id', user.id);
       }
 
-      const [postsResult, streakResult, pendingResult] = await Promise.allSettled([
+      const [postsResult, streakResult, pendingResult, skipDayKeysResult] = await Promise.allSettled([
         postsQuery,
 
         supabase
@@ -432,6 +436,8 @@ export default function FeedScreen() {
           .select('id', { count: 'exact', head: true })
           .eq('addressee_id', user.id)
           .eq('status', 'pending'),
+
+        fetchSkipDayKeys(user.id),
       ]);
 
       if (postsResult.status === 'fulfilled') {
@@ -441,8 +447,9 @@ export default function FeedScreen() {
         setPage(pageNum);
       }
 
+      const skipDayKeys = skipDayKeysResult.status === 'fulfilled' ? skipDayKeysResult.value : new Set();
       if (streakResult.status === 'fulfilled') {
-        const { streak: s, loggedToday: lt } = computeStreak(streakResult.value.data);
+        const { streak: s, loggedToday: lt } = computeStreak(streakResult.value.data, skipDayKeys);
         setStreak(s);
         setLoggedToday(lt);
         loadNotifPrefs().then(prefs => {

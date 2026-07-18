@@ -12,6 +12,7 @@ import CommentSheet from '../components/CommentSheet';
 import { bannerColorHex } from '../lib/profileTheme';
 import { winsForMonth } from '../lib/postVotes';
 import { shareProfileLink } from '../lib/profileLink';
+import { fetchSkipDayKeys } from '../lib/skips';
 import Avatar from '../components/Avatar';
 import { THEME as C } from '../lib/theme';
 import StripedPlaceholder from '../components/StripedPlaceholder';
@@ -61,9 +62,12 @@ function localDateKey(date) {
   return `${y}-${m}-${d}`;
 }
 
-function computeStreak(rows) {
-  if (!rows?.length) return 0;
-  const dateSet = new Set(rows.map(r => localDateKey(new Date(r.created_at))));
+// extraDayKeys are days resolved by a skip (not a logged meal) — merged in
+// so a skipped day counts the same as a logged one for streak purposes.
+function computeStreak(rows, extraDayKeys) {
+  const dateSet = new Set((rows || []).map(r => localDateKey(new Date(r.created_at))));
+  if (extraDayKeys) for (const k of extraDayKeys) dateSet.add(k);
+  if (dateSet.size === 0) return 0;
   const todayKey = localDateKey(new Date());
   const loggedToday = dateSet.has(todayKey);
   let streak = 0;
@@ -208,7 +212,7 @@ export default function MyProfileScreen() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      const [profileResult, postsResult, mealsResult, winsResult] = await Promise.allSettled([
+      const [profileResult, postsResult, mealsResult, winsResult, skipDayKeysResult] = await Promise.allSettled([
         supabase.from('profiles')
           .select('id, username, first_name, last_name, display_name, avatar_url, bio, banner_color')
           .eq('id', user.id)
@@ -227,6 +231,8 @@ export default function MyProfileScreen() {
           .limit(500),
 
         loadWinsByMonth(user.id, new Date()),
+
+        fetchSkipDayKeys(user.id),
       ]);
 
       if (profileResult.status === 'fulfilled') {
@@ -244,7 +250,8 @@ export default function MyProfileScreen() {
           const scores = meals.map(m => Number(m.score)).filter(s => !isNaN(s));
           setAvgScore(scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : null);
         }
-        setStreak(computeStreak(meals));
+        const skipDayKeys = skipDayKeysResult.status === 'fulfilled' ? skipDayKeysResult.value : new Set();
+        setStreak(computeStreak(meals, skipDayKeys));
       }
 
       if (winsResult.status === 'fulfilled') {

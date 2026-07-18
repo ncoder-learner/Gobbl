@@ -17,6 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import { loadNotifPrefs, getPermissionStatus, syncStreakRiskNotification } from '../lib/notifications';
 import { useFirstVisit } from '../lib/firstVisit';
+import { fetchSkipDayKeys } from '../lib/skips';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -62,13 +63,15 @@ function localMidnightISO() {
 }
 
 // Compute streak, loggedToday, and last-7-days booleans from a list of { created_at } rows.
-// All grouping is done in the device's local timezone.
-function computeStreakData(rows) {
-  if (!rows || rows.length === 0) {
+// All grouping is done in the device's local timezone. extraDayKeys are days
+// resolved by a skip (not a logged meal) — merged in so a skipped day counts
+// the same as a logged one and doesn't break the streak.
+function computeStreakData(rows, extraDayKeys) {
+  const dateSet = new Set((rows || []).map((r) => localDateKey(new Date(r.created_at))));
+  if (extraDayKeys) for (const k of extraDayKeys) dateSet.add(k);
+  if (dateSet.size === 0) {
     return { streak: 0, loggedToday: false, last7Days: Array(7).fill(false) };
   }
-
-  const dateSet = new Set(rows.map((r) => localDateKey(new Date(r.created_at))));
 
   const todayKey = localDateKey(new Date());
   const loggedToday = dateSet.has(todayKey);
@@ -414,6 +417,7 @@ export default function HomeScreen() {
         monthResult,
         couponResult,
         adResult,
+        skipDayKeysResult,
       ] = await Promise.allSettled([
         supabase
           .from('profiles')
@@ -454,7 +458,11 @@ export default function HomeScreen() {
           .eq('active', true)
           .limit(1)
           .single(),
+
+        fetchSkipDayKeys(user.id),
       ]);
+
+      const skipDayKeys = skipDayKeysResult.status === 'fulfilled' ? skipDayKeysResult.value : new Set();
 
       // Profile
       if (profileResult.status === 'fulfilled') {
@@ -480,7 +488,7 @@ export default function HomeScreen() {
       // Streak (client-side, timezone-aware)
       if (streakResult.status === 'fulfilled') {
         const { streak: s, loggedToday: lt, last7Days: l7 } =
-          computeStreakData(streakResult.value.data || []);
+          computeStreakData(streakResult.value.data || [], skipDayKeys);
         setStreak(s);
         setLoggedToday(lt);
         setLast7Days(l7);
@@ -532,7 +540,8 @@ export default function HomeScreen() {
       setNotifPermStatus(permStatus);
       if (prefs.enabled && permStatus === 'granted') {
         const { streak: s, loggedToday: lt } = computeStreakData(
-          streakResult.status === 'fulfilled' ? (streakResult.value.data || []) : []
+          streakResult.status === 'fulfilled' ? (streakResult.value.data || []) : [],
+          skipDayKeys
         );
         syncStreakRiskNotification(s, lt).catch(() => {});
       }

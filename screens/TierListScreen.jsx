@@ -336,18 +336,32 @@ function RankRow({ meal, rank, listIndex, isNew, onLanded, isPinned, onTogglePin
 
   const badgeScale = badgeIn.interpolate({ inputRange: [0, 1], outputRange: [0.7, 1] });
 
+  // Ranks 2-10 borrow the same tier accents as the reveal animation (silver
+  // #2, bronze #3, orange #4-10) so the persistent list keeps some of that
+  // "spice" instead of going flat past the hero card. 11+ stays exactly as
+  // before — plain, no accent, no medal.
+  const tier = rank <= 10 ? rankTier(rank) : null;
+  const accentColor = isPinned ? C.orange : tier?.accent;
+  const medal = !isPinned && tier?.medal ? tier.medal : null;
+
   const rankArea = onTogglePin ? (
     <Pressable onPress={onTogglePin} style={styles.rowRankPressable} hitSlop={10}>
-      <Text style={[styles.rowRank, isPinned && { color: C.orange }]}>{rank}</Text>
+      <Text style={[styles.rowRank, accentColor && { color: accentColor }]}>{rank}</Text>
       {isPinned && <Text style={styles.rowRankPinDot}>📌</Text>}
+      {medal && <Text style={styles.rowRankMedal}>{medal}</Text>}
     </Pressable>
   ) : (
-    <Text style={styles.rowRank}>{rank}</Text>
+    <View style={styles.rowRankPressable}>
+      <Text style={[styles.rowRank, accentColor && { color: accentColor }]}>{rank}</Text>
+      {medal && <Text style={styles.rowRankMedal}>{medal}</Text>}
+    </View>
   );
 
   return (
     <Animated.View style={[
       styles.rowCard,
+      !isPinned && tier && { borderLeftWidth: 3, borderLeftColor: tier.accent },
+      !isPinned && tier?.special && { backgroundColor: tier.accent + '14' },
       isPinned && styles.rowCardPinned,
       { opacity: enter, transform: [{ translateY: enter.interpolate({ inputRange: [0, 1], outputRange: [isNew ? -20 : 10, 0] }) }] },
     ]}>
@@ -911,6 +925,9 @@ export default function TierListScreen() {
     return (
       <SafeAreaView style={styles.safe} edges={['top']}>
         <StatusBar barStyle="light-content" backgroundColor={C.bg} />
+        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()} hitSlop={10}>
+          <Ionicons name="chevron-back" size={24} color={C.white} />
+        </TouchableOpacity>
         <View style={styles.center}><ActivityIndicator color={C.orange} /></View>
       </SafeAreaView>
     );
@@ -920,6 +937,9 @@ export default function TierListScreen() {
     return (
       <SafeAreaView style={styles.safe} edges={['top']}>
         <StatusBar barStyle="light-content" backgroundColor={C.bg} />
+        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()} hitSlop={10}>
+          <Ionicons name="chevron-back" size={24} color={C.white} />
+        </TouchableOpacity>
         <View style={styles.center}>
           <Text style={styles.emptyEmoji}>⚠️</Text>
           <Text style={styles.emptyTitle}>Couldn't load tier list</Text>
@@ -954,11 +974,16 @@ export default function TierListScreen() {
         })
       : meals;
 
-    return displayMeals.map((meal, idx) => {
+    // flatMap (not map) so the divider inserted after rank 10 lands as a
+    // direct sibling of the DraggableRows, not nested inside one — nesting
+    // it would change the onLayout coordinate frame DraggableRow reports for
+    // its own row (relative to its immediate parent), which the drag/drop
+    // math in handleDrop depends on being consistent across all rows.
+    return displayMeals.flatMap((meal, idx) => {
       const rank = idx + 1;
       const isHero = rank === 1;
       const distance = nearMeOn ? formatDistance(mealDistanceMi(meal, userCoords)) : null;
-      return (
+      const row = (
         <DraggableRow
           key={meal.id}
           mealId={meal.id}
@@ -985,6 +1010,20 @@ export default function TierListScreen() {
           )}
         </DraggableRow>
       );
+
+      // Marks where "top 10" ends — only appears when the month actually
+      // has more than 10 meals to separate from the ranked ones above.
+      if (rank === 10 && displayMeals.length > 10) {
+        return [
+          row,
+          <View key="tier-divider" style={styles.tierDivider}>
+            <View style={styles.tierDividerLine} />
+            <Text style={styles.tierDividerText}>REST OF THE MONTH</Text>
+            <View style={styles.tierDividerLine} />
+          </View>,
+        ];
+      }
+      return [row];
     });
   }
 
@@ -1048,6 +1087,9 @@ export default function TierListScreen() {
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <StatusBar barStyle="light-content" backgroundColor={C.bg} />
+      <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()} hitSlop={10}>
+        <Ionicons name="chevron-back" size={24} color={C.white} />
+      </TouchableOpacity>
       <ScrollView
         ref={listRef}
         style={styles.list}
@@ -1108,10 +1150,15 @@ export default function TierListScreen() {
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: C.bg },
+  backBtn: {
+    position: 'absolute', top: 12, left: 16, zIndex: 10,
+    width: 38, height: 38, borderRadius: 19,
+    backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center',
+  },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
   inlineCenter: { paddingTop: 60, alignItems: 'center', paddingHorizontal: 32 },
   list: { flex: 1, width: '100%', maxWidth: 480, alignSelf: 'center' },
-  listContent: { paddingBottom: 40, paddingTop: 16 },
+  listContent: { paddingBottom: 40, paddingTop: 56 },
 
   emptyEmoji: { fontSize: 48, marginBottom: 16 },
   emptyTitle: { fontWeight: '700', fontSize: 20, color: C.white, marginBottom: 8, textAlign: 'center' },
@@ -1153,6 +1200,17 @@ const styles = StyleSheet.create({
   // Drag
   topDragRow: { marginHorizontal: 24 },
   rankDragRow: { marginHorizontal: 16, marginBottom: 8 },
+
+  // Separates the ranked top 10 from the flat remainder of the month's log.
+  tierDivider: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    marginHorizontal: 24, marginTop: 4, marginBottom: 14,
+  },
+  tierDividerLine: { flex: 1, height: 0.5, backgroundColor: C.border },
+  tierDividerText: {
+    fontSize: 10, fontWeight: '800', color: C.gray3,
+    letterSpacing: 1, textTransform: 'uppercase',
+  },
   dragHandle: {
     position: 'absolute', right: 0, top: 0, bottom: 0, width: 40,
     justifyContent: 'center', alignItems: 'center', gap: 4,
@@ -1199,6 +1257,7 @@ const styles = StyleSheet.create({
   rowRankPressable: { width: 30, alignItems: 'center', justifyContent: 'center', gap: 1 },
   rowRank: { width: 30, fontFamily: C.serif, fontSize: 20, color: 'rgba(245,245,247,0.6)', textAlign: 'center' },
   rowRankPinDot: { fontSize: 9, textAlign: 'center' },
+  rowRankMedal: { fontSize: 10, textAlign: 'center', marginTop: 1 },
   rowImg: { width: 46, height: 46, borderRadius: 12, backgroundColor: C.bg },
   rowImgFallback: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
   rowEmoji: { fontSize: 20 },
