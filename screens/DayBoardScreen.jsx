@@ -875,10 +875,8 @@ export default function DayBoardScreen() {
 
       <View style={styles.navBar}>
         <View style={styles.navBrand}>
-          <Image source={require('../assets/icon.png')} style={styles.navLogo} />
-          <Text style={styles.navTitle}>
-            Gob<Text style={styles.navTitleItalic}>b</Text>l
-          </Text>
+          <Image source={require('../assets/logo-mark.png')} style={styles.navLogo} />
+          <Image source={require('../assets/wordmark.png')} style={styles.navWordmark} />
         </View>
         <View style={styles.headerActions}>
           {/* Persistent way back into a live, interactive walkthrough — the
@@ -1006,10 +1004,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 20, paddingTop: 10, paddingBottom: 8,
   },
-  navBrand: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  navLogo: { width: 26, height: 26, borderRadius: 7 },
-  navTitle: { fontFamily: C.serif, fontSize: 26, color: C.white },
-  navTitleItalic: { fontFamily: C.serifItalic, color: C.orange },
+  navBrand: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  navLogo: { width: 34, height: 34, resizeMode: 'contain' },
+  navWordmark: { width: 84, height: 30, resizeMode: 'contain' },
   headerActions: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
   },

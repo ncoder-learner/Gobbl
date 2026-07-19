@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import {
   Dimensions,
+  Image,
   ScrollView,
   StyleSheet,
   Text,
@@ -53,6 +54,13 @@ export default function OnboardingCarousel({ slides, finalCtaLabel = "Let's eat!
           <Ionicons name="close" size={22} color={C.gray1} />
         </TouchableOpacity>
       )}
+
+      {/* Shared across every slide (outside the paged ScrollView) rather
+          than per-slide, so it doesn't reset/re-animate on swipe. */}
+      <View style={styles.brandRow}>
+        <Image source={require('../assets/logo-mark.png')} style={styles.brandLogo} />
+        <Image source={require('../assets/wordmark.png')} style={styles.brandWordmark} />
+      </View>
 
       <ScrollView
         ref={scrollRef}
@@ -118,6 +126,13 @@ const styles = StyleSheet.create({
     width: 36, height: 36, borderRadius: 18,
     alignItems: 'center', justifyContent: 'center',
   },
+
+  brandRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    marginTop: 8, marginBottom: 4,
+  },
+  brandLogo: { width: 30, height: 30, resizeMode: 'contain' },
+  brandWordmark: { width: 74, height: 27, resizeMode: 'contain' },
 
   scrollView: { flex: 1 },
 

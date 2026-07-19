@@ -11,9 +11,9 @@ import {
   Platform,
   ScrollView,
   Linking as RNLinking,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { GobblMark } from '../components/GobblMark';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import * as AppleAuthentication from 'expo-apple-authentication';
@@ -167,7 +167,7 @@ export default function AuthScreen() {
         >
           <View style={styles.header}>
             <View style={styles.logoBadgeShadow}>
-              <GobblMark size={54} bg={C.bg} />
+              <Image source={require('../assets/logo-mark.png')} style={styles.authLogo} />
             </View>
             <Text style={styles.appName}>
               Track every meal,{'\n'}
@@ -325,6 +325,7 @@ const styles = StyleSheet.create({
     marginBottom: 24, alignSelf: 'flex-start',
     shadowColor: C.orange, shadowOpacity: 0.35, shadowRadius: 20, shadowOffset: { width: 0, height: 10 },
   },
+  authLogo: { width: 72, height: 72, resizeMode: 'contain' },
   appName: { fontFamily: C.serif, fontSize: 38, color: C.white, lineHeight: 42 },
   appNameItalic: { fontFamily: C.serifItalic, color: C.orange },
   tagline: { fontSize: 14, color: C.gray1, marginTop: 12, lineHeight: 20, maxWidth: 280 },
