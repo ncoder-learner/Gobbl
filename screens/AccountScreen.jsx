@@ -487,7 +487,6 @@ export default function AccountScreen() {
               {profile?.username ? (
                 <Text style={styles.username}>@{profile.username}</Text>
               ) : null}
-              <Text style={styles.email}>{user.email}</Text>
             </View>
           </View>
         </View>
@@ -814,7 +813,6 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   username: { fontSize: 13, color: C.gray2, marginBottom: 2 },
-  email: { fontSize: 14, color: C.gray1 },
 
   friendsRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
