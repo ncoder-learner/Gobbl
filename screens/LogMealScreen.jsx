@@ -14,7 +14,6 @@ import {
   Alert,
   Animated,
   Easing,
-  PanResponder,
   Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -31,6 +30,8 @@ import ShareBottomSheet from '../components/ShareBottomSheet';
 import * as Location from 'expo-location';
 import * as Crypto from 'expo-crypto';
 import { isHomeMeal } from '../lib/homePrivacy';
+import MealTagPicker from '../components/MealTagPicker';
+import ScoreSlider, { scoreTone } from '../components/ScoreSlider';
 import { THEME as C } from '../lib/theme';
 
 // ─── Stages ───────────────────────────────────────────────────────────────────
@@ -65,129 +66,6 @@ function guessMealTag(date = new Date()) {
   if (hour < 11) return 'breakfast';
   if (hour < 16) return 'lunch';
   return 'dinner';
-}
-
-const TAG_OPTIONS = [
-  ['breakfast', '🌅', 'Breakfast'],
-  ['lunch', '☀️', 'Lunch'],
-  ['dinner', '🌙', 'Dinner'],
-];
-
-function MealTagPicker({ value, onChange }) {
-  return (
-    <View style={styles.tagPickerWrap}>
-      {TAG_OPTIONS.map(([key, , label]) => (
-        <TouchableOpacity
-          key={key}
-          onPress={() => onChange(key)}
-          activeOpacity={0.8}
-          style={styles.tagPickerTouch}
-        >
-          {value === key ? (
-            <LinearGradient colors={[C.orange, C.orangeDim]} style={styles.tagPickerBtn}>
-              <Text style={[styles.tagPickerText, styles.tagPickerTextActive]}>{label}</Text>
-            </LinearGradient>
-          ) : (
-            <View style={styles.tagPickerBtn}>
-              <Text style={styles.tagPickerText}>{label}</Text>
-            </View>
-          )}
-        </TouchableOpacity>
-      ))}
-    </View>
-  );
-}
-
-// ─── Score Slider Input — drag to rate 1.0–10.0 with decimals ─────────────────
-
-const SCORE_MIN = 1;
-const SCORE_MAX = 10;
-const THUMB_SIZE = 26;
-
-// Color + mood shift as the score climbs — instant feedback on how a rating "feels"
-function scoreTone(score) {
-  if (score < 3) return { label: 'Rough', color: '#e5484d' };
-  if (score < 5) return { label: 'Meh', color: '#f5a524' };
-  if (score < 7) return { label: 'Good', color: C.orange };
-  if (score < 9) return { label: 'Great', color: C.green };
-  return { label: 'Amazing', color: C.gold };
-}
-
-function ScoreSlider({ value, onChange }) {
-  const trackWidthRef = useRef(0);
-  const thumbX = useRef(new Animated.Value(0)).current;
-  // Keep onChange in a ref so the PanResponder (created once) always calls the latest version
-  const onChangeRef = useRef(onChange);
-  useEffect(() => { onChangeRef.current = onChange; });
-
-  function valueToX(v, width) {
-    const usable = width - THUMB_SIZE;
-    return ((v - SCORE_MIN) / (SCORE_MAX - SCORE_MIN)) * usable;
-  }
-
-  // Stored in a ref so the PanResponder closure never goes stale
-  const reportRef = useRef((locationX) => {
-    const width = trackWidthRef.current;
-    if (!width) return;
-    const usable = width - THUMB_SIZE;
-    const x = Math.max(0, Math.min(usable, locationX - THUMB_SIZE / 2));
-    const raw = SCORE_MIN + (x / usable) * (SCORE_MAX - SCORE_MIN);
-    onChangeRef.current(Math.round(raw * 2) / 2); // snap to nearest 0.5
-  });
-
-  const pan = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: (e) => reportRef.current(e.nativeEvent.locationX),
-      onPanResponderMove: (e) => reportRef.current(e.nativeEvent.locationX),
-    })
-  ).current;
-
-  useEffect(() => {
-    const width = trackWidthRef.current;
-    if (!width) return;
-    Animated.spring(thumbX, {
-      toValue: valueToX(value, width),
-      useNativeDriver: false,
-      speed: 22,
-      bounciness: 5,
-    }).start();
-  }, [value]);
-
-  const tone = scoreTone(value);
-
-  return (
-    <View>
-      <View style={styles.scoreReadout}>
-        <Text style={[styles.scoreReadoutNum, { color: tone.color }]}>{value.toFixed(1)}</Text>
-        <Text style={[styles.scoreReadoutLabel, { color: tone.color }]}>{tone.label}</Text>
-      </View>
-
-      <View
-        style={styles.sliderTrack}
-        onLayout={(e) => {
-          const w = e.nativeEvent.layout.width;
-          trackWidthRef.current = w;
-          thumbX.setValue(valueToX(value, w));
-        }}
-        {...pan.panHandlers}
-      >
-        <Animated.View style={[styles.sliderFill, { width: thumbX, backgroundColor: tone.color }]} />
-        <Animated.View
-          style={[
-            styles.sliderThumb,
-            { backgroundColor: tone.color, transform: [{ translateX: Animated.subtract(thumbX, THUMB_SIZE / 2) }] },
-          ]}
-        />
-      </View>
-
-      <View style={styles.sliderScaleRow}>
-        <Text style={styles.sliderScaleText}>1</Text>
-        <Text style={styles.sliderScaleText}>10</Text>
-      </View>
-    </View>
-  );
 }
 
 // ─── Business Tag (passed via route params from sponsored ad) ─────────────────
@@ -1428,17 +1306,6 @@ const styles = StyleSheet.create({
   optional: { color: C.gray4, fontWeight: '400' },
 
   // Meal tag picker
-  tagPickerWrap: {
-    flexDirection: 'row', backgroundColor: C.glassBg,
-    borderRadius: 13, borderWidth: 1, borderColor: C.glassBorder, padding: 4, gap: 4,
-  },
-  tagPickerTouch: { flex: 1 },
-  tagPickerBtn: {
-    alignItems: 'center', justifyContent: 'center',
-    paddingVertical: 9, borderRadius: 10,
-  },
-  tagPickerText: { fontWeight: '500', fontSize: 13, color: 'rgba(245,245,247,0.5)' },
-  tagPickerTextActive: { color: C.bg, fontWeight: '700' },
   textInput: { backgroundColor: C.inputBg, borderWidth: 0.5, borderColor: C.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: C.white },
   textArea: { height: 88, textAlignVertical: 'top' },
   nameRow: { flexDirection: 'row', gap: 10 },
@@ -1468,44 +1335,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,107,61,0.06)',
   },
   addExtraPhotoText: { fontSize: 11, fontWeight: '700', color: C.orange },
-
-  // Score slider
-  scoreReadout: { flexDirection: 'row', alignItems: 'baseline', gap: 8, marginBottom: 14 },
-  scoreReadoutNum: { fontFamily: C.serif, fontSize: 40 },
-  scoreReadoutLabel: { fontSize: 16, fontWeight: '700' },
-  sliderTrack: {
-    height: 40,
-    justifyContent: 'center',
-    backgroundColor: C.inputBg,
-    borderWidth: 0.5,
-    borderColor: C.border,
-    borderRadius: 12,
-    paddingHorizontal: THUMB_SIZE / 2,
-    overflow: 'visible',
-  },
-  sliderFill: {
-    position: 'absolute',
-    left: THUMB_SIZE / 2,
-    height: 6,
-    borderRadius: 3,
-    opacity: 0.9,
-  },
-  sliderThumb: {
-    position: 'absolute',
-    left: THUMB_SIZE / 2,
-    width: THUMB_SIZE,
-    height: THUMB_SIZE,
-    borderRadius: THUMB_SIZE / 2,
-    borderWidth: 3,
-    borderColor: C.bg,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.4,
-    shadowRadius: 4,
-    elevation: 4,
-  },
-  sliderScaleRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 8, paddingHorizontal: 2 },
-  sliderScaleText: { fontSize: 11, color: C.gray3, fontWeight: '600' },
 
   // Save
   saveBtn: {

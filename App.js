@@ -27,6 +27,7 @@ import UserProfileScreen from './screens/UserProfileScreen';
 import MyProfileScreen from './screens/MyProfileScreen';
 import BlockedUsersScreen from './screens/BlockedUsersScreen';
 import MealDetailScreen from './screens/MealDetailScreen';
+import EditMealScreen from './screens/EditMealScreen';
 import MapScreen from './screens/MapScreen';
 import DayTrailDetailScreen from './screens/DayTrailDetailScreen';
 import DayBoardScreen from './screens/DayBoardScreen';
@@ -160,6 +161,11 @@ function AppNavigator() {
           name="MealDetail"
           component={MealDetailScreen}
           options={{ animation: 'slide_from_right' }}
+        />
+        <Root.Screen
+          name="EditMeal"
+          component={EditMealScreen}
+          options={{ animation: 'slide_from_bottom' }}
         />
         <Root.Screen
           name="Map"

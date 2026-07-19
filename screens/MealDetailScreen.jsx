@@ -4,7 +4,7 @@ import {
   StatusBar, ActivityIndicator, Dimensions, Alert, Platform, Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useNavigation, useRoute, useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
@@ -182,7 +182,9 @@ export default function MealDetailScreen() {
     }
   }, [mealId, routePostId]);
 
-  useEffect(() => { load(); }, [load]);
+  // Refetches on every focus (not just mealId/routePostId changes) so
+  // returning here after EditMealScreen shows the saved changes.
+  useFocusEffect(useCallback(() => { load(); }, [load]));
 
   // Live device position for the distance line — same pattern as
   // LogMealScreen/TierListScreen, non-blocking if denied.
@@ -360,6 +362,16 @@ export default function MealDetailScreen() {
           <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()} hitSlop={10}>
             <Ionicons name="chevron-back" size={24} color={C.white} />
           </TouchableOpacity>
+
+          {isOwner && (
+            <TouchableOpacity
+              style={styles.editBtn}
+              onPress={() => navigation.navigate('EditMeal', { mealId })}
+              hitSlop={10}
+            >
+              <Ionicons name="pencil" size={18} color={C.white} />
+            </TouchableOpacity>
+          )}
         </View>
 
         {/* ── Info block ───────────────────────────────────────────────────── */}
@@ -485,6 +497,11 @@ const styles = StyleSheet.create({
 
   backBtn: {
     position: 'absolute', top: 20, left: 16,
+    width: 38, height: 38, borderRadius: 19,
+    backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center',
+  },
+  editBtn: {
+    position: 'absolute', top: 20, right: 16,
     width: 38, height: 38, borderRadius: 19,
     backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center',
   },
