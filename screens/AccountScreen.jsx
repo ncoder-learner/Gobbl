@@ -42,10 +42,10 @@ const PROVIDER_LABELS = {
   apple: 'Apple',
 };
 
-function Avatar({ name, email, uri, uploading, onPress }) {
+function Avatar({ name, username, uri, uploading, onPress }) {
   const initials = name
     ? name.split(' ').map((p) => p[0]).join('').toUpperCase().slice(0, 2)
-    : (email?.[0]?.toUpperCase() ?? '?');
+    : (username?.[0]?.toUpperCase() ?? '?');
 
   return (
     <TouchableOpacity style={styles.avatar} onPress={onPress} activeOpacity={0.8} disabled={uploading}>
@@ -475,7 +475,7 @@ export default function AccountScreen() {
           <View style={styles.profileRow}>
             <Avatar
               name={displayName}
-              email={user.email}
+              username={profile?.username}
               uri={profile?.avatar_url}
               uploading={avatarUploading}
               onPress={pickAvatar}
