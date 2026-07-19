@@ -14,6 +14,7 @@ import { winsForMonth } from '../lib/postVotes';
 import { shareProfileLink } from '../lib/profileLink';
 import { fetchSkipDayKeys } from '../lib/skips';
 import { localDateKey } from '../lib/dateKey';
+import { MEAL_TAGS } from '../lib/postUtils';
 import Avatar from '../components/Avatar';
 import { THEME as C } from '../lib/theme';
 import StripedPlaceholder from '../components/StripedPlaceholder';
@@ -56,6 +57,17 @@ function formatScore(score) {
   return isNaN(n) ? '—' : n.toFixed(1);
 }
 
+// Own-profile header shows the user's real name, not the (now-removed)
+// email-derived display_name — first_name/last_name come from the
+// post-signup profile step; display_name only survives here as a fallback
+// for whatever a user may have typed into Account Settings themselves.
+function fullName(profile) {
+  const first = profile?.first_name?.trim();
+  const last = profile?.last_name?.trim();
+  if (first || last) return [first, last].filter(Boolean).join(' ');
+  return profile?.display_name?.trim() || null;
+}
+
 // extraDayKeys are days resolved by a skip (not a logged meal) — merged in
 // so a skipped day counts the same as a logged one for streak purposes.
 function computeStreak(rows, extraDayKeys) {
@@ -76,12 +88,8 @@ function computeStreak(rows, extraDayKeys) {
 
 // ─── Mini post card ───────────────────────────────────────────────────────────
 
-function MiniPostCard({ post, onPress }) {
-  const meal = post.meals;
-  if (!meal) return null;
-  const color     = scoreToneColor(meal.score);
-  const likeCount = (post.post_likes || []).length;
-  const cmtCount  = (post.post_comments || []).length;
+function MiniPostCard({ slot, onPress }) {
+  const { meal, tierRank, likeCount, cmtCount } = slot;
 
   return (
     <TouchableOpacity style={styles.gridCard} activeOpacity={0.85} onPress={onPress}>
@@ -100,12 +108,12 @@ function MiniPostCard({ post, onPress }) {
         style={StyleSheet.absoluteFill}
         pointerEvents="none"
       />
-      <View style={[styles.gridScoreBadge, { backgroundColor: color }]}>
+      <View style={[styles.gridScoreBadge, { backgroundColor: scoreToneColor(meal.score) }]}>
         <Text style={styles.gridScoreText}>{formatScore(meal.score)}</Text>
       </View>
-      {post.tier_rank != null && post.tier_rank <= 10 && (
-        <View style={[styles.gridTierPill, { borderColor: color + 'aa' }]}>
-          <Text style={[styles.gridTierText, { color }]}>#{post.tier_rank}</Text>
+      {tierRank != null && tierRank <= 10 && (
+        <View style={[styles.gridTierPill, { borderColor: scoreToneColor(meal.score) + 'aa' }]}>
+          <Text style={[styles.gridTierText, { color: scoreToneColor(meal.score) }]}>#{tierRank}</Text>
         </View>
       )}
       <Text style={styles.gridMealName} numberOfLines={1}>{meal.name}</Text>
@@ -212,8 +220,18 @@ export default function MyProfileScreen() {
           .eq('id', user.id)
           .single(),
 
+        // meal_id only ever mirrors ONE of a post's up-to-3 filled slots
+        // (breakfast/lunch/dinner) — a day where the user posted all three
+        // is still a single posts row, so this needs every slot joined, not
+        // just the primary one, or "Recent meals" silently drops 2 of 3.
         supabase.from('posts')
-          .select('id, tier_rank, created_at, meals!meal_id(id, name, emoji, score, photo_url), post_likes(user_id), post_comments(id)')
+          .select(`
+            id, tier_rank, created_at, meal_id,
+            breakfast:meals!breakfast_meal_id(id, name, emoji, score, photo_url),
+            lunch:meals!lunch_meal_id(id, name, emoji, score, photo_url),
+            dinner:meals!dinner_meal_id(id, name, emoji, score, photo_url),
+            post_likes(user_id), post_comments(id)
+          `)
           .eq('user_id', user.id)
           .order('created_at', { ascending: false })
           .limit(60),
@@ -299,8 +317,8 @@ export default function MyProfileScreen() {
 
         <View style={styles.nameRow}>
           <View style={{ flex: 1 }}>
-            {profile?.display_name ? (
-              <Text style={styles.displayName}>{profile.display_name}</Text>
+            {fullName(profile) ? (
+              <Text style={styles.displayName}>{fullName(profile)}</Text>
             ) : null}
             <Text style={styles.username}>@{profile?.username ?? '…'}</Text>
           </View>
@@ -341,15 +359,35 @@ export default function MyProfileScreen() {
     );
   }
 
+  // One card per filled slot (breakfast/lunch/dinner), not one per posts
+  // row — a day where all three were posted is still a single row, so
+  // flattening here is what actually surfaces all of them.
+  const postSlots = posts.flatMap(post => {
+    const likeCount = (post.post_likes || []).length;
+    const cmtCount  = (post.post_comments || []).length;
+    return MEAL_TAGS
+      .map(tag => post[tag])
+      .filter(Boolean)
+      .map(meal => ({
+        key: `${post.id}-${meal.id}`,
+        postId: post.id,
+        mealId: meal.id,
+        meal,
+        tierRank: meal.id === post.meal_id ? post.tier_rank : null,
+        likeCount,
+        cmtCount,
+      }));
+  });
+
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <StatusBar barStyle="light-content" backgroundColor={C.bg} />
       <FlatList
-        data={posts}
-        keyExtractor={item => item.id}
+        data={postSlots}
+        keyExtractor={item => item.key}
         numColumns={GRID_COLS}
         columnWrapperStyle={styles.gridRow}
-        renderItem={({ item }) => <MiniPostCard post={item} onPress={() => setSelectedPost(item)} />}
+        renderItem={({ item }) => <MiniPostCard slot={item} onPress={() => setSelectedPost(item)} />}
         ListHeaderComponent={listHeader}
         ListEmptyComponent={
           <View style={styles.noPostsBox}>
@@ -362,8 +400,9 @@ export default function MyProfileScreen() {
 
       <CommentSheet
         visible={selectedPost !== null}
-        postId={selectedPost?.id}
-        postOwnerId={selectedPost?.user_id}
+        postId={selectedPost?.postId}
+        mealId={selectedPost?.mealId}
+        postOwnerId={profile?.id}
         onDismiss={() => setSelectedPost(null)}
       />
     </SafeAreaView>

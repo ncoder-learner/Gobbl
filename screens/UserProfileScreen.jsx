@@ -41,6 +41,17 @@ function formatScore(score) {
   return isNaN(n) ? '—' : n.toFixed(1);
 }
 
+// A profile page shows the person's real name (first_name/last_name from
+// the post-signup profile step, falling back to whatever they may have
+// typed into display_name themselves) — unlike the friends list, which
+// intentionally shows only @username.
+function fullName(profile) {
+  const first = profile?.first_name?.trim();
+  const last = profile?.last_name?.trim();
+  if (first || last) return [first, last].filter(Boolean).join(' ');
+  return profile?.display_name?.trim() || null;
+}
+
 // ─── Mini post card (grid layout) ────────────────────────────────────────────
 
 function MiniPostCard({ post }) {
@@ -368,8 +379,8 @@ export default function UserProfileScreen() {
 
       <View style={styles.profileBody}>
         {/* Name info */}
-        {profile?.display_name ? (
-          <Text style={styles.displayName}>{profile.display_name}</Text>
+        {fullName(profile) ? (
+          <Text style={styles.displayName}>{fullName(profile)}</Text>
         ) : null}
         <Text style={styles.username}>@{profile?.username ?? '…'}</Text>
         {profile?.bio ? (

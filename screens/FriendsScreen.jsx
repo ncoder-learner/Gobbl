@@ -32,9 +32,6 @@ function PersonRow({ profile, action }) {
       <InitialsAvatar username={profile.username} displayName={profile.display_name} />
       <View style={styles.personInfo}>
         <Text style={styles.personUsername}>@{profile.username}</Text>
-        {profile.display_name ? (
-          <Text style={styles.personDisplay}>{profile.display_name}</Text>
-        ) : null}
       </View>
       {action}
     </View>
@@ -140,7 +137,6 @@ function RequestRow({ row, myId, onAccepted, onDeclined }) {
       <InitialsAvatar username={profile.username} displayName={profile.display_name} />
       <View style={styles.personInfo}>
         <Text style={styles.personUsername}>@{profile.username}</Text>
-        {profile.display_name ? <Text style={styles.personDisplay}>{profile.display_name}</Text> : null}
         <Text style={styles.requestLabel}>Wants to be friends</Text>
       </View>
       <View style={styles.requestActions}>
@@ -203,7 +199,6 @@ function FriendRow({ row, myId, onNavigate, onRemoved }) {
       <InitialsAvatar username={profile.username} displayName={profile.display_name} />
       <View style={styles.personInfo}>
         <Text style={styles.personUsername}>@{profile.username}</Text>
-        {profile.display_name ? <Text style={styles.personDisplay}>{profile.display_name}</Text> : null}
       </View>
       {loading ? (
         <ActivityIndicator color={C.gray2} size="small" />
@@ -458,7 +453,6 @@ export default function FriendsScreen() {
                         <InitialsAvatar username={profile.username} displayName={profile.display_name} />
                         <View style={styles.personInfo}>
                           <Text style={styles.personUsername}>@{profile.username}</Text>
-                          {profile.display_name ? <Text style={styles.personDisplay}>{profile.display_name}</Text> : null}
                         </View>
                         <TouchableOpacity
                           onPress={async () => {
@@ -551,7 +545,6 @@ const styles = StyleSheet.create({
   avatarLetter: { fontFamily: C.serif, color: C.white },
   personInfo: { flex: 1 },
   personUsername: { fontSize: 14, fontWeight: '600', color: C.white },
-  personDisplay: { fontSize: 12, color: C.gray1, marginTop: 1 },
   requestLabel: { fontSize: 11, color: C.gray2, marginTop: 2 },
 
   requestActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
