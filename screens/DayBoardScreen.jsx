@@ -1005,10 +1005,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20, paddingTop: 10, paddingBottom: 8,
   },
   navBrand: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  navLogo: { width: 26, height: 26, resizeMode: 'contain' },
-  // aspectRatio (not a fixed width) so this can never clip/squash again if
-  // the source wordmark.png's own crop margins ever change.
-  navWordmark: { height: 26, aspectRatio: 494 / 250, resizeMode: 'contain' },
+  navLogo: { width: 40, height: 40, resizeMode: 'contain' },
+  // Explicit width+height, not aspectRatio — height-only + aspectRatio
+  // rendered the image far larger than intended in this row layout, so
+  // this has to be sized by hand to wordmark.png's actual aspect (494/250).
+  navWordmark: { width: 79, height: 40, resizeMode: 'contain' },
   headerActions: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
   },
