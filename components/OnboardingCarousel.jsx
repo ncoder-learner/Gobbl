@@ -131,8 +131,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
     marginTop: 8, marginBottom: 4,
   },
-  brandLogo: { width: 30, height: 30, resizeMode: 'contain' },
-  brandWordmark: { height: 36, aspectRatio: 494 / 250, resizeMode: 'contain' },
+  brandLogo: { width: 24, height: 24, resizeMode: 'contain' },
+  brandWordmark: { height: 24, aspectRatio: 494 / 250, resizeMode: 'contain' },
 
   scrollView: { flex: 1 },
 
