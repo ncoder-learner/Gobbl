@@ -93,44 +93,6 @@ function storagePathFromUrl(photoUrl) {
 }
 
 // ─── Score stepper ────────────────────────────────────────────────────────────
-// Used in the edit form. Safer than a drag slider inside a scroll view / modal.
-
-function ScoreStepper({ value, onChange }) {
-  const color = scoreToneColor(value);
-
-  function adjust(delta) {
-    const next = Math.round((value + delta) * 2) / 2;
-    onChange(Math.max(1, Math.min(10, next)));
-  }
-
-  return (
-    <View style={styles.stepperRow}>
-      <TouchableOpacity
-        style={styles.stepperBtn}
-        onPress={() => adjust(-0.5)}
-        hitSlop={8}
-        activeOpacity={0.7}
-      >
-        <Text style={styles.stepperBtnText}>−</Text>
-      </TouchableOpacity>
-
-      <View style={styles.stepperDisplay}>
-        <Text style={[styles.stepperScore, { color }]}>{value.toFixed(1)}</Text>
-        <Text style={[styles.stepperOut, { color }]}> / 10</Text>
-      </View>
-
-      <TouchableOpacity
-        style={styles.stepperBtn}
-        onPress={() => adjust(0.5)}
-        hitSlop={8}
-        activeOpacity={0.7}
-      >
-        <Text style={styles.stepperBtnText}>+</Text>
-      </TouchableOpacity>
-    </View>
-  );
-}
-
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function SectionHeader({ date }) {
@@ -196,17 +158,17 @@ function Chip({ text }) {
 // ─── Detail / Edit / Delete modal ─────────────────────────────────────────────
 // Single Modal with three modes so we never nest modals.
 //   'detail'        — read-only view with Edit + Delete buttons
-//   'edit'          — editable form (name, score, notes)
 //   'confirmDelete' — inline confirmation before hard-delete
+//
+// "Edit" isn't a mode here — it navigates to EditMealScreen (the same full
+// editor reachable from MealDetailScreen's pencil icon: name, slot, score,
+// notes, AND location) instead of this modal's own separate, more limited
+// form, so there's exactly one editing UI in the app, not two that could
+// drift apart.
 
-function MealDetailModal({ meal, onClose, onUpdated, onDeleted, onPostChanged }) {
+function MealDetailModal({ meal, onClose, onDeleted, onPostChanged }) {
+  const navigation = useNavigation();
   const [mode, setMode] = useState('detail');
-
-  // Edit form state — initialised from the meal at mount time.
-  const initScore = typeof meal.score === 'number' ? meal.score : Number(meal.score);
-  const [editName, setEditName] = useState(meal.name);
-  const [editScore, setEditScore] = useState(isNaN(initScore) ? 5 : initScore);
-  const [editNotes, setEditNotes] = useState(meal.notes ?? '');
 
   // Share form state
   const [shareCaption, setShareCaption] = useState('');
@@ -217,7 +179,6 @@ function MealDetailModal({ meal, onClose, onUpdated, onDeleted, onPostChanged })
   const [isPosted, setIsPosted] = useState(!!existingPost);
   const [postId, setPostId] = useState(existingPost?.id ?? null);
 
-  const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState(null);
 
@@ -264,42 +225,8 @@ function MealDetailModal({ meal, onClose, onUpdated, onDeleted, onPostChanged })
   }
 
   function enterEdit() {
-    // Re-sync fields with the current meal in case it was updated earlier this session.
-    const s = typeof meal.score === 'number' ? meal.score : Number(meal.score);
-    setEditName(meal.name);
-    setEditScore(isNaN(s) ? 5 : s);
-    setEditNotes(meal.notes ?? '');
-    setError(null);
-    setMode('edit');
-  }
-
-  async function handleSave() {
-    if (!editName.trim()) {
-      setError('Name is required.');
-      return;
-    }
-    setSaving(true);
-    setError(null);
-    try {
-      const derivedRating = Math.max(1, Math.min(5, Math.round(editScore / 2)));
-      const updates = {
-        name: editName.trim(),
-        score: editScore,
-        rating: derivedRating,
-        notes: editNotes.trim() || null,
-      };
-      const { error: updateError } = await supabase
-        .from('meals')
-        .update(updates)
-        .eq('id', meal.id);
-      if (updateError) throw updateError;
-      onUpdated({ ...meal, ...updates });
-      setMode('detail');
-    } catch (err) {
-      setError(err.message || 'Save failed. Try again.');
-    } finally {
-      setSaving(false);
-    }
+    onClose();
+    navigation.navigate('EditMeal', { mealId: meal.id });
   }
 
   async function handleDelete() {
@@ -335,13 +262,13 @@ function MealDetailModal({ meal, onClose, onUpdated, onDeleted, onPostChanged })
       transparent
       animationType="slide"
       statusBarTranslucent
-      onRequestClose={mode === 'edit' ? () => setMode('detail') : onClose}
+      onRequestClose={onClose}
     >
       <KeyboardAvoidingView
         style={{ flex: 1 }}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       >
-        <Pressable style={styles.detailOverlay} onPress={mode === 'edit' ? undefined : onClose}>
+        <Pressable style={styles.detailOverlay} onPress={onClose}>
           <Pressable style={styles.detailSheet} onPress={() => {}}>
             <View style={styles.detailHandle} />
 
@@ -424,77 +351,6 @@ function MealDetailModal({ meal, onClose, onUpdated, onDeleted, onPostChanged })
                   </View>
                 </ScrollView>
               </>
-            )}
-
-            {/* ── EDIT MODE ────────────────────────────────────────────── */}
-            {mode === 'edit' && (
-              <ScrollView
-                style={styles.editBody}
-                showsVerticalScrollIndicator={false}
-                contentContainerStyle={{ paddingBottom: 40 }}
-                keyboardShouldPersistTaps="handled"
-              >
-                <View style={styles.editHeader}>
-                  <TouchableOpacity onPress={() => { setError(null); setMode('detail'); }} hitSlop={8}>
-                    <Text style={styles.editCancelText}>Cancel</Text>
-                  </TouchableOpacity>
-                  <Text style={styles.editTitle}>Edit entry</Text>
-                  <View style={{ width: 52 }} />
-                </View>
-
-                <View style={styles.editFieldGroup}>
-                  <Text style={styles.editFieldLabel}>Meal name</Text>
-                  <TextInput
-                    style={styles.editInput}
-                    value={editName}
-                    onChangeText={setEditName}
-                    placeholder="e.g. Spicy tuna roll"
-                    placeholderTextColor={C.gray4}
-                    returnKeyType="done"
-                    autoFocus
-                  />
-                </View>
-
-                <View style={styles.editFieldGroup}>
-                  <Text style={styles.editFieldLabel}>Your rating</Text>
-                  <ScoreStepper value={editScore} onChange={setEditScore} />
-                </View>
-
-                <View style={styles.editFieldGroup}>
-                  <Text style={styles.editFieldLabel}>
-                    Notes <Text style={styles.editOptional}>(optional)</Text>
-                  </Text>
-                  <TextInput
-                    style={[styles.editInput, styles.editTextArea]}
-                    value={editNotes}
-                    onChangeText={setEditNotes}
-                    placeholder="Any thoughts?"
-                    placeholderTextColor={C.gray4}
-                    multiline
-                    numberOfLines={3}
-                    returnKeyType="done"
-                  />
-                </View>
-
-                {error ? (
-                  <View style={styles.errorBox}>
-                    <Text style={styles.errorText}>{error}</Text>
-                  </View>
-                ) : null}
-
-                <TouchableOpacity
-                  style={[styles.saveBtn, saving && styles.btnDisabled]}
-                  onPress={handleSave}
-                  disabled={saving}
-                  activeOpacity={0.85}
-                >
-                  {saving ? (
-                    <ActivityIndicator color={C.white} />
-                  ) : (
-                    <Text style={styles.saveBtnText}>Save changes</Text>
-                  )}
-                </TouchableOpacity>
-              </ScrollView>
             )}
 
             {/* ── CONFIRM DELETE MODE ──────────────────────────────────── */}
@@ -697,11 +553,6 @@ export default function HistoryScreen() {
     fetchMeals(page + 1, false);
   }
 
-  function handleMealUpdated(updatedMeal) {
-    setMeals((prev) => prev.map((m) => (m.id === updatedMeal.id ? { ...m, ...updatedMeal } : m)));
-    setSelectedMeal((prev) => (prev?.id === updatedMeal.id ? { ...prev, ...updatedMeal } : prev));
-  }
-
   function handleMealDeleted(mealId) {
     setMeals((prev) => prev.filter((m) => m.id !== mealId));
     setSelectedMeal(null);
@@ -774,7 +625,6 @@ export default function HistoryScreen() {
           key={selectedMeal.id}
           meal={selectedMeal}
           onClose={() => setSelectedMeal(null)}
-          onUpdated={handleMealUpdated}
           onDeleted={handleMealDeleted}
           onPostChanged={handlePostChanged}
         />
@@ -977,34 +827,6 @@ const styles = StyleSheet.create({
     color: C.white,
   },
   editTextArea: { height: 88, textAlignVertical: 'top' },
-
-  // Score stepper
-  stepperRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: C.inputBg,
-    borderWidth: 0.5,
-    borderColor: C.border,
-    borderRadius: 12,
-    overflow: 'hidden',
-  },
-  stepperBtn: {
-    width: 52,
-    height: 52,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: C.surface,
-  },
-  stepperBtnText: { fontSize: 22, color: C.white, fontWeight: '300', lineHeight: 26 },
-  stepperDisplay: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    justifyContent: 'center',
-    paddingVertical: 12,
-  },
-  stepperScore: { fontSize: 28, fontWeight: '800', letterSpacing: -0.5 },
-  stepperOut: { fontSize: 14, fontWeight: '500', opacity: 0.6 },
 
   saveBtn: {
     backgroundColor: C.orange,
