@@ -1002,11 +1002,13 @@ const styles = StyleSheet.create({
 
   navBar: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 20, paddingTop: 10, paddingBottom: 8,
+    paddingHorizontal: 20, paddingTop: 14, paddingBottom: 10,
   },
   navBrand: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   navLogo: { width: 34, height: 34, resizeMode: 'contain' },
-  navWordmark: { width: 84, height: 30, resizeMode: 'contain' },
+  // aspectRatio (not a fixed width) so this can never clip/squash again if
+  // the source wordmark.png's own crop margins ever change.
+  navWordmark: { height: 40, aspectRatio: 494 / 250, resizeMode: 'contain' },
   headerActions: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
   },

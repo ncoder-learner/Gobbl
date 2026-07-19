@@ -132,7 +132,7 @@ const styles = StyleSheet.create({
     marginTop: 8, marginBottom: 4,
   },
   brandLogo: { width: 30, height: 30, resizeMode: 'contain' },
-  brandWordmark: { width: 74, height: 27, resizeMode: 'contain' },
+  brandWordmark: { height: 36, aspectRatio: 494 / 250, resizeMode: 'contain' },
 
   scrollView: { flex: 1 },
 
