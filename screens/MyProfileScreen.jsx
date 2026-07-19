@@ -223,7 +223,7 @@ export default function MyProfileScreen() {
         // meal_id only ever mirrors ONE of a post's up-to-3 filled slots
         // (breakfast/lunch/dinner) — a day where the user posted all three
         // is still a single posts row, so this needs every slot joined, not
-        // just the primary one, or "Recent meals" silently drops 2 of 3.
+        // just the primary one, or "Recent posts" silently drops 2 of 3.
         supabase.from('posts')
           .select(`
             id, tier_rank, created_at, meal_id,
@@ -342,7 +342,7 @@ export default function MyProfileScreen() {
         <WinsCard wins={currentMonthWins} history={winsHistory} />
 
         <View style={styles.postsSectionHeader}>
-          <Text style={styles.postsSectionTitle}>Recent meals</Text>
+          <Text style={styles.postsSectionTitle}>Recent posts</Text>
         </View>
       </View>
     </View>
