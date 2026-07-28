@@ -15,6 +15,7 @@ import {
   Animated,
   Easing,
   Linking,
+  Dimensions,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -223,6 +224,9 @@ function TrailReminderCard({ onOpenSettings, onDismiss }) {
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
+const SCREEN_W = Dimensions.get('window').width;
+const SCREEN_H = Dimensions.get('window').height;
+
 export default function LogMealScreen() {
   const navigation = useNavigation();
   const route = useRoute();
@@ -235,7 +239,6 @@ export default function LogMealScreen() {
   const [camTooltipVisible, dismissCamTooltip] = useFirstVisit('@fw_tt_logmeal');
 
   const [stage, setStage] = useState('camera'); // camera | preview | identifying | confirm | saving | done
-  const [debugImgStatus, setDebugImgStatus] = useState('pending'); // TEMPORARY — remove with debug overlay
   const [imageUri, setImageUri] = useState(null);
   const [imageBase64, setImageBase64] = useState(null);
   const [imageMediaType, setImageMediaType] = useState('image/jpeg');
@@ -1014,21 +1017,19 @@ export default function LogMealScreen() {
     return (
       <SafeAreaView style={styles.previewScreen} edges={[]}>
         <StatusBar barStyle="light-content" backgroundColor={C.bg} />
-        <View style={styles.previewImgBox}>
-          <Image
-            source={{ uri: imageUri }}
-            style={StyleSheet.absoluteFillObject}
-            resizeMode="cover"
-            onLoad={() => setDebugImgStatus('loaded')}
-            onError={(e) => setDebugImgStatus(`error: ${e.nativeEvent?.error ?? 'unknown'}`)}
-          />
-        </View>
-        {/* TEMPORARY debug overlay to diagnose the black-screen report —
-            remove once confirmed fixed. */}
-        <View pointerEvents="none" style={styles.debugUriBox}>
-          <Text style={styles.debugUriText} numberOfLines={3}>uri: {String(imageUri)}</Text>
-          <Text style={styles.debugUriText}>status: {debugImgStatus}</Text>
-        </View>
+        {/* Literal pixel width/height, not flex/absoluteFillObject — Android's
+            image loader skips decoding entirely when its target view resolves
+            to a zero/indefinite measured size, which is what was silently
+            happening here (confirmed: onLoad/onError never fired at all,
+            while the exact same URI rendered fine moments later on the
+            confirm screen, which sizes its Image with a fixed style instead
+            of absolute-fill). Hardcoding real screen dimensions removes any
+            ambiguity about what size this container resolves to. */}
+        <Image
+          source={{ uri: imageUri }}
+          style={[styles.previewImg, { width: SCREEN_W, height: SCREEN_H }]}
+          resizeMode="cover"
+        />
 
         {stage === 'identifying' && (
           <View style={styles.identifyingOverlay}>
@@ -1409,9 +1410,7 @@ const styles = StyleSheet.create({
   // StatusBar above), with retake/identify controls floating over the
   // bottom of the image instead of pushing it into a smaller box.
   previewScreen: { flex: 1, backgroundColor: C.bg },
-  previewImgBox: { flex: 1, position: 'relative' },
-  debugUriBox: { position: 'absolute', top: 60, left: 12, right: 12, backgroundColor: 'rgba(255,0,0,0.75)', padding: 8, borderRadius: 8 },
-  debugUriText: { color: '#fff', fontSize: 11 },
+  previewImg: { position: 'absolute', top: 0, left: 0 },
   identifyingOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center', gap: 16 },
   identifyingText: { fontSize: 16, color: C.white, fontWeight: '500' },
   previewBottomOverlay: {
