@@ -5,6 +5,7 @@ import {
   Pressable, Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { supabase } from '../lib/supabase';
 import Avatar from './Avatar';
 import { THEME as C } from '../lib/theme';
@@ -63,6 +64,7 @@ export default function CommentSheet({ visible, postId, mealId, postOwnerId, onD
   const [text, setText]           = useState('');
   const [submitting, setSubmitting] = useState(false);
   const inputRef = useRef(null);
+  const insets = useSafeAreaInsets();
 
   useEffect(() => {
     if (visible && postId) {
@@ -191,7 +193,7 @@ export default function CommentSheet({ visible, postId, mealId, postOwnerId, onD
               />
             )}
 
-            <View style={styles.inputRow}>
+            <View style={[styles.inputRow, { paddingBottom: Math.max(14, insets.bottom) }]}>
               <TextInput
                 ref={inputRef}
                 style={styles.input}

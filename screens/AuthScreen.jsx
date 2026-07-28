@@ -18,6 +18,7 @@ import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import { supabase } from '../lib/supabase';
+import { completeAuthFromUrl } from '../lib/authCallback';
 import { withTimeout } from '../lib/withTimeout';
 import { THEME as C } from '../lib/theme';
 
@@ -26,33 +27,13 @@ const PRIVACY_URL = 'https://ncoder-learner.github.io/gobbl-legal/privacy.html';
 
 WebBrowser.maybeCompleteAuthSession();
 
-async function handleOAuthCallback(url) {
-  // This runs the instant the browser session closes and control returns to
-  // the app — exactly the moment a supabase-js client can deadlock on its
-  // internal session lock if a sign-out happened earlier in the same
-  // session. Unlike the browser step before it, there's no user-facing UI
-  // here to "hang" — it would just silently never resolve, leaving
-  // googleLoading stuck true with the button spinner spinning forever.
-  const codeMatch = url.match(/[?&]code=([^&]+)/);
-  if (codeMatch) {
-    await withTimeout(
-      supabase.auth.exchangeCodeForSession(codeMatch[1]),
-      15000, 'Signing you in is taking too long. Please try again.',
-    );
-    return;
-  }
-  const hashMatch = url.match(/#(.+)/);
-  if (hashMatch) {
-    const params = new URLSearchParams(hashMatch[1]);
-    const access_token = params.get('access_token');
-    const refresh_token = params.get('refresh_token');
-    if (access_token && refresh_token) {
-      await withTimeout(
-        supabase.auth.setSession({ access_token, refresh_token }),
-        15000, 'Signing you in is taking too long. Please try again.',
-      );
-    }
-  }
+// Supabase's "email not confirmed" error — surfaced as a distinct message
+// so a correct-password login on an unconfirmed account reads as "check
+// your email", not a generic/wrong-credentials error the user could loop
+// on forever re-typing the same correct password.
+function isUnconfirmedEmailError(authError) {
+  return authError?.code === 'email_not_confirmed'
+    || /email.*not.*confirmed/i.test(authError?.message || '');
 }
 
 export default function AuthScreen() {
@@ -65,25 +46,84 @@ export default function AuthScreen() {
   const [error, setError] = useState(null);
   const [agreedToTerms, setAgreedToTerms] = useState(false);
   const [showEmailForm, setShowEmailForm] = useState(false);
+  // Set the instant signUp (or an unconfirmed login attempt) tells us this
+  // account needs email confirmation — replaces the form with a dedicated
+  // "check your email" state instead of leaving the user on the form with
+  // no error and no session (a silent failure) or bouncing them on a
+  // generic "invalid credentials"-looking error every time they retry the
+  // correct password (a login loop).
+  const [pendingConfirmationEmail, setPendingConfirmationEmail] = useState(null);
+  const [resending, setResending] = useState(false);
+  const [resendSent, setResendSent] = useState(false);
 
   const signupBlocked = mode === 'signup' && !agreedToTerms;
 
   async function handleSubmit() {
     if (signupBlocked) return;
-    if (!email.trim() || !password.trim()) {
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail || !password.trim()) {
       setError('Email and password are required.');
       return;
     }
     setLoading(true);
     setError(null);
 
-    const { error: authError } =
-      mode === 'signup'
-        ? await supabase.auth.signUp({ email: email.trim(), password })
-        : await supabase.auth.signInWithPassword({ email: email.trim(), password });
+    if (mode === 'signup') {
+      const { data, error: authError } = await supabase.auth.signUp({
+        email: trimmedEmail,
+        password,
+        // Points the confirmation link's redirect at this app's own deep
+        // link scheme (same helper the Google flow uses) instead of
+        // whichever generic Site URL is configured in the dashboard — the
+        // URL must be allow-listed under Auth > URL Configuration >
+        // Redirect URLs or Supabase silently falls back to the Site URL.
+        options: { emailRedirectTo: Linking.createURL('/') },
+      });
+      setLoading(false);
+      if (authError) { setError(authError.message); return; }
+      // With email confirmations off, signUp already returns a live
+      // session and onAuthStateChange takes over from here. With them on,
+      // there's no session yet — that's the "go check your email" case.
+      if (!data.session) {
+        setPendingConfirmationEmail(trimmedEmail);
+      }
+      return;
+    }
 
+    const { error: authError } = await supabase.auth.signInWithPassword({ email: trimmedEmail, password });
     setLoading(false);
-    if (authError) { setError(authError.message); return; }
+    if (authError) {
+      if (isUnconfirmedEmailError(authError)) {
+        setPendingConfirmationEmail(trimmedEmail);
+        return;
+      }
+      setError(authError.message);
+    }
+  }
+
+  async function handleResendConfirmation() {
+    if (!pendingConfirmationEmail || resending) return;
+    setResending(true);
+    setError(null);
+    try {
+      const { error: resendError } = await supabase.auth.resend({
+        type: 'signup',
+        email: pendingConfirmationEmail,
+        options: { emailRedirectTo: Linking.createURL('/') },
+      });
+      if (resendError) throw resendError;
+      setResendSent(true);
+    } catch (err) {
+      setError(err.message || 'Could not resend the email. Try again.');
+    } finally {
+      setResending(false);
+    }
+  }
+
+  function backToForm() {
+    setPendingConfirmationEmail(null);
+    setResendSent(false);
+    setError(null);
   }
 
   async function handleGoogle() {
@@ -116,7 +156,7 @@ export default function AuthScreen() {
         60000, 'Google sign-in is taking too long. Please try again.',
       );
       if (result.type === 'success') {
-        await handleOAuthCallback(result.url);
+        await completeAuthFromUrl(result.url);
       }
     } catch (err) {
       setError(err.message || 'Google sign-in failed.');
@@ -151,6 +191,54 @@ export default function AuthScreen() {
   function switchMode(next) {
     setMode(next);
     setError(null);
+  }
+
+  if (pendingConfirmationEmail) {
+    return (
+      <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+        <StatusBar barStyle="light-content" backgroundColor={C.bg} />
+        <View style={styles.scrollContent}>
+          <View style={styles.header}>
+            <View style={styles.logoBadgeShadow}>
+              <Image source={require('../assets/logo-mark.png')} style={styles.authLogo} />
+            </View>
+            <Text style={styles.appName}>Check your email</Text>
+            <Text style={styles.tagline}>
+              We sent a confirmation link to{'\n'}
+              <Text style={{ color: C.white, fontWeight: '600' }}>{pendingConfirmationEmail}</Text>.
+              {'\n'}Tap it to finish signing in — you can come back here.
+            </Text>
+          </View>
+
+          {error ? (
+            <View style={styles.errorBox}>
+              <Text style={styles.errorText}>{error}</Text>
+            </View>
+          ) : null}
+
+          <TouchableOpacity
+            style={[styles.submitBtn, resending && styles.submitBtnDisabled]}
+            onPress={handleResendConfirmation}
+            disabled={resending}
+          >
+            {resending ? (
+              <ActivityIndicator color={C.bg} />
+            ) : (
+              <Text style={styles.submitText}>
+                {resendSent ? 'Email sent — resend again' : 'Resend confirmation email'}
+              </Text>
+            )}
+          </TouchableOpacity>
+          {resendSent && !resending ? (
+            <Text style={styles.resendConfirm}>Sent! Check your inbox (and spam folder).</Text>
+          ) : null}
+
+          <TouchableOpacity onPress={backToForm} activeOpacity={0.7} style={{ marginTop: 18 }}>
+            <Text style={styles.emailLink}>Use a different email</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
   }
 
   return (
@@ -332,6 +420,7 @@ const styles = StyleSheet.create({
 
   primaryStack: { marginBottom: 20 },
   emailLink: { fontSize: 13, fontWeight: '600', color: C.orange, textAlign: 'center', marginTop: 6 },
+  resendConfirm: { fontSize: 13, color: C.green, textAlign: 'center', marginTop: 12 },
   footnote: { fontSize: 11, color: C.gray3, textAlign: 'center', marginTop: 18, lineHeight: 16 },
 
   card: {
