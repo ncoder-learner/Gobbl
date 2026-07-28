@@ -1011,8 +1011,8 @@ export default function LogMealScreen() {
 
   if (stage === 'preview' || stage === 'identifying') {
     return (
-      <View style={styles.previewScreen}>
-        <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
+      <SafeAreaView style={styles.previewScreen} edges={[]}>
+        <StatusBar barStyle="light-content" backgroundColor={C.bg} />
         <Image source={{ uri: imageUri }} style={StyleSheet.absoluteFillObject} resizeMode="cover" />
 
         {stage === 'identifying' && (
@@ -1053,7 +1053,7 @@ export default function LogMealScreen() {
             </View>
           </View>
         )}
-      </View>
+      </SafeAreaView>
     );
   }
 
