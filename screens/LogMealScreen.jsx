@@ -235,6 +235,7 @@ export default function LogMealScreen() {
   const [camTooltipVisible, dismissCamTooltip] = useFirstVisit('@fw_tt_logmeal');
 
   const [stage, setStage] = useState('camera'); // camera | preview | identifying | confirm | saving | done
+  const [debugImgStatus, setDebugImgStatus] = useState('pending'); // TEMPORARY — remove with debug overlay
   const [imageUri, setImageUri] = useState(null);
   const [imageBase64, setImageBase64] = useState(null);
   const [imageMediaType, setImageMediaType] = useState('image/jpeg');
@@ -1014,7 +1015,19 @@ export default function LogMealScreen() {
       <SafeAreaView style={styles.previewScreen} edges={[]}>
         <StatusBar barStyle="light-content" backgroundColor={C.bg} />
         <View style={styles.previewImgBox}>
-          <Image source={{ uri: imageUri }} style={StyleSheet.absoluteFillObject} resizeMode="cover" />
+          <Image
+            source={{ uri: imageUri }}
+            style={StyleSheet.absoluteFillObject}
+            resizeMode="cover"
+            onLoad={() => setDebugImgStatus('loaded')}
+            onError={(e) => setDebugImgStatus(`error: ${e.nativeEvent?.error ?? 'unknown'}`)}
+          />
+        </View>
+        {/* TEMPORARY debug overlay to diagnose the black-screen report —
+            remove once confirmed fixed. */}
+        <View pointerEvents="none" style={styles.debugUriBox}>
+          <Text style={styles.debugUriText} numberOfLines={3}>uri: {String(imageUri)}</Text>
+          <Text style={styles.debugUriText}>status: {debugImgStatus}</Text>
         </View>
 
         {stage === 'identifying' && (
@@ -1397,6 +1410,8 @@ const styles = StyleSheet.create({
   // bottom of the image instead of pushing it into a smaller box.
   previewScreen: { flex: 1, backgroundColor: C.bg },
   previewImgBox: { flex: 1, position: 'relative' },
+  debugUriBox: { position: 'absolute', top: 60, left: 12, right: 12, backgroundColor: 'rgba(255,0,0,0.75)', padding: 8, borderRadius: 8 },
+  debugUriText: { color: '#fff', fontSize: 11 },
   identifyingOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center', gap: 16 },
   identifyingText: { fontSize: 16, color: C.white, fontWeight: '500' },
   previewBottomOverlay: {
