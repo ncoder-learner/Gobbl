@@ -16,7 +16,7 @@ import {
   Easing,
   Linking,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions } from 'expo-camera';
@@ -199,11 +199,34 @@ function SharePromptCard({ meal, posted, onShare }) {
   );
 }
 
+// ─── Day Trail reminder — a soft, dismissible nudge, never a gate. Shown
+// only when a just-saved home meal (no coordinates) would otherwise have
+// completed today's Day Trail. Tapping it opens the real home-location
+// editor (AccountScreen); dismissing it just leaves the meal home-tagged
+// with no coordinate, exactly as before. ───────────────────────────────────
+function TrailReminderCard({ onOpenSettings, onDismiss }) {
+  return (
+    <View style={styles.trailReminderCard}>
+      <Ionicons name="map-outline" size={16} color={C.orange} />
+      <Text style={styles.trailReminderText}>
+        Add your home location to include this stop in your Day Trail.
+      </Text>
+      <TouchableOpacity onPress={onOpenSettings} hitSlop={8}>
+        <Text style={styles.trailReminderAction}>Add</Text>
+      </TouchableOpacity>
+      <TouchableOpacity onPress={onDismiss} hitSlop={8}>
+        <Ionicons name="close" size={16} color={C.gray3} />
+      </TouchableOpacity>
+    </View>
+  );
+}
+
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
 export default function LogMealScreen() {
   const navigation = useNavigation();
   const route = useRoute();
+  const insets = useSafeAreaInsets();
   const sponsored = route.params?.sponsored ?? null; // passed from HomeScreen sponsored ad
   const forceTag = route.params?.forceTag ?? null; // passed from DayBoardScreen's empty "you" tile
 
@@ -243,6 +266,11 @@ export default function LogMealScreen() {
   const [savedPhotoUrl, setSavedPhotoUrl] = useState(null);
   const [shareOpen, setShareOpen] = useState(false);
   const [sharePosted, setSharePosted] = useState(false);
+  // Soft, dismissible nudge — never a gate. Only computed when this meal was
+  // just saved as a home meal with no coordinates (see saveMeal()) and would
+  // have been the day's 2nd+ located stop had a home location been set.
+  const [showTrailReminder, setShowTrailReminder] = useState(false);
+  const [trailReminderDismissed, setTrailReminderDismissed] = useState(false);
   const [notes, setNotes] = useState('');
   const [facing, setFacing] = useState('back');
   const [processing, setProcessing] = useState(false);
@@ -256,6 +284,7 @@ export default function LogMealScreen() {
   const [placeSearching, setPlaceSearching] = useState(false);
   const [userCoords, setUserCoords]       = useState(null); // {lat, lng} — null if permission denied
   const [homeLocation, setHomeLocation]   = useState(null); // {lat, lng, name} from profiles, or null
+  const [locating, setLocating]           = useState(false); // "Use my current location" in flight
   const currentUserIdRef = useRef(null);
   const placeSessionRef  = useRef(null); // UUID reused across AC keystrokes + final details call
   const placeDebounceRef = useRef(null);
@@ -287,23 +316,85 @@ export default function LogMealScreen() {
     })();
   }, []);
 
-  // "This was at home" — synthesizes a place_id from the user + coordinates
+  // "This was at home" — a private label, no location required. Tags the
+  // meal as home (isHomeMeal() in homePrivacy.js just checks the `home:`
+  // prefix) with zero setup and zero address data given up. When the user
+  // *has* saved a home location, the place_id is keyed off its coordinates
   // (not just the user) since the `places` table is an immutable INSERT-only
-  // cache (no UPDATE policy — see migration 004). Keying off coordinates
+  // cache (no UPDATE policy — see migration 004) — keying off coordinates
   // means repeated home-tagged meals share one row while a changed home
   // address in AccountScreen naturally lands on a fresh row instead of
-  // silently failing to update a stale one.
+  // silently failing to update a stale one. Without a saved home location,
+  // the place_id has no coordinate component at all — this meal simply gets
+  // no map point (mappableCoords() already returns null for missing lat/lng)
+  // and no Day Trail stop, but is otherwise a completely normal logged meal.
   function selectHome() {
-    if (!homeLocation || !currentUserIdRef.current) return;
-    const latKey = homeLocation.lat.toFixed(5);
-    const lngKey = homeLocation.lng.toFixed(5);
-    setSelectedPlace({
-      place_id: `home:${currentUserIdRef.current}:${latKey}:${lngKey}`,
-      name: homeLocation.name,
-      address: null,
-      lat: homeLocation.lat,
-      lng: homeLocation.lng,
-    });
+    if (!currentUserIdRef.current) return;
+    if (homeLocation) {
+      const latKey = homeLocation.lat.toFixed(5);
+      const lngKey = homeLocation.lng.toFixed(5);
+      setSelectedPlace({
+        place_id: `home:${currentUserIdRef.current}:${latKey}:${lngKey}`,
+        name: homeLocation.name,
+        address: null,
+        lat: homeLocation.lat,
+        lng: homeLocation.lng,
+      });
+    } else {
+      setSelectedPlace({
+        place_id: `home:${currentUserIdRef.current}`,
+        name: 'Home',
+        address: null,
+        lat: null,
+        lng: null,
+      });
+    }
+  }
+
+  // "Use my current location" — auto-recognizes the specific restaurant the
+  // user is standing in via a tight-radius nearby search (places-search's
+  // `nearby` mode), same helper PlaceSearchPicker (EditMealScreen) uses.
+  // Falls back to a reverse-geocoded pin when no food place is found nearby
+  // so it's never a dead end.
+  async function useMyLocation() {
+    setLocating(true);
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Location needed', 'Enable location access to use this.');
+        return;
+      }
+      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      const coordLat = pos.coords.latitude;
+      const coordLng = pos.coords.longitude;
+
+      const { data, error } = await supabase.functions.invoke('places-search', {
+        body: { lat: coordLat, lng: coordLng, nearby: true },
+      });
+      if (error) throw error;
+
+      if (data?.place) {
+        setSelectedPlace(data.place);
+        return;
+      }
+
+      let name = 'Current location';
+      let address = null;
+      try {
+        const [place] = await Location.reverseGeocodeAsync({ latitude: coordLat, longitude: coordLng });
+        if (place) {
+          name = place.name || place.street || name;
+          address = [place.street, place.city, place.region].filter(Boolean).join(', ') || null;
+        }
+      } catch {
+        // fall back to generic label
+      }
+      setSelectedPlace({ place_id: `pin:${coordLat.toFixed(6)}:${coordLng.toFixed(6)}`, name, address, lat: coordLat, lng: coordLng });
+    } catch (err) {
+      Alert.alert('Couldn\'t detect your location', err.message || 'Please try searching instead.');
+    } finally {
+      setLocating(false);
+    }
   }
 
   // Request foreground location as soon as the log flow starts (mount), so coords
@@ -359,7 +450,10 @@ export default function LogMealScreen() {
             ],
           );
         } else {
-          Alert.alert('Photo access needed', 'Allow access to your photos to add one from your library.');
+          // canAskAgain is true but they still just denied — the OS prompt
+          // already fired and got dismissed, so this isn't a re-prompt loop,
+          // just a one-line acknowledgment instead of nothing happening.
+          Alert.alert('Photo access needed', 'Allow access to your photos to choose one from your library.');
         }
         return;
       }
@@ -436,10 +530,7 @@ export default function LogMealScreen() {
             ],
           );
         } else {
-          // canAskAgain is true but they still just denied — the OS prompt
-          // already fired and got dismissed, so this isn't a re-prompt loop,
-          // just a one-line acknowledgment instead of nothing happening.
-          Alert.alert('Photo access needed', 'Allow access to your photos to choose one from your library.');
+          Alert.alert('Photo access needed', 'Allow access to your photos to add one from your library.');
         }
         return;
       }
@@ -704,6 +795,29 @@ export default function LogMealScreen() {
       setSavedMealId(inserted?.id ?? null);
       setSavedPhotoUrl(publicUrl);
       setSharePosted(false);
+
+      // Soft Day Trail nudge — only when this meal is home-tagged with no
+      // coordinates (i.e. logged via "This was at home" with no saved home
+      // location) and would have been the day's 2nd+ located stop had one
+      // been set. Never blocks the save; a failure here just means the
+      // reminder quietly doesn't show.
+      if (selectedPlace && isHomeMeal(selectedPlace) && selectedPlace.lat == null) {
+        try {
+          const startOfDay = new Date();
+          startOfDay.setHours(0, 0, 0, 0);
+          const { data: todayMeals } = await supabase
+            .from('meals')
+            .select('id, places(lat, lng)')
+            .eq('user_id', user.id)
+            .gte('created_at', startOfDay.toISOString())
+            .neq('id', inserted.id);
+          const locatedCount = (todayMeals || []).filter(m => m.places?.lat != null && m.places?.lng != null).length;
+          if (locatedCount >= 1) setShowTrailReminder(true);
+        } catch {
+          // non-fatal — reminder just won't show
+        }
+      }
+
       setStage('done');
     } catch (err) {
       console.error(err);
@@ -759,6 +873,8 @@ export default function LogMealScreen() {
     setSavedPhotoUrl(null);
     setShareOpen(false);
     setSharePosted(false);
+    setShowTrailReminder(false);
+    setTrailReminderDismissed(false);
     setPlaceQuery('');
     setSuggestions([]);
     setSelectedPlace(null);
@@ -801,6 +917,13 @@ export default function LogMealScreen() {
             posted={sharePosted}
             onShare={() => setShareOpen(true)}
           />
+
+          {showTrailReminder && !trailReminderDismissed && (
+            <TrailReminderCard
+              onOpenSettings={() => { setTrailReminderDismissed(true); navigation.navigate('AccountSettings'); }}
+              onDismiss={() => setTrailReminderDismissed(true)}
+            />
+          )}
 
           <TouchableOpacity
             style={styles.doneContinueBtn}
@@ -888,43 +1011,49 @@ export default function LogMealScreen() {
 
   if (stage === 'preview' || stage === 'identifying') {
     return (
-      <SafeAreaView style={styles.safe} edges={['top']}>
-        <StatusBar barStyle="light-content" backgroundColor={C.bg} />
-        <View style={styles.previewBox}>
-          <Image source={{ uri: imageUri }} style={styles.previewImg} resizeMode="cover" />
-          {stage === 'identifying' && (
-            <View style={styles.identifyingOverlay}>
-              <ActivityIndicator size="large" color={C.orange} />
-              <Text style={styles.identifyingText}>Identifying your meal...</Text>
-            </View>
-          )}
-        </View>
-        {stage === 'preview' && identifyError && (
-          <View style={styles.previewErrBox}>
-            <Text style={styles.previewErrText}>
-              {identifyError === 'no_food'
-                ? "We couldn't find food in this photo — try another shot."
-                : identifyError === 'timeout'
-                  ? 'Identification timed out. Please try again.'
-                  : "Couldn't verify the photo. Please try again."}
-            </Text>
+      <View style={styles.previewScreen}>
+        <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
+        <Image source={{ uri: imageUri }} style={StyleSheet.absoluteFillObject} resizeMode="cover" />
+
+        {stage === 'identifying' && (
+          <View style={styles.identifyingOverlay}>
+            <ActivityIndicator size="large" color={C.orange} />
+            <Text style={styles.identifyingText}>Identifying your meal...</Text>
           </View>
         )}
+
+        {/* Bottom controls float directly over the full-bleed photo instead
+            of pushing it up into a smaller box — paddingBottom covers the
+            home indicator itself, same Math.max(floor, insets.bottom)
+            pattern as CommentSheet's input row. */}
         {stage === 'preview' && (
-          <View style={styles.previewActions}>
-            <TouchableOpacity style={styles.previewRetake} onPress={() => setStage('camera')}>
-              <Text style={styles.previewRetakeText}>
-                {identifyError === 'no_food' ? 'Try another shot' : 'Retake'}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.previewIdentify} onPress={identify}>
-              <Text style={styles.previewIdentifyText}>
-                {identifyError ? 'Try again →' : 'Identify food →'}
-              </Text>
-            </TouchableOpacity>
+          <View style={[styles.previewBottomOverlay, { paddingBottom: Math.max(24, insets.bottom + 10) }]}>
+            {identifyError && (
+              <View style={styles.previewErrBox}>
+                <Text style={styles.previewErrText}>
+                  {identifyError === 'no_food'
+                    ? "We couldn't find food in this photo — try another shot."
+                    : identifyError === 'timeout'
+                      ? 'Identification timed out. Please try again.'
+                      : "Couldn't verify the photo. Please try again."}
+                </Text>
+              </View>
+            )}
+            <View style={styles.previewActions}>
+              <TouchableOpacity style={styles.previewRetake} onPress={() => setStage('camera')}>
+                <Text style={styles.previewRetakeText}>
+                  {identifyError === 'no_food' ? 'Try another shot' : 'Retake'}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.previewIdentify} onPress={identify}>
+                <Text style={styles.previewIdentifyText}>
+                  {identifyError ? 'Try again →' : 'Identify food →'}
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
         )}
-      </SafeAreaView>
+      </View>
     );
   }
 
@@ -1079,12 +1208,20 @@ export default function LogMealScreen() {
               </View>
             ) : (
               <>
-                {homeLocation && (
+                <View style={styles.placeChipRow}>
                   <TouchableOpacity style={styles.homeChip} onPress={selectHome} activeOpacity={0.75}>
                     <Ionicons name="home" size={14} color={C.orange} />
                     <Text style={styles.homeChipText}>This was at home</Text>
                   </TouchableOpacity>
-                )}
+                  <TouchableOpacity style={styles.homeChip} onPress={useMyLocation} activeOpacity={0.75} disabled={locating}>
+                    {locating ? (
+                      <ActivityIndicator size="small" color={C.orange} />
+                    ) : (
+                      <Ionicons name="locate" size={14} color={C.orange} />
+                    )}
+                    <Text style={styles.homeChipText}>{locating ? 'Finding your spot…' : 'Use current location'}</Text>
+                  </TouchableOpacity>
+                </View>
                 <View style={styles.placeInputRow}>
                   <Ionicons name="search" size={16} color={C.gray3} style={{ marginLeft: 12 }} />
                   <TextInput
@@ -1253,16 +1390,27 @@ const styles = StyleSheet.create({
   camShutter: { width: 72, height: 72, borderRadius: 36, borderWidth: 3, borderColor: C.white, alignItems: 'center', justifyContent: 'center' },
   camShutterInner: { width: 58, height: 58, borderRadius: 29, backgroundColor: C.white },
 
-  // Preview
-  previewBox: { flex: 1, position: 'relative' },
-  previewImg: { ...StyleSheet.absoluteFillObject },
+  // Preview — full-bleed photo behind the status bar/notch (translucent
+  // StatusBar above), with retake/identify controls floating over the
+  // bottom of the image instead of pushing it into a smaller box.
+  previewScreen: { flex: 1, backgroundColor: C.bg },
   identifyingOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center', gap: 16 },
   identifyingText: { fontSize: 16, color: C.white, fontWeight: '500' },
-  previewErrBox: { backgroundColor: '#1a0d00', borderTopWidth: 0.5, borderTopColor: '#4a2a00', paddingHorizontal: 20, paddingVertical: 14 },
+  previewBottomOverlay: {
+    position: 'absolute', left: 0, right: 0, bottom: 0,
+    paddingHorizontal: 24, paddingTop: 20,
+  },
+  previewErrBox: {
+    backgroundColor: 'rgba(26,13,0,0.92)', borderWidth: 0.5, borderColor: '#4a2a00',
+    borderRadius: 14, paddingHorizontal: 16, paddingVertical: 12, marginBottom: 14,
+  },
   previewErrText: { fontSize: 14, color: '#ffaa44', lineHeight: 20, textAlign: 'center' },
-  previewActions: { flexDirection: 'row', gap: 12, padding: 24 },
-  previewRetake: { flex: 1, borderWidth: 0.5, borderColor: C.border, borderRadius: 14, paddingVertical: 14, alignItems: 'center' },
-  previewRetakeText: { fontSize: 15, color: C.gray1, fontWeight: '500' },
+  previewActions: { flexDirection: 'row', gap: 12 },
+  previewRetake: {
+    flex: 1, borderWidth: 1, borderColor: 'rgba(255,255,255,0.4)', borderRadius: 14,
+    paddingVertical: 14, alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.35)',
+  },
+  previewRetakeText: { fontSize: 15, color: C.white, fontWeight: '500' },
   previewIdentify: { flex: 2, backgroundColor: C.orange, borderRadius: 14, paddingVertical: 14, alignItems: 'center' },
   previewIdentifyText: { fontWeight: '700', fontSize: 15, color: C.white },
 
@@ -1404,6 +1552,17 @@ const styles = StyleSheet.create({
   sharePromptCheckEmoji: { fontSize: 16, color: '#00c896', fontWeight: '800' },
   sharePromptPostedText: { fontSize: 14, fontWeight: '600', color: '#00c896' },
 
+  // Day Trail reminder — same light, dismissible treatment as the share
+  // prompt above; never blocks anything.
+  trailReminderCard: {
+    width: '100%', marginTop: 12,
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: 'rgba(251,114,56,0.08)', borderWidth: 1, borderColor: 'rgba(251,114,56,0.25)',
+    borderRadius: 16, paddingVertical: 12, paddingHorizontal: 14,
+  },
+  trailReminderText: { flex: 1, fontSize: 12, color: C.gray1, lineHeight: 17 },
+  trailReminderAction: { fontSize: 13, fontWeight: '700', color: C.orange },
+
   // Location section — a core feature, so it gets its own bordered card and
   // a bolder, icon-led label instead of the plain gray fieldLabel used by
   // secondary fields like Notes.
@@ -1428,10 +1587,11 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   placeChipName: { fontSize: 14, fontWeight: '500', color: C.white, marginBottom: 1 },
+  placeChipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 },
   homeChip: {
     flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start',
     backgroundColor: 'rgba(251,114,56,0.14)', borderWidth: 1, borderColor: 'rgba(251,114,56,0.3)',
-    borderRadius: 12, paddingHorizontal: 14, paddingVertical: 8, marginBottom: 10,
+    borderRadius: 12, paddingHorizontal: 14, paddingVertical: 8,
   },
   homeChipText: { fontSize: 13, fontWeight: '600', color: C.orange },
   placeChipAddr: { fontSize: 12, color: C.gray2 },

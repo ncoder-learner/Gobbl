@@ -1,6 +1,7 @@
 import { useRef, useState, useEffect } from 'react';
 import { View, ActivityIndicator } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Linking from 'expo-linking';
 import { Ionicons } from '@expo/vector-icons';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
@@ -10,6 +11,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useFonts, InstrumentSerif_400Regular, InstrumentSerif_400Regular_Italic } from '@expo-google-fonts/instrument-serif';
 import { supabase } from './lib/supabase';
 import { withTimeout } from './lib/withTimeout';
+import { completeAuthFromUrl } from './lib/authCallback';
 import { setupNotificationHandler } from './lib/notifications';
 import * as Notifications from 'expo-notifications';
 import LogMealScreen from './screens/LogMealScreen';
@@ -19,7 +21,6 @@ import AccountScreen from './screens/AccountScreen';
 import HistoryScreen from './screens/HistoryScreen';
 import YoursScreen from './screens/YoursScreen';
 import AuthScreen from './screens/AuthScreen';
-import OnboardingScreen from './screens/OnboardingScreen';
 import ProfileInfoScreen from './screens/ProfileInfoScreen';
 import UsernamePromptScreen from './screens/UsernamePromptScreen';
 import FriendsScreen from './screens/FriendsScreen';
@@ -212,6 +213,24 @@ function AppNavigator() {
   );
 }
 
+// The 5-slide carousel used to be a forced first-run screen here, but its
+// content (board view, Tier Duels, Day Trail) is re-taught live, with real
+// data, by the guided tour moments later — showing it twice just added to
+// the total step count friends complained about. The carousel component
+// itself is untouched and still reachable anytime via AccountScreen's "How
+// it works" replay; this just stops gating first-run on it. `onDone` still
+// runs so the existing onboarding_completed persistence (AsyncStorage +
+// Supabase) and the tour's autoStartTour trigger keep working unchanged.
+function AutoCompleteOnboarding({ onDone }) {
+  const firedRef = useRef(false);
+  useEffect(() => {
+    if (firedRef.current) return;
+    firedRef.current = true;
+    onDone();
+  }, []);
+  return null;
+}
+
 // Starts the guided tour the moment AppNavigator actually mounts after a
 // fresh onboarding completion — not right when the carousel finishes,
 // since ProfileInfoScreen/UsernamePromptScreen can still sit in between.
@@ -378,6 +397,22 @@ export default function App() {
     setupNotificationHandler();
   }, []);
 
+  // Email confirmation links (and Google/Apple OAuth's browser redirect, as
+  // a second line of defense alongside AuthScreen's own in-flow handling)
+  // hand off to the app via this same custom-scheme deep link. Unlike the
+  // OAuth flow, the confirmation email is opened from a mail app the user
+  // may have tapped after fully closing Gobbl — that's a cold start, not a
+  // link tapped while AuthScreen is already mounted and listening — so this
+  // has to live at the root, not inside AuthScreen, to catch both cases.
+  // completeAuthFromUrl() is a no-op (returns false) for any URL without
+  // auth params, so this is safe to run against every deep link opened,
+  // including the unrelated profile-share links `linking` below handles.
+  useEffect(() => {
+    Linking.getInitialURL().then(url => { if (url) completeAuthFromUrl(url); });
+    const sub = Linking.addEventListener('url', ({ url }) => completeAuthFromUrl(url));
+    return () => sub.remove();
+  }, []);
+
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setSession(session ?? null);
@@ -455,7 +490,7 @@ export default function App() {
         ) : !session ? (
           <AuthScreen />
         ) : !onboardingDone ? (
-          <OnboardingScreen onDone={handleOnboardingDone} />
+          <AutoCompleteOnboarding onDone={handleOnboardingDone} />
         ) : !hasProfileInfo ? (
           <ProfileInfoScreen onDone={handleProfileInfoDone} />
         ) : !hasUsername ? (

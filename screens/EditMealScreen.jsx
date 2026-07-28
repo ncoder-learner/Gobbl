@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
   StatusBar, ActivityIndicator, ScrollView, KeyboardAvoidingView, Platform, Alert,
@@ -36,12 +36,15 @@ export default function EditMealScreen() {
   const [notes, setNotes] = useState('');
   const [place, setPlace] = useState(null); // {place_id, name, address, lat, lng} | null
   const [userCoords, setUserCoords] = useState(null);
+  const [homeLocation, setHomeLocation] = useState(null); // {lat, lng, name} | null — from profile_home_locations
+  const currentUserIdRef = useRef(null);
 
   const load = useCallback(async () => {
     setError(null);
     setLoading(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
+      if (user) currentUserIdRef.current = user.id;
       const { data, error: fetchErr } = await supabase
         .from('meals')
         .select('id, user_id, name, score, tag, notes, place_id, places(name, address, lat, lng)')
@@ -92,6 +95,56 @@ export default function EditMealScreen() {
       }
     })();
   }, []);
+
+  // Load the user's saved home location (if any) so "This was at home" can
+  // be offered here too, same as LogMealScreen — see selectHome() below.
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+        currentUserIdRef.current = user.id;
+        const { data, error: homeErr } = await supabase
+          .from('profile_home_locations')
+          .select('lat, lng, place_name')
+          .eq('user_id', user.id)
+          .maybeSingle();
+        if (homeErr) throw homeErr;
+        if (data?.lat != null && data?.lng != null) {
+          setHomeLocation({ lat: data.lat, lng: data.lng, name: data.place_name || 'Home' });
+        }
+      } catch (err) {
+        console.warn('[EditMeal] failed to load home location:', err?.message ?? err);
+      }
+    })();
+  }, []);
+
+  // "This was at home" — same `home:` place_id convention as LogMealScreen's
+  // selectHome() (see lib/homePrivacy.js): masks the real address from
+  // friends and keys off saved home coordinates when available so repeated
+  // home-tagged meals share one `places` row instead of creating duplicates.
+  function selectHome() {
+    if (!currentUserIdRef.current) return;
+    if (homeLocation) {
+      const latKey = homeLocation.lat.toFixed(5);
+      const lngKey = homeLocation.lng.toFixed(5);
+      setPlace({
+        place_id: `home:${currentUserIdRef.current}:${latKey}:${lngKey}`,
+        name: homeLocation.name,
+        address: null,
+        lat: homeLocation.lat,
+        lng: homeLocation.lng,
+      });
+    } else {
+      setPlace({
+        place_id: `home:${currentUserIdRef.current}`,
+        name: 'Home',
+        address: null,
+        lat: null,
+        lng: null,
+      });
+    }
+  }
 
   async function handleSave() {
     if (!name.trim()) {
@@ -205,6 +258,7 @@ export default function EditMealScreen() {
             onChange={setPlace}
             userCoords={userCoords}
             placeholder="Search for a place"
+            onSelectHome={selectHome}
           />
 
           <Text style={styles.label}>Notes</Text>

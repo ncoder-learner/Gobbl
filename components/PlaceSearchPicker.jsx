@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
-  Modal, ActivityIndicator,
+  Modal, ActivityIndicator, Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -28,7 +28,7 @@ const DEFAULT_MAP_REGION = {
 // Callers are responsible for upserting the result into `places` at save
 // time (this component only resolves values, it never writes to the DB) —
 // same division of responsibility LogMealScreen already uses.
-export default function PlaceSearchPicker({ value, onChange, userCoords, placeholder = 'Search for a place', helperText }) {
+export default function PlaceSearchPicker({ value, onChange, userCoords, placeholder = 'Search for a place', helperText, onSelectHome }) {
   const [query, setQuery]           = useState('');
   const [suggestions, setSuggestions] = useState([]);
   const [searching, setSearching]   = useState(false);
@@ -38,8 +38,59 @@ export default function PlaceSearchPicker({ value, onChange, userCoords, placeho
   );
   const [pinCoord, setPinCoord]     = useState(null);
   const [pinResolving, setPinResolving] = useState(false);
+  const [locating, setLocating]     = useState(false);
   const sessionRef  = useRef(null);
   const debounceRef = useRef(null);
+
+  // "Use my current location" — auto-recognizes the specific restaurant the
+  // user is standing in via a tight-radius nearby search (places-search's
+  // `nearby` mode), so logging/editing a meal on-site needs zero typing.
+  // Falls back to reverse-geocoding the raw coordinate (same `pin:lat:lng`
+  // convention as the map pin-drop) when no food place is found nearby —
+  // e.g. a home kitchen or a spot Google doesn't have listed — so this never
+  // dead-ends the user with nothing to show for it.
+  async function useMyLocation() {
+    setLocating(true);
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Location needed', 'Enable location access to use this.');
+        return;
+      }
+      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      const coordLat = pos.coords.latitude;
+      const coordLng = pos.coords.longitude;
+
+      const { data, error } = await supabase.functions.invoke('places-search', {
+        body: { lat: coordLat, lng: coordLng, nearby: true },
+      });
+      if (error) throw error;
+
+      if (data?.place) {
+        onChange(data.place);
+        return;
+      }
+
+      // No food place within range — fall back to a reverse-geocoded pin
+      // rather than leaving the user with no result at all.
+      let name = 'Current location';
+      let address = null;
+      try {
+        const [place] = await Location.reverseGeocodeAsync({ latitude: coordLat, longitude: coordLng });
+        if (place) {
+          name = place.name || place.street || name;
+          address = [place.street, place.city, place.region].filter(Boolean).join(', ') || null;
+        }
+      } catch {
+        // fall back to generic label
+      }
+      onChange({ place_id: `pin:${coordLat.toFixed(6)}:${coordLng.toFixed(6)}`, name, address, lat: coordLat, lng: coordLng });
+    } catch (err) {
+      Alert.alert('Couldn\'t detect your location', err.message || 'Please try searching instead.');
+    } finally {
+      setLocating(false);
+    }
+  }
 
   function handleQueryChange(text) {
     setQuery(text);
@@ -154,6 +205,12 @@ export default function PlaceSearchPicker({ value, onChange, userCoords, placeho
   return (
     <View style={styles.wrap}>
       {helperText ? <Text style={styles.helperText}>{helperText}</Text> : null}
+      {onSelectHome && (
+        <TouchableOpacity style={styles.homeChip} onPress={onSelectHome} activeOpacity={0.75}>
+          <Ionicons name="home" size={14} color={C.orange} />
+          <Text style={styles.homeChipText}>This was at home</Text>
+        </TouchableOpacity>
+      )}
       <View style={styles.inputRow}>
         <Ionicons name="search" size={16} color={C.gray4} style={{ marginLeft: 12 }} />
         <TextInput
@@ -186,6 +243,15 @@ export default function PlaceSearchPicker({ value, onChange, userCoords, placeho
           ))}
         </View>
       )}
+      <TouchableOpacity style={styles.pinDropBtn} onPress={useMyLocation} activeOpacity={0.75} disabled={locating}>
+        {locating ? (
+          <ActivityIndicator size="small" color={C.orange} />
+        ) : (
+          <Ionicons name="locate" size={14} color={C.orange} />
+        )}
+        <Text style={styles.pinDropBtnText}>{locating ? 'Finding your spot…' : 'Use my current location'}</Text>
+      </TouchableOpacity>
+
       <TouchableOpacity style={styles.pinDropBtn} onPress={openPinModal} activeOpacity={0.75}>
         <Ionicons name="pin-outline" size={14} color={C.orange} />
         <Text style={styles.pinDropBtnText}>Or drop a pin anywhere on the map</Text>
@@ -245,6 +311,12 @@ const styles = StyleSheet.create({
 
   wrap: {},
   helperText: { fontSize: 12, color: C.gray1, lineHeight: 17, marginBottom: 10 },
+  homeChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start',
+    backgroundColor: 'rgba(251,114,56,0.14)', borderWidth: 1, borderColor: 'rgba(251,114,56,0.3)',
+    borderRadius: 12, paddingHorizontal: 14, paddingVertical: 8, marginBottom: 10,
+  },
+  homeChipText: { fontSize: 13, fontWeight: '600', color: C.orange },
 
   placeChip: {
     flexDirection: 'row', alignItems: 'center', gap: 10,

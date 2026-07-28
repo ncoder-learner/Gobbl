@@ -80,7 +80,56 @@ serve(async (req) => {
 
     // 4. Parse body
     const body = await req.json();
-    const { query, placeId, sessionToken, lat, lng } = body ?? {};
+    const { query, placeId, sessionToken, lat, lng, nearby } = body ?? {};
+
+    // ── Mode C: Nearby Search (New) ──────────────────────────────────────────
+    // "Use my current location" — given only coords (no query/placeId), find
+    // the closest food-related place within a tight radius so the caller can
+    // auto-fill without the user typing anything. A 120m radius is deliberately
+    // small: wide enough to cover GPS drift while sitting in one restaurant,
+    // tight enough to not guess a place across the street or a block away.
+    if (nearby) {
+      if (typeof lat !== 'number' || typeof lng !== 'number') {
+        return json({ error: 'Nearby search requires numeric lat/lng.' }, 400);
+      }
+
+      const res = await fetch('https://places.googleapis.com/v1/places:searchNearby', {
+        method: 'POST',
+        headers: {
+          'Content-Type':   'application/json',
+          'X-Goog-Api-Key': apiKey,
+          'X-Goog-FieldMask': 'places.id,places.displayName,places.formattedAddress,places.location',
+        },
+        body: JSON.stringify({
+          includedTypes: ['restaurant', 'cafe', 'bar', 'bakery', 'meal_takeaway', 'meal_delivery'],
+          maxResultCount: 1,
+          rankPreference: 'DISTANCE',
+          locationRestriction: {
+            circle: { center: { latitude: lat, longitude: lng }, radius: 120.0 },
+          },
+        }),
+      });
+
+      if (!res.ok) {
+        const detail = await res.text();
+        console.error('Nearby Search error:', detail);
+        return json({ error: 'Nearby search request failed.', detail }, res.status);
+      }
+
+      const data = await res.json();
+      const p = data.places?.[0];
+      if (!p) return json({ place: null });
+
+      return json({
+        place: {
+          place_id: p.id                  ?? null,
+          name:     p.displayName?.text    ?? null,
+          address:  p.formattedAddress    ?? null,
+          lat:      p.location?.latitude  ?? null,
+          lng:      p.location?.longitude ?? null,
+        },
+      });
+    }
 
     // ── Mode A: Place Details (New) ──────────────────────────────────────────
     if (placeId) {

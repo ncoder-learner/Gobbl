@@ -15,8 +15,9 @@ import {
   Pressable,
   TouchableOpacity,
   LayoutAnimation,
+  Dimensions,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import RAnimated, {
   useSharedValue,
   useAnimatedStyle,
@@ -30,6 +31,7 @@ import { supabase } from '../lib/supabase';
 import { FirstVisitTooltip, useFirstVisit } from '../lib/firstVisit';
 import { THEME as C } from '../lib/theme';
 import StripedPlaceholder from '../components/StripedPlaceholder';
+import TierRatingSliderModal from '../components/TierRatingSliderModal';
 
 const RANK_GRAY = '#8a8a8a';
 
@@ -41,7 +43,7 @@ const CURRENT_MONTH_LABEL = MONTH_NAMES[CURRENT_MONTH];
 function formatScore(score) {
   const n = typeof score === 'string' ? Number(score) : score;
   if (typeof n !== 'number' || Number.isNaN(n)) return '—';
-  return (Math.round(n * 2) / 2).toFixed(1);
+  return n.toFixed(1);
 }
 
 // ─── Distance (Near Me) ────────────────────────────────────────────────────────
@@ -122,15 +124,25 @@ function DragHandle({ panGesture }) {
 }
 
 // ─── Drag wrapper ─────────────────────────────────────────────────────────────
-function DraggableRow({ mealId, draggedIdShared, dragTranslateY, onLayout, onDragStart, onDrop, style, children, dragEnabled = true }) {
+// lastReportedYShared throttles onDragMove to roughly once per 6px of travel
+// instead of every native gesture frame — enough to keep the drop indicator
+// and auto-scroll feeling live without flooding the JS thread with runOnJS
+// calls on every pixel of a fast swipe.
+function DraggableRow({ mealId, draggedIdShared, dragTranslateY, lastReportedYShared, onLayout, onDragStart, onDragMove, onDrop, onDragFinalize, style, children, dragEnabled = true }) {
   const panGesture = Gesture.Pan()
     .minDistance(4)
     .onStart(() => {
       draggedIdShared.value = mealId;
+      lastReportedYShared.value = 0;
       runOnJS(onDragStart)(mealId);
     })
     .onUpdate((e) => {
-      if (draggedIdShared.value === mealId) dragTranslateY.value = e.translationY;
+      if (draggedIdShared.value !== mealId) return;
+      dragTranslateY.value = e.translationY;
+      if (Math.abs(e.translationY - lastReportedYShared.value) > 6) {
+        lastReportedYShared.value = e.translationY;
+        runOnJS(onDragMove)(mealId, e.translationY, e.absoluteY);
+      }
     })
     .onEnd((e) => {
       runOnJS(onDrop)(mealId, e.translationY);
@@ -138,6 +150,7 @@ function DraggableRow({ mealId, draggedIdShared, dragTranslateY, onLayout, onDra
     .onFinalize(() => {
       draggedIdShared.value = '';
       dragTranslateY.value = withSpring(0, { damping: 20, stiffness: 180 });
+      runOnJS(onDragFinalize)();
     });
 
   const animStyle = useAnimatedStyle(() => {
@@ -579,10 +592,29 @@ function NearMeToggle({ active, hasCoords, onToggle }) {
   );
 }
 
+// ─── Drop indicator ───────────────────────────────────────────────────────────
+// Live "the dragged food lands here" line, shown at dropIndicatorIdx while a
+// drag is in progress so the user sees exactly where it'll go before they
+// even release — rather than finding out only after the rating popup shows.
+function DropIndicator() {
+  return (
+    <View style={styles.dropIndicatorWrap} pointerEvents="none">
+      <View style={styles.dropIndicatorDot} />
+      <View style={styles.dropIndicatorLine} />
+      <View style={styles.dropIndicatorDot} />
+    </View>
+  );
+}
+
 // ─── Main Screen ──────────────────────────────────────────────────────────────
+const SCREEN_H = Dimensions.get('window').height;
+const AUTOSCROLL_EDGE = 110;   // px from the screen's top/bottom edge that triggers auto-scroll
+const AUTOSCROLL_STEP = 14;    // px scrolled per auto-scroll tick
+
 export default function TierListScreen() {
   const navigation = useNavigation();
   const route = useRoute();
+  const insets = useSafeAreaInsets();
 
   // ── Monthly state ──
   const [loading, setLoading] = useState(true);
@@ -627,10 +659,49 @@ export default function TierListScreen() {
   const [pinTooltipVisible, dismissPinTooltip] = useFirstVisit('@fw_tt_pin', 3600000);
   const draggedIdShared = useSharedValue('');
   const dragTranslateY  = useSharedValue(0);
+  const lastReportedYShared = useSharedValue(0);
   const rowLayoutsRef   = useRef({});
   const scrollYRef      = useRef(0);
   const mealsRef        = useRef([]);
   const [draggedId, setDraggedId] = useState(null);
+  // Live insertion index while a drag is in progress — drives the drop-
+  // indicator line so the user can see exactly where the item will land
+  // before they even release. null whenever nothing is being dragged.
+  const [dropIndicatorIdx, setDropIndicatorIdx] = useState(null);
+  // Auto-scroll while dragging near the top/bottom edge of the screen — a
+  // plain ScrollView (not a FlatList) has no built-in equivalent, and without
+  // it a drag can never reach a far-off slot that isn't already on screen
+  // (scroll is disabled during drag to avoid fighting the pan gesture).
+  const autoScrollDirRef = useRef(0); // -1 up, 0 none, 1 down
+  const autoScrollIntervalRef = useRef(null);
+  // Holds the pending drop's neighbor bounds while the rating-slider popup is
+  // up; null when no popup is showing. Nothing is reordered or persisted
+  // until the user confirms a value out of this — cancelling just clears it,
+  // leaving `meals` untouched (the dragged row already sprang back to its
+  // original slot per DraggableRow's onFinalize).
+  const [ratingPrompt, setRatingPrompt] = useState(null);
+
+  function stopAutoScroll() {
+    autoScrollDirRef.current = 0;
+    if (autoScrollIntervalRef.current) {
+      clearInterval(autoScrollIntervalRef.current);
+      autoScrollIntervalRef.current = null;
+    }
+  }
+
+  function setAutoScrollDir(dir) {
+    if (autoScrollDirRef.current === dir) return;
+    autoScrollDirRef.current = dir;
+    if (dir === 0) { stopAutoScroll(); return; }
+    if (autoScrollIntervalRef.current) return;
+    autoScrollIntervalRef.current = setInterval(() => {
+      const next = Math.max(0, scrollYRef.current + autoScrollDirRef.current * AUTOSCROLL_STEP);
+      scrollYRef.current = next;
+      listRef.current?.scrollTo({ y: next, animated: false });
+    }, 16);
+  }
+
+  useEffect(() => () => stopAutoScroll(), []);
 
   useEffect(() => { mealsRef.current = meals; }, [meals]);
 
@@ -766,16 +837,17 @@ export default function TierListScreen() {
     }
   }
 
-  // ── Monthly drag handlers ──
-  function handleDragStart(mealId) { setDraggedId(mealId); }
-
-  function handleDrop(mealId, translationY) {
-    const current = mealsRef.current;
-    const layout  = rowLayoutsRef.current[mealId];
-    if (!layout || current.length < 2) { setDraggedId(null); return; }
+  // ── Shared insertion-index math ──
+  // Same "compare the dragged row's live center-Y against every other row's
+  // recorded layout" algorithm used by both list modes and by the live
+  // drop-indicator while a drag is still in progress — factored out so all
+  // three call sites agree on exactly where a drop will land.
+  function computeInsertionIndex(list, mealId, translationY) {
+    const layout = rowLayoutsRef.current[mealId];
+    if (!layout || list.length < 2) return null;
 
     const draggingCenterY = layout.y + layout.height / 2 + translationY;
-    const remaining = current.filter(m => m.id !== mealId);
+    const remaining = list.filter(m => m.id !== mealId);
 
     let insertionIdx = remaining.length;
     for (let i = 0; i < remaining.length; i++) {
@@ -783,27 +855,113 @@ export default function TierListScreen() {
       if (!rLayout) continue;
       if (draggingCenterY < rLayout.y + rLayout.height / 2) { insertionIdx = i; break; }
     }
+    return { insertionIdx, remaining };
+  }
 
-    let newScore;
-    if (insertionIdx === 0) {
-      newScore = (10.0 + remaining[0].score) / 2;
-    } else if (insertionIdx === remaining.length) {
-      newScore = (remaining[remaining.length - 1].score + 1.0) / 2;
-    } else {
-      newScore = (remaining[insertionIdx - 1].score + remaining[insertionIdx].score) / 2;
-    }
+  // ── Monthly drag handlers ──
+  function handleDragStart(mealId) {
+    setDraggedId(mealId);
+    setDropIndicatorIdx(null);
+  }
 
-    const draggedMeal = current.find(m => m.id === mealId);
-    if (Math.abs(newScore - (draggedMeal?.score ?? 0)) < 0.001) { setDraggedId(null); return; }
+  // Fires (throttled) on every drag update, while the finger is still down —
+  // drives the live drop-indicator line and auto-scrolls the list when the
+  // drag nears the top/bottom edge of the screen (scrolling is otherwise
+  // disabled during a drag so it doesn't fight the pan gesture, which would
+  // otherwise make it impossible to drag an item further than one screen's
+  // worth of travel — e.g. from the bottom of a long list to the top).
+  function handleDragMove(mealId, translationY, absoluteY) {
+    const list = mode === 'monthly' ? mealsRef.current : yearlyMealsRef.current;
+    const result = computeInsertionIndex(list, mealId, translationY);
+    if (result) setDropIndicatorIdx(result.insertionIdx);
 
+    if (absoluteY < insets.top + AUTOSCROLL_EDGE) setAutoScrollDir(-1);
+    else if (absoluteY > SCREEN_H - AUTOSCROLL_EDGE) setAutoScrollDir(1);
+    else setAutoScrollDir(0);
+  }
+
+  // Fires on every gesture finalize (drop committed, cancelled, or
+  // interrupted) — always clears drag-in-progress visuals regardless of
+  // which path ended it.
+  function handleDragFinalize() {
+    setDropIndicatorIdx(null);
+    setAutoScrollDir(0);
+  }
+
+  function handleDrop(mealId, translationY) {
+    const current = mealsRef.current;
+    setDraggedId(null);
+    const result = computeInsertionIndex(current, mealId, translationY);
+    if (!result) return;
+    const { insertionIdx, remaining } = result;
+
+    // Dropped back into the same slot it started in — no move, no popup.
+    const originalIdx = current.findIndex(m => m.id === mealId);
+    if (insertionIdx === originalIdx) return;
+
+    const draggedMeal = current[originalIdx];
+    // remaining is score-sorted descending, same as `current` — the row
+    // "above" (better rank) sits at insertionIdx-1, the row "below" at
+    // insertionIdx, in the list as it'll look once the drag commits.
+    const upperNeighbor = insertionIdx > 0 ? remaining[insertionIdx - 1] : null;
+    const lowerNeighbor = insertionIdx < remaining.length ? remaining[insertionIdx] : null;
+
+    // meal.score can come back from Supabase as a numeric string rather than
+    // a JS number (same reason formatScore() above coerces it) — `+` on two
+    // strings concatenates instead of adding, so this must coerce explicitly
+    // or `min + max` silently produces garbage (e.g. "8.0" + "8.5" = "8.08.5")
+    // and initialValue ends up NaN.
+    const min = lowerNeighbor ? Number(lowerNeighbor.score) : 1.0;
+    const max = upperNeighbor ? Number(upperNeighbor.score) : 10.0;
+    const initialValue = Math.round(((min + max) / 2) * 10) / 10;
+
+    setRatingPrompt({
+      mealId,
+      insertionIdx,
+      itemName: draggedMeal.name,
+      initialValue,
+      min,
+      max,
+      lowerLabel: lowerNeighbor?.name,
+      upperLabel: upperNeighbor?.name,
+    });
+  }
+
+  // ── Confirm/cancel the rating-slider popup ──
+  function handleCancelRating() {
+    setRatingPrompt(null);
+  }
+
+  function handleConfirmRating(rawValue) {
+    const prompt = ratingPrompt;
+    if (!prompt) return;
+    const { mealId, min, max, insertionIdx } = prompt;
+
+    // Snap to an exact tie with whichever neighbor bound the user dragged to
+    // — floating-point drift from the slider's step math shouldn't leave a
+    // deliberate tie a hair off the neighbor's actual stored score.
+    let newScore = rawValue;
+    if (Math.abs(newScore - min) < 0.01) newScore = min;
+    if (Math.abs(newScore - max) < 0.01) newScore = max;
+
+    const current = mealsRef.current;
     const oldMeals = [...current];
-    const updatedMeals = current
-      .map(m => m.id === mealId ? { ...m, score: newScore } : m)
-      .sort((a, b) => b.score - a.score);
+    const draggedMeal = current.find(m => m.id === mealId);
+
+    // Insert at the recorded drop slot directly rather than re-sorting the
+    // whole list by score — sorting can't be trusted to reproduce the exact
+    // position the user dropped into: Array.sort is stable, so a value tied
+    // with a neighbor (the whole point of this feature — landing exactly on
+    // a neighbor's rating to tie with it on purpose) keeps its *original*
+    // relative order instead of the position implied by the drop. The score
+    // just has to be valid within [min, max]; it doesn't drive the ordering.
+    const remaining = current.filter(m => m.id !== mealId);
+    const updatedMeals = [...remaining];
+    updatedMeals.splice(insertionIdx, 0, { ...draggedMeal, score: newScore });
 
     LayoutAnimation.configureNext(LayoutAnimation.Presets.spring);
     setMeals(updatedMeals);
-    setDraggedId(null);
+    setRatingPrompt(null);
 
     supabase.from('meals').update({ score: newScore }).eq('id', mealId)
       .then(({ error }) => {
@@ -819,18 +977,10 @@ export default function TierListScreen() {
   // Dragging an item in the yearly list pins it at its new rank position.
   function handleDropYearly(mealId, translationY) {
     const current = yearlyMealsRef.current;
-    const layout  = rowLayoutsRef.current[mealId];
-    if (!layout || current.length < 2) { setDraggedId(null); return; }
-
-    const draggingCenterY = layout.y + layout.height / 2 + translationY;
-    const remaining = current.filter(m => m.id !== mealId);
-
-    let insertionIdx = remaining.length;
-    for (let i = 0; i < remaining.length; i++) {
-      const rLayout = rowLayoutsRef.current[remaining[i].id];
-      if (!rLayout) continue;
-      if (draggingCenterY < rLayout.y + rLayout.height / 2) { insertionIdx = i; break; }
-    }
+    setDraggedId(null);
+    const result = computeInsertionIndex(current, mealId, translationY);
+    if (!result) return;
+    const { insertionIdx, remaining } = result;
 
     const newOrder = [...remaining];
     newOrder.splice(insertionIdx, 0, current.find(m => m.id === mealId));
@@ -974,14 +1124,22 @@ export default function TierListScreen() {
         })
       : meals;
 
+    // Live "you'll land here" line while dragging — indicatorSlot counts only
+    // non-dragged rows, since dropIndicatorIdx is an index into `remaining`
+    // (the list minus whatever's currently being dragged), same convention
+    // computeInsertionIndex uses everywhere else.
+    const showIndicator = draggedId !== null && dropIndicatorIdx !== null;
+    let indicatorSlot = 0;
+
     // flatMap (not map) so the divider inserted after rank 10 lands as a
     // direct sibling of the DraggableRows, not nested inside one — nesting
     // it would change the onLayout coordinate frame DraggableRow reports for
     // its own row (relative to its immediate parent), which the drag/drop
     // math in handleDrop depends on being consistent across all rows.
-    return displayMeals.flatMap((meal, idx) => {
+    const rows = displayMeals.flatMap((meal, idx) => {
       const rank = idx + 1;
       const isHero = rank === 1;
+      const isDraggedRow = meal.id === draggedId;
       const distance = nearMeOn ? formatDistance(mealDistanceMi(meal, userCoords)) : null;
       const row = (
         <DraggableRow
@@ -989,9 +1147,12 @@ export default function TierListScreen() {
           mealId={meal.id}
           draggedIdShared={draggedIdShared}
           dragTranslateY={dragTranslateY}
+          lastReportedYShared={lastReportedYShared}
           onLayout={e => { rowLayoutsRef.current[meal.id] = { y: e.nativeEvent.layout.y, height: e.nativeEvent.layout.height }; }}
           onDragStart={handleDragStart}
+          onDragMove={handleDragMove}
           onDrop={handleDrop}
+          onDragFinalize={handleDragFinalize}
           dragEnabled={!nearMeOn}
           style={isHero ? [styles.topDragRow, { marginBottom: 12 }] : styles.rankDragRow}
         >
@@ -1011,20 +1172,31 @@ export default function TierListScreen() {
         </DraggableRow>
       );
 
+      const out = [];
+      if (showIndicator && !isDraggedRow && indicatorSlot === dropIndicatorIdx) {
+        out.push(<DropIndicator key={`drop-${meal.id}`} />);
+      }
+      if (!isDraggedRow) indicatorSlot++;
+      out.push(row);
+
       // Marks where "top 10" ends — only appears when the month actually
       // has more than 10 meals to separate from the ranked ones above.
       if (rank === 10 && displayMeals.length > 10) {
-        return [
-          row,
+        out.push(
           <View key="tier-divider" style={styles.tierDivider}>
             <View style={styles.tierDividerLine} />
             <Text style={styles.tierDividerText}>REST OF THE MONTH</Text>
             <View style={styles.tierDividerLine} />
           </View>,
-        ];
+        );
       }
-      return [row];
+      return out;
     });
+
+    if (showIndicator && dropIndicatorIdx === indicatorSlot) {
+      rows.push(<DropIndicator key="drop-end" />);
+    }
+    return rows;
   }
 
   // ── Yearly content ──
@@ -1053,19 +1225,26 @@ export default function TierListScreen() {
         </View>
       );
     }
-    return yearlyMeals.map((meal, idx) => {
+    const showIndicator = draggedId !== null && dropIndicatorIdx !== null;
+    let indicatorSlot = 0;
+
+    const rows = yearlyMeals.flatMap((meal, idx) => {
       const rank = idx + 1;
       const isHero = rank === 1;
       const isPinned = meal._pinned === true;
-      return (
+      const isDraggedRow = meal.id === draggedId;
+      const row = (
         <DraggableRow
           key={meal.id}
           mealId={meal.id}
           draggedIdShared={draggedIdShared}
           dragTranslateY={dragTranslateY}
+          lastReportedYShared={lastReportedYShared}
           onLayout={e => { rowLayoutsRef.current[meal.id] = { y: e.nativeEvent.layout.y, height: e.nativeEvent.layout.height }; }}
           onDragStart={handleDragStart}
+          onDragMove={handleDragMove}
           onDrop={handleDropYearly}
+          onDragFinalize={handleDragFinalize}
           style={isHero ? [styles.topDragRow, { marginBottom: 12 }] : styles.rankDragRow}
         >
           {isHero ? (
@@ -1081,7 +1260,20 @@ export default function TierListScreen() {
           )}
         </DraggableRow>
       );
+
+      const out = [];
+      if (showIndicator && !isDraggedRow && indicatorSlot === dropIndicatorIdx) {
+        out.push(<DropIndicator key={`drop-${meal.id}`} />);
+      }
+      if (!isDraggedRow) indicatorSlot++;
+      out.push(row);
+      return out;
     });
+
+    if (showIndicator && dropIndicatorIdx === indicatorSlot) {
+      rows.push(<DropIndicator key="drop-end" />);
+    }
+    return rows;
   }
 
   return (
@@ -1128,6 +1320,18 @@ export default function TierListScreen() {
       {showReveal && revealData && (
         <RankReveal rank={revealData.rank} meal={revealData.meal} meals={meals} onComplete={onRevealComplete} />
       )}
+
+      <TierRatingSliderModal
+        visible={!!ratingPrompt}
+        itemName={ratingPrompt?.itemName}
+        initialValue={ratingPrompt?.initialValue ?? 5}
+        min={ratingPrompt?.min ?? 1}
+        max={ratingPrompt?.max ?? 10}
+        lowerLabel={ratingPrompt?.lowerLabel}
+        upperLabel={ratingPrompt?.upperLabel}
+        onCancel={handleCancelRating}
+        onConfirm={handleConfirmRating}
+      />
 
       {tooltipVisible && (
         <FirstVisitTooltip
@@ -1211,6 +1415,12 @@ const styles = StyleSheet.create({
     fontSize: 10, fontWeight: '800', color: C.gray3,
     letterSpacing: 1, textTransform: 'uppercase',
   },
+  dropIndicatorWrap: {
+    flexDirection: 'row', alignItems: 'center',
+    marginHorizontal: 24, marginVertical: 4, height: 3,
+  },
+  dropIndicatorLine: { flex: 1, height: 3, borderRadius: 1.5, backgroundColor: C.orange },
+  dropIndicatorDot: { width: 7, height: 7, borderRadius: 3.5, backgroundColor: C.orange, marginHorizontal: -3.5 },
   dragHandle: {
     position: 'absolute', right: 0, top: 0, bottom: 0, width: 40,
     justifyContent: 'center', alignItems: 'center', gap: 4,
