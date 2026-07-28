@@ -1013,7 +1013,9 @@ export default function LogMealScreen() {
     return (
       <SafeAreaView style={styles.previewScreen} edges={[]}>
         <StatusBar barStyle="light-content" backgroundColor={C.bg} />
-        <Image source={{ uri: imageUri }} style={StyleSheet.absoluteFillObject} resizeMode="cover" />
+        <View style={styles.previewImgBox}>
+          <Image source={{ uri: imageUri }} style={StyleSheet.absoluteFillObject} resizeMode="cover" />
+        </View>
 
         {stage === 'identifying' && (
           <View style={styles.identifyingOverlay}>
@@ -1394,6 +1396,7 @@ const styles = StyleSheet.create({
   // StatusBar above), with retake/identify controls floating over the
   // bottom of the image instead of pushing it into a smaller box.
   previewScreen: { flex: 1, backgroundColor: C.bg },
+  previewImgBox: { flex: 1, position: 'relative' },
   identifyingOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center', gap: 16 },
   identifyingText: { fontSize: 16, color: C.white, fontWeight: '500' },
   previewBottomOverlay: {
