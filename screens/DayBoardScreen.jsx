@@ -10,6 +10,7 @@ import { Ionicons, Feather } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import ShareBottomSheet from '../components/ShareBottomSheet';
 import DayTrail from '../components/DayTrail';
+import AdMobBanner from '../components/AdMobBanner';
 import { fetchPostedMealIds, MEAL_TAGS, TAG_META, TAG_ICON } from '../lib/postUtils';
 import { skipMeal, unskipMeal } from '../lib/skips';
 import { localDateKey } from '../lib/dateKey';
@@ -970,6 +971,8 @@ export default function DayBoardScreen() {
             </TourTarget>
           )}
 
+          
+
           <View style={styles.footerCard}>
             <View style={styles.footerRow}>
               <Text style={styles.footerFlame}>🔥</Text>
@@ -989,6 +992,10 @@ export default function DayBoardScreen() {
               </>
             )}
           </View>
+
+          <AdMobBanner />
+
+          
         </ScrollView>
       )}
     </SafeAreaView>

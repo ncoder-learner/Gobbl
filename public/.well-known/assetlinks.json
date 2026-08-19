@@ -1,0 +1,10 @@
+[{
+  "relation": ["delegate_permission_launch_intent/receiver_class"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "com.ncoderpro.foodwrapped",
+    "sha256_cert_fingerprints": [
+      "28:AC:E4:79:A3:C7:9C:9C:40:6F:81:02:71:B3:E1:D0:DD:93:85:CC:29:7C:1D:41:60:C2:C6:49:94:14:43:43"
+    ]
+  }
+}]

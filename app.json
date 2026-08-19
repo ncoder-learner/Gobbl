@@ -24,7 +24,8 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "package": "com.ncoderpro.foodwrapped"
+      "package": "com.ncoderpro.foodwrapped",
+      "googleServicesFile": "./google-services.json" 
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -66,7 +67,18 @@
           "backgroundColor": "#000000"
         }
       ],
-      "react-native-maps"
+      "react-native-maps",
+      [
+        "react-native-google-mobile-ads",
+        {
+          "androidAppId": "ca-app-pub-1284911551875378~4973034735",
+          "iosAppId": "ca-app-pub-3940256099942544~1458002511"
+        }
+      ],
+      "@react-native-firebase/app",
+      "@react-native-firebase/analytics",
+      "@react-native-firebase/analytics",
+      "@react-native-firebase/crashlytics"
     ]
   }
 }

@@ -12,8 +12,8 @@ import { useFonts, InstrumentSerif_400Regular, InstrumentSerif_400Regular_Italic
 import { supabase } from './lib/supabase';
 import { withTimeout } from './lib/withTimeout';
 import { completeAuthFromUrl } from './lib/authCallback';
-import { setupNotificationHandler } from './lib/notifications';
-import * as Notifications from 'expo-notifications';
+import { ensureDefaultNotifications, registerPushTokenForUser, setupNotificationHandler } from './lib/notifications';
+import { identifyOneSignalUser, initializeOneSignal, logoutOneSignalUser } from './lib/oneSignal';
 import LogMealScreen from './screens/LogMealScreen';
 import RecapsScreen from './screens/RecapsScreen';
 import TierListScreen from './screens/TierListScreen';
@@ -39,9 +39,20 @@ import TourOverlay from './components/TourOverlay';
 import { TourProvider, useTour } from './lib/tourContext';
 import { navigationRef } from './lib/navigationRef';
 import { THEME as C } from './lib/theme';
+import { logScreenView } from './lib/analytics';
 
 const Tab  = createBottomTabNavigator();
 const Root = createNativeStackNavigator();
+
+// ─── Helper to extract current route name for screen tracking ─────────────
+
+function getActiveRouteName(state) {
+  const route = state.routes[state.index];
+  if (route.state) {
+    return getActiveRouteName(route.state);
+  }
+  return route.name;
+}
 
 // Lets a shared profile link (com.ncoderpro.foodwrapped://profile/<username>)
 // open UserProfileScreen directly when tapped by someone who already has the
@@ -133,8 +144,25 @@ function TabNavigator() {
 // ─── Root stack: tabs + push screens ─────────────────────────────────────────
 
 function AppNavigator() {
+  const routeNameRef = useRef();
+
   return (
-    <NavigationContainer ref={navigationRef} theme={NAV_THEME} linking={linking}>
+    <NavigationContainer
+      ref={navigationRef}
+      theme={NAV_THEME}
+      linking={linking}
+      onStateChange={async (state) => {
+        if (!state) return;
+        const previousRouteName = routeNameRef.current;
+        const currentRouteName = getActiveRouteName(state);
+
+        if (previousRouteName !== currentRouteName) {
+          routeNameRef.current = currentRouteName;
+          // Log the screen view to Firebase Analytics
+          await logScreenView(currentRouteName);
+        }
+      }}
+    >
       <DuelLiveListener />
       <Root.Navigator screenOptions={{ headerShown: false, contentStyle: { backgroundColor: C.bg } }}>
         <Root.Screen name="Tabs" component={TabNavigator} />
@@ -263,13 +291,7 @@ function profileInfoKey(userId) {
 }
 
 async function registerPushToken(userId) {
-  try {
-    const { status } = await Notifications.getPermissionsAsync();
-    if (status !== 'granted') return;
-    const tokenData = await Notifications.getExpoPushTokenAsync();
-    if (!tokenData.data) return;
-    await supabase.from('profiles').update({ push_token: tokenData.data }).eq('id', userId);
-  } catch { /* non-fatal */ }
+  try { await registerPushTokenForUser(userId); } catch { /* non-fatal */ }
 }
 
 // ─── App root ─────────────────────────────────────────────────────────────────
@@ -395,6 +417,7 @@ export default function App() {
 
   useEffect(() => {
     setupNotificationHandler();
+    initializeOneSignal();
   }, []);
 
   // Email confirmation links (and Google/Apple OAuth's browser redirect, as
@@ -425,8 +448,9 @@ export default function App() {
       // stay stuck at `undefined` forever, hanging isLoading indefinitely.
       if (event === 'INITIAL_SESSION' || event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
         if (session) {
+          identifyOneSignalUser(session.user.id);
           checkProfile(session.user.id);
-          registerPushToken(session.user.id);
+          ensureDefaultNotifications(session.user.id).catch(() => registerPushToken(session.user.id));
         } else {
           // `undefined`, not `false` — isLoading below waits specifically
           // for `undefined` ("not checked yet"). A stale `false` here would
@@ -439,6 +463,7 @@ export default function App() {
           setHasUsername(undefined);
         }
       } else if (event === 'SIGNED_OUT') {
+        logoutOneSignalUser();
         lastCheckedUserRef.current = null;
         setOnboardingDone(undefined);
         setHasProfileInfo(undefined);

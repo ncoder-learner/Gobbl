@@ -13,6 +13,7 @@ import ScoreSlider from '../components/ScoreSlider';
 import PlaceSearchPicker from '../components/PlaceSearchPicker';
 import { isHomeMeal, displayPlaceName } from '../lib/homePrivacy';
 import { THEME as C } from '../lib/theme';
+import { logEditMealEvent, logLocationEvent } from '../lib/analytics';
 
 // Edit any field a meal has that's actually meant to be user-editable after
 // the fact: name, slot, score, notes, and location. Deliberately leaves out
@@ -144,6 +145,12 @@ export default function EditMealScreen() {
         lng: null,
       });
     }
+    // Log location update event
+    logLocationEvent({
+      restaurantName: 'Home',
+      isHome: true,
+      hasCoordinates: homeLocation != null,
+    });
   }
 
   async function handleSave() {
@@ -182,6 +189,12 @@ export default function EditMealScreen() {
         })
         .eq('id', mealId);
       if (updateErr) throw updateErr;
+
+      // Log meal edit event
+      await logEditMealEvent({
+        mealId: mealId,
+        fieldsEdited: 'name, tag, score, notes, location', // Log all editable fields
+      });
 
       navigation.goBack();
     } catch (err) {

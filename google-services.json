@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "918038185102",
+    "project_id": "gobbl-501919",
+    "storage_bucket": "gobbl-501919.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:918038185102:android:246c0e33e22e6400d175df",
+        "android_client_info": {
+          "package_name": "com.ncoderpro.foodwrapped"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "918038185102-dp86u5j4i2op8iln9vr5sdrqreu10tvq.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDJsXq5lBPON_5dDdItDHa_LSUHF_IqkVc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "918038185102-dp86u5j4i2op8iln9vr5sdrqreu10tvq.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

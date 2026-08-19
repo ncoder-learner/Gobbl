@@ -32,6 +32,7 @@ import {
   disableNotifications,
   scheduleDailyReminder,
   getPermissionStatus,
+  registerPushTokenForUser,
 } from '../lib/notifications';
 import { BANNER_COLORS, bannerColorHex, BIO_MAX_LENGTH } from '../lib/profileTheme';
 import { THEME as C } from '../lib/theme';
@@ -340,6 +341,8 @@ export default function AccountScreen() {
           setNotifLoading(false);
           return;
         }
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) await registerPushTokenForUser(user.id).catch(() => false);
         setNotifEnabled(true);
         await saveNotifPrefs({ enabled: true, reminderHour, reminderMinute: 0 });
       } else {

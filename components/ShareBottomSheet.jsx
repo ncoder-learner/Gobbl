@@ -8,6 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { computeTierRank, createPost, mealTagSlot } from '../lib/postUtils';
 import { THEME as C } from '../lib/theme';
 import StripedPlaceholder from './StripedPlaceholder';
+import { logShareEvent } from '../lib/analytics';
 
 function scoreToneColor(score) {
   const n = Number(score);
@@ -82,6 +83,14 @@ export default function ShareBottomSheet({ visible, meal, onDismiss, onPosted })
     try {
       const tierRank = await computeTierRank(meal.id).catch(() => null);
       const postId = await createPost({ [mealTagSlot(meal.tag)]: meal.id }, caption, tierRank);
+      
+      // Log share event
+      await logShareEvent({
+        mealName: meal.name,
+        shareType: 'share_list',
+        contentType: 'meal',
+      });
+      
       onPosted?.(postId);
       onDismiss();
     } catch (err) {

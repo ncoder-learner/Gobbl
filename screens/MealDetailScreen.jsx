@@ -17,6 +17,7 @@ import { MEAL_TAGS, TAG_META } from '../lib/postUtils';
 import { mappableCoords, displayPlaceName, isHomeMeal } from '../lib/homePrivacy';
 import { THEME as C } from '../lib/theme';
 import StripedPlaceholder from '../components/StripedPlaceholder';
+import { logMealPhotoEvent } from '../lib/analytics';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CAROUSEL_HEIGHT = SCREEN_WIDTH * 1.15;
@@ -276,6 +277,9 @@ export default function MealDetailScreen() {
         setTimeout(() => listRef.current?.scrollToIndex({ index: next.length - 1, animated: true }), 60);
         return next;
       });
+      
+      // Log photo upload event
+      await logMealPhotoEvent({ source: 'library', stage: 'extra' });
     } catch (err) {
       if (uploadedFileName) {
         await supabase.storage.from('meal-photos').remove([uploadedFileName]).catch(() => {});

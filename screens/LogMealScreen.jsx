@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -23,7 +23,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { decode } from 'base64-arraybuffer';
 import { FirstVisitTooltip, useFirstVisit } from '../lib/firstVisit';
@@ -34,6 +34,13 @@ import { isHomeMeal } from '../lib/homePrivacy';
 import MealTagPicker from '../components/MealTagPicker';
 import ScoreSlider, { scoreTone } from '../components/ScoreSlider';
 import { THEME as C } from '../lib/theme';
+import { guessMealTag, normalizeMealTag } from '../lib/mealTags';
+import {
+  logMealPhotoEvent,
+  logLocationEvent,
+  logMealEvent,
+  logShareEvent,
+} from '../lib/analytics';
 
 // ─── Stages ───────────────────────────────────────────────────────────────────
 // 'camera' → 'preview' → 'identifying' → 'confirm' → 'saving' → 'done'
@@ -57,16 +64,6 @@ async function compressImage(uri) {
     [{ resize: { width: MAX_PHOTO_WIDTH } }],
     { compress: 0.82, format: SaveFormat.JPEG, base64: true },
   );
-}
-
-// ─── Meal tag (breakfast / lunch / dinner) ─────────────────────────────────────
-// Auto-guessed from time of day at log time; user can override before saving.
-// Boundaries: before 11am = breakfast, 11am–4pm = lunch, after 4pm = dinner.
-function guessMealTag(date = new Date()) {
-  const hour = date.getHours();
-  if (hour < 11) return 'breakfast';
-  if (hour < 16) return 'lunch';
-  return 'dinner';
 }
 
 // ─── Business Tag (passed via route params from sponsored ad) ─────────────────
@@ -232,7 +229,7 @@ export default function LogMealScreen() {
   const route = useRoute();
   const insets = useSafeAreaInsets();
   const sponsored = route.params?.sponsored ?? null; // passed from HomeScreen sponsored ad
-  const forceTag = route.params?.forceTag ?? null; // passed from DayBoardScreen's empty "you" tile
+  const forceTag = normalizeMealTag(route.params?.forceTag); // passed from DayBoardScreen's empty "you" tile
 
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef(null);
@@ -259,13 +256,21 @@ export default function LogMealScreen() {
   const [score, setScore] = useState(5.5);
   const [mealTag, setMealTag] = useState(() => forceTag || guessMealTag());
 
-  // Consume forceTag once — otherwise it'd linger in this route's params
-  // (React Navigation keeps params until overwritten) and silently force
-  // the same tag on a later, unrelated visit via the bottom tab icon.
-  useEffect(() => {
-    if (forceTag) navigation.setParams({ forceTag: undefined });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // Fresh log defaults come from the device's local clock, while explicit
+  // board/feed slot taps (forceTag) always win. React Navigation keeps tab
+  // screens mounted, so this has to run on focus/param changes rather than
+  // only during the first mount.
+  useFocusEffect(
+    useCallback(() => {
+      if (forceTag) {
+        setMealTag(forceTag);
+        navigation.setParams({ forceTag: undefined });
+        return;
+      }
+
+      if (stage === 'camera') setMealTag(guessMealTag());
+    }, [forceTag, navigation, stage])
+  );
   const [savedMealId, setSavedMealId] = useState(null);
   const [savedPhotoUrl, setSavedPhotoUrl] = useState(null);
   const [shareOpen, setShareOpen] = useState(false);
@@ -353,6 +358,12 @@ export default function LogMealScreen() {
         lng: null,
       });
     }
+    // Log location selection
+    logLocationEvent({
+      restaurantName: 'Home',
+      isHome: true,
+      hasCoordinates: homeLocation != null,
+    });
   }
 
   // "Use my current location" — auto-recognizes the specific restaurant the
@@ -433,6 +444,8 @@ export default function LogMealScreen() {
       setImageMediaType('image/jpeg');
       setIdentifyError(null);
       setStage('preview');
+      // Log photo capture event
+      await logMealPhotoEvent({ source: 'camera', stage: 'primary' });
     } catch (err) {
       Alert.alert('Capture failed', 'Could not capture photo. Try again.');
     } finally {
@@ -477,6 +490,8 @@ export default function LogMealScreen() {
         setImageMediaType('image/jpeg');
         setIdentifyError(null);
         setStage('preview');
+        // Log photo capture event
+        await logMealPhotoEvent({ source: 'library', stage: 'primary' });
       } catch (err) {
         Alert.alert('Processing failed', 'Could not process the selected photo. Try again.');
       } finally {
@@ -512,6 +527,8 @@ export default function LogMealScreen() {
     try {
       const compressed = await compressImage(result.assets[0].uri);
       setExtraPhotos(prev => [...prev, { uri: compressed.uri, base64: compressed.base64 }]);
+      // Log photo capture event
+      await logMealPhotoEvent({ source: 'camera', stage: 'extra' });
     } catch (err) {
       Alert.alert('Processing failed', 'Could not process the photo. Try again.');
     } finally {
@@ -549,6 +566,8 @@ export default function LogMealScreen() {
     try {
       const compressed = await Promise.all(result.assets.map(a => compressImage(a.uri)));
       setExtraPhotos(prev => [...prev, ...compressed.map(c => ({ uri: c.uri, base64: c.base64 }))]);
+      // Log photo capture event
+      await logMealPhotoEvent({ source: 'library', stage: 'extra' });
     } catch (err) {
       Alert.alert('Processing failed', 'Could not process the selected photo(s). Try again.');
     } finally {
@@ -676,6 +695,13 @@ export default function LogMealScreen() {
       });
       if (error) throw error;
       setSelectedPlace(data);
+      // Log location selection with full details
+      logLocationEvent({
+        restaurantName: data.name || suggestion.main_text,
+        isHome: false,
+        address: data.address || suggestion.secondary_text || '',
+        hasCoordinates: data.lat != null && data.lng != null,
+      });
     } catch {
       // Fallback: use autocomplete data without coords
       setSelectedPlace({
@@ -684,6 +710,13 @@ export default function LogMealScreen() {
         address: suggestion.secondary_text,
         lat: null,
         lng: null,
+      });
+      // Log location selection with fallback data
+      logLocationEvent({
+        restaurantName: suggestion.main_text,
+        isHome: false,
+        address: suggestion.secondary_text || '',
+        hasCoordinates: false,
       });
     } finally {
       placeSessionRef.current = null; // session consumed; next search gets a fresh UUID
@@ -800,6 +833,18 @@ export default function LogMealScreen() {
       setSavedPhotoUrl(publicUrl);
       setSharePosted(false);
 
+      // Log meal event
+      await logMealEvent({
+        mealName: mealName.trim(),
+        mealTag: mealTag,
+        hasPhoto: true, // we always have a primary photo at this point
+        hasPlace: selectedPlace != null,
+        placeName: selectedPlace?.name || '',
+        score: score,
+        hasNotes: notes.trim().length > 0,
+        extraPhotosCount: extraPhotos.length,
+      });
+
       // Soft Day Trail nudge — only when this meal is home-tagged with no
       // coordinates (i.e. logged via "This was at home" with no saved home
       // location) and would have been the day's 2nd+ located stop had one
@@ -872,6 +917,7 @@ export default function LogMealScreen() {
     setMealCuisine('');
     setExtraPhotos([]);
     setScore(5.5);
+    setMealTag(guessMealTag());
     setNotes('');
     setSavedMealId(null);
     setSavedPhotoUrl(null);
