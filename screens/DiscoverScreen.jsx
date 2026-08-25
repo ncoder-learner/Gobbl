@@ -20,6 +20,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { supabase } from '../lib/supabase';
 import { THEME as C } from '../lib/theme';
+import { isHomeMeal } from '../lib/homePrivacy';
 import Avatar from '../components/Avatar';
 
 // ─── Distance Calculation Helper (Haversine Formula) ──────────────────────────
@@ -65,7 +66,7 @@ export default function DiscoverScreen() {
 
   const fetchMeals = useCallback(async (currentLoc = userLocation) => {
     try {
-      // Query meals that have an image URL
+      // Query public restaurant meals that have an image URL
       const { data, error } = await supabase
         .from('meals')
         .select(`
@@ -82,18 +83,25 @@ export default function DiscoverScreen() {
           places(place_id, name, address, lat, lng)
         `)
         .not('photo_url', 'is', null)
+        .not('place_id', 'is', null)
+        .not('place_id', 'like', 'home:%')
         .order('created_at', { ascending: false })
         .limit(50);
 
       if (error) throw error;
 
-      if (!data || data.length === 0) {
+      // Filter out home meals strictly for privacy
+      const publicMeals = (data || []).filter(
+        m => !isHomeMeal(m) && m.place_id && m.places?.name
+      );
+
+      if (publicMeals.length === 0) {
         setMeals([]);
         return;
       }
 
       // Fetch user profile info for the meal loggers
-      const userIds = [...new Set(data.map(m => m.user_id).filter(Boolean))];
+      const userIds = [...new Set(publicMeals.map(m => m.user_id).filter(Boolean))];
       let profilesMap = {};
 
       if (userIds.length > 0) {
@@ -108,7 +116,7 @@ export default function DiscoverScreen() {
       }
 
       // Format meals with attached user profiles and computed distances
-      const formatted = data.map(meal => {
+      const formatted = publicMeals.map(meal => {
         const place = meal.places || {};
         const profile = profilesMap[meal.user_id] || null;
         let dist = null;
