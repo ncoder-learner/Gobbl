@@ -9,9 +9,9 @@ import {
   ActivityIndicator,
   RefreshControl,
   StatusBar,
-  Dimensions,
   useWindowDimensions,
   Platform,
+  Animated,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
@@ -47,6 +47,34 @@ function formatDistance(miles) {
   return `${Math.round(miles)} mi away`;
 }
 
+// ─── School Meal Exclusion Helper ─────────────────────────────────────────────
+
+function isSchoolMeal(meal) {
+  if (!meal) return false;
+  const placeId = (meal.place_id || '').toLowerCase();
+  if (placeId.startsWith('school:')) return true;
+
+  const placeName = (meal.places?.name || '').toLowerCase();
+  const address = (meal.places?.address || '').toLowerCase();
+
+  const schoolKeywords = [
+    'school',
+    'academy',
+    'university',
+    'college',
+    'campus',
+    'cafeteria',
+    'dining hall',
+    'high school',
+    'middle school',
+    'elementary',
+  ];
+
+  return schoolKeywords.some(
+    kw => placeName.includes(kw) || address.includes(kw)
+  );
+}
+
 export default function DiscoverScreen() {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
@@ -56,11 +84,12 @@ export default function DiscoverScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [userLocation, setUserLocation] = useState(null);
-  const [locationPermissionStatus, setLocationPermissionStatus] = useState(null);
+  const [activeIndex, setActiveIndex] = useState(0);
   const locationRequestedRef = useRef(false);
 
-  // Tab bar height estimate for full screen card height calculation
-  const cardHeight = height - insets.top - insets.bottom - 60;
+  // Calculate precise card height (accounting for bottom tab bar)
+  const TAB_BAR_HEIGHT = 49;
+  const cardHeight = height - insets.bottom - TAB_BAR_HEIGHT;
 
   // ─── Fetch Meals ────────────────────────────────────────────────────────────
 
@@ -85,14 +114,15 @@ export default function DiscoverScreen() {
         .not('photo_url', 'is', null)
         .not('place_id', 'is', null)
         .not('place_id', 'like', 'home:%')
+        .not('place_id', 'like', 'school:%')
         .order('created_at', { ascending: false })
         .limit(50);
 
       if (error) throw error;
 
-      // Filter out home meals strictly for privacy
+      // Filter out home and school meals strictly for privacy & quality
       const publicMeals = (data || []).filter(
-        m => !isHomeMeal(m) && m.place_id && m.places?.name
+        m => !isHomeMeal(m) && !isSchoolMeal(m) && m.place_id && m.places?.name
       );
 
       if (publicMeals.length === 0) {
@@ -167,7 +197,6 @@ export default function DiscoverScreen() {
 
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
-      setLocationPermissionStatus(status);
 
       if (status === 'granted') {
         const loc = await Location.getCurrentPositionAsync({
@@ -227,9 +256,15 @@ export default function DiscoverScreen() {
     fetchMeals();
   };
 
+  const onViewableItemsChanged = useRef(({ viewableItems }) => {
+    if (viewableItems && viewableItems.length > 0) {
+      setActiveIndex(viewableItems[0].index || 0);
+    }
+  }).current;
+
   // ─── Card Renderer ──────────────────────────────────────────────────────────
 
-  const renderCard = ({ item }) => {
+  const renderCard = ({ item, index }) => {
     const restaurantName = item.place?.name || 'Restaurant Spot';
     const restaurantAddress = item.place?.address || null;
     const distanceText = formatDistance(item.distanceMiles);
@@ -246,29 +281,34 @@ export default function DiscoverScreen() {
           resizeMode="cover"
         />
 
-        {/* Dark Top & Bottom Gradients for Contrast */}
+        {/* Premium Layered Gradients */}
         <LinearGradient
-          colors={['rgba(0,0,0,0.6)', 'transparent']}
+          colors={['rgba(0,0,0,0.7)', 'rgba(0,0,0,0.2)', 'transparent']}
           style={styles.topGradient}
         />
         <LinearGradient
-          colors={['transparent', 'rgba(0,0,0,0.7)', 'rgba(0,0,0,0.95)']}
+          colors={['transparent', 'rgba(0,0,0,0.6)', 'rgba(0,0,0,0.92)']}
           style={styles.bottomGradient}
         />
 
-        {/* Top Header Overlay */}
+        {/* Top Header Bar Overlay */}
         <View style={[styles.topOverlay, { paddingTop: insets.top + 8 }]}>
           <View style={styles.headerLeft}>
-            <Ionicons name="compass" size={22} color={C.orange} />
+            <Ionicons name="compass" size={24} color={C.orange} />
             <Text style={styles.headerTitle}>Discover</Text>
           </View>
 
-          {distanceText && (
-            <View style={styles.distanceBadge}>
-              <Ionicons name="navigate-outline" size={12} color={C.white} />
-              <Text style={styles.distanceText}>{distanceText}</Text>
+          <View style={styles.headerRight}>
+            {distanceText && (
+              <View style={styles.distanceBadge}>
+                <Ionicons name="navigate" size={11} color={C.orange} />
+                <Text style={styles.distanceText}>{distanceText}</Text>
+              </View>
+            )}
+            <View style={styles.counterBadge}>
+              <Text style={styles.counterText}>{index + 1}/{meals.length}</Text>
             </View>
-          )}
+          </View>
         </View>
 
         {/* Bottom Information Overlay */}
@@ -283,8 +323,11 @@ export default function DiscoverScreen() {
             }}
             activeOpacity={0.8}
           >
-            <Avatar url={avatarUrl} size={32} />
-            <Text style={styles.usernameText}>@{username}</Text>
+            <Avatar url={avatarUrl} size={34} />
+            <View>
+              <Text style={styles.usernameText}>@{username}</Text>
+              <Text style={styles.userSubText}>Logged a meal</Text>
+            </View>
           </TouchableOpacity>
 
           {/* Meal Title & Score */}
@@ -301,17 +344,19 @@ export default function DiscoverScreen() {
             )}
           </View>
 
-          {/* Restaurant Name & Address */}
+          {/* Restaurant Name & Address Card */}
           <TouchableOpacity
             style={styles.locationRow}
             onPress={() => {
-              if (item.place_id) {
+              if (item.id) {
                 navigation.navigate('MealDetail', { mealId: item.id });
               }
             }}
             activeOpacity={0.8}
           >
-            <Ionicons name="location-sharp" size={16} color={C.orange} />
+            <View style={styles.locationIconBg}>
+              <Ionicons name="restaurant" size={16} color={C.orange} />
+            </View>
             <View style={styles.locationTextWrapper}>
               <Text style={styles.restaurantName} numberOfLines={1}>
                 {restaurantName}
@@ -322,6 +367,7 @@ export default function DiscoverScreen() {
                 </Text>
               )}
             </View>
+            <Ionicons name="chevron-forward" size={16} color={C.gray1} />
           </TouchableOpacity>
         </View>
       </View>
@@ -335,7 +381,7 @@ export default function DiscoverScreen() {
       <SafeAreaView style={styles.loadingContainer}>
         <StatusBar barStyle="light-content" />
         <ActivityIndicator size="large" color={C.orange} />
-        <Text style={styles.loadingText}>Discovering great food spots...</Text>
+        <Text style={styles.loadingText}>Curating top restaurant spots...</Text>
       </SafeAreaView>
     );
   }
@@ -347,9 +393,9 @@ export default function DiscoverScreen() {
       {meals.length === 0 ? (
         <SafeAreaView style={styles.emptyContainer}>
           <Ionicons name="compass-outline" size={64} color={C.gray2} />
-          <Text style={styles.emptyTitle}>No Food Discoveries Yet</Text>
+          <Text style={styles.emptyTitle}>No Restaurant Discoveries Yet</Text>
           <Text style={styles.emptySub}>
-            Be the first to log a meal with a photo to feature it on Discover!
+            Be the first to log a meal at a restaurant with a photo to feature it on Discover!
           </Text>
           <TouchableOpacity
             style={styles.logButton}
@@ -369,6 +415,9 @@ export default function DiscoverScreen() {
           snapToInterval={cardHeight}
           snapToAlignment="start"
           decelerationRate="fast"
+          disableIntervalMomentum
+          onViewableItemsChanged={onViewableItemsChanged}
+          viewabilityConfig={{ itemVisiblePercentThreshold: 60 }}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -413,14 +462,14 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     top: 0,
-    height: 120,
+    height: 140,
   },
   bottomGradient: {
     position: 'absolute',
     left: 0,
     right: 0,
     bottom: 0,
-    height: 260,
+    height: 280,
   },
   topOverlay: {
     position: 'absolute',
@@ -439,17 +488,22 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontFamily: C.serif,
-    fontSize: 26,
+    fontSize: 28,
     color: C.white,
     letterSpacing: 0.5,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   distanceBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    backgroundColor: 'rgba(0,0,0,0.6)',
+    gap: 5,
+    backgroundColor: 'rgba(22, 22, 22, 0.85)',
     paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingVertical: 5,
     borderRadius: C.pill,
     borderWidth: 1,
     borderColor: C.glassBorder,
@@ -459,9 +513,22 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
+  counterBadge: {
+    backgroundColor: 'rgba(22, 22, 22, 0.75)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: C.pill,
+    borderWidth: 1,
+    borderColor: C.glassBorder,
+  },
+  counterText: {
+    color: C.gray1,
+    fontSize: 11,
+    fontWeight: '600',
+  },
   bottomOverlay: {
     position: 'absolute',
-    bottom: 24,
+    bottom: 28,
     left: 16,
     right: 16,
     zIndex: 10,
@@ -469,31 +536,35 @@ const styles = StyleSheet.create({
   userRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginBottom: 8,
+    gap: 10,
+    marginBottom: 10,
   },
   usernameText: {
     color: C.white,
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '700',
     textShadowColor: 'rgba(0,0,0,0.8)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 3,
+  },
+  userSubText: {
+    color: C.gray1,
+    fontSize: 11,
   },
   mealTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 12,
-    marginBottom: 8,
+    marginBottom: 10,
   },
   mealName: {
     flex: 1,
     color: C.white,
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: '700',
-    lineHeight: 28,
-    textShadowColor: 'rgba(0,0,0,0.8)',
+    lineHeight: 30,
+    textShadowColor: 'rgba(0,0,0,0.9)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 4,
   },
@@ -501,9 +572,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: 'rgba(25, 25, 25, 0.85)',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    backgroundColor: 'rgba(22, 22, 22, 0.9)',
+    paddingHorizontal: 12,
+    paddingVertical: 5,
     borderRadius: C.pill,
     borderWidth: 1,
     borderColor: C.glassBorder,
@@ -516,14 +587,22 @@ const styles = StyleSheet.create({
   locationRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    backgroundColor: 'rgba(22, 22, 22, 0.85)',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 14,
+    gap: 10,
+    backgroundColor: 'rgba(22, 22, 22, 0.88)',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: C.glassBorder,
     marginTop: 4,
+  },
+  locationIconBg: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(251, 114, 56, 0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   locationTextWrapper: {
     flex: 1,
@@ -536,7 +615,7 @@ const styles = StyleSheet.create({
   restaurantAddress: {
     color: C.gray1,
     fontSize: 12,
-    marginTop: 1,
+    marginTop: 2,
   },
   emptyContainer: {
     flex: 1,
