@@ -20,7 +20,6 @@ import * as Location from 'expo-location';
 import { supabase } from '../lib/supabase';
 import { THEME as C } from '../lib/theme';
 import { isHomeMeal } from '../lib/homePrivacy';
-import Avatar from '../components/Avatar';
 
 // ─── Distance Calculation Helper (Haversine Formula) ──────────────────────────
 
@@ -113,7 +112,6 @@ export default function DiscoverScreen() {
           tag,
           notes,
           created_at,
-          user_id,
           place_id,
           places(place_id, name, address, lat, lng)
         `)
@@ -136,25 +134,9 @@ export default function DiscoverScreen() {
         return;
       }
 
-      // Fetch user profile info for the meal loggers
-      const userIds = [...new Set(publicMeals.map(m => m.user_id).filter(Boolean))];
-      let profilesMap = {};
-
-      if (userIds.length > 0) {
-        const { data: profiles } = await supabase
-          .from('profiles')
-          .select('id, username, display_name, avatar_url')
-          .in('id', userIds);
-
-        (profiles || []).forEach(p => {
-          profilesMap[p.id] = p;
-        });
-      }
-
-      // Format meals with attached user profiles and computed distances
+      // Format meals with computed distances (anonymous - no user data)
       const formatted = publicMeals.map(meal => {
         const place = meal.places || {};
-        const profile = profilesMap[meal.user_id] || null;
         let dist = null;
 
         if (currentLoc && place.lat != null && place.lng != null) {
@@ -169,7 +151,6 @@ export default function DiscoverScreen() {
         return {
           ...meal,
           place,
-          profile,
           distanceMiles: dist,
         };
       });
@@ -268,15 +249,13 @@ export default function DiscoverScreen() {
     }
   }).current;
 
-  // ─── Card Renderer ──────────────────────────────────────────────────────────
+  // ─── Card Renderer (Anonymous) ──────────────────────────────────────────────
 
   const renderCard = ({ item, index }) => {
     const restaurantName = item.place?.name || 'Restaurant Spot';
     const restaurantAddress = item.place?.address || null;
     const distanceText = formatDistance(item.distanceMiles);
     const scoreVal = item.score ? item.score.toFixed(1) : null;
-    const username = item.profile?.username || 'foodie';
-    const avatarUrl = item.profile?.avatar_url || null;
 
     return (
       <View style={[styles.cardContainer, { height: activeCardHeight, width }]}>
@@ -317,25 +296,8 @@ export default function DiscoverScreen() {
           </View>
         </View>
 
-        {/* Bottom Information Overlay */}
+        {/* Bottom Information Overlay (Anonymous - Food & Spot Only) */}
         <View style={styles.bottomOverlay}>
-          {/* User Logged By */}
-          <TouchableOpacity
-            style={styles.userRow}
-            onPress={() => {
-              if (item.user_id) {
-                navigation.navigate('UserProfile', { username });
-              }
-            }}
-            activeOpacity={0.8}
-          >
-            <Avatar url={avatarUrl} size={34} />
-            <View>
-              <Text style={styles.usernameText}>@{username}</Text>
-              <Text style={styles.userSubText}>Logged a meal</Text>
-            </View>
-          </TouchableOpacity>
-
           {/* Meal Title & Score */}
           <View style={styles.mealTitleRow}>
             <Text style={styles.mealName} numberOfLines={2}>
@@ -543,24 +505,6 @@ const styles = StyleSheet.create({
     left: 16,
     right: 16,
     zIndex: 10,
-  },
-  userRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    marginBottom: 10,
-  },
-  usernameText: {
-    color: C.white,
-    fontSize: 14,
-    fontWeight: '700',
-    textShadowColor: 'rgba(0,0,0,0.8)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 3,
-  },
-  userSubText: {
-    color: C.gray1,
-    fontSize: 11,
   },
   mealTitleRow: {
     flexDirection: 'row',
