@@ -108,6 +108,14 @@ function TabNavigator() {
         }}
       />
       <Tab.Screen
+        name="Discover"
+        component={DiscoverScreen}
+        options={{
+          tabBarLabel: 'Discover',
+          tabBarIcon: ({ color, size }) => <Ionicons name="compass-outline" size={size} color={color} />,
+        }}
+      />
+      <Tab.Screen
         name="LogMeal"
         component={LogMealScreen}
         options={{
