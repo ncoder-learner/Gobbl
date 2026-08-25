@@ -32,6 +32,7 @@ import EditMealScreen from './screens/EditMealScreen';
 import MapScreen from './screens/MapScreen';
 import DayTrailDetailScreen from './screens/DayTrailDetailScreen';
 import DayBoardScreen from './screens/DayBoardScreen';
+import DiscoverScreen from './screens/DiscoverScreen';
 import SlotViewerScreen from './screens/SlotViewerScreen';
 import DuelScreen from './screens/DuelScreen';
 import DuelLiveListener from './components/DuelLiveListener';
