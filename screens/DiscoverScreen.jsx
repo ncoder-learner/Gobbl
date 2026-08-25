@@ -79,7 +79,7 @@ export default function DiscoverScreen() {
           created_at,
           user_id,
           place_id,
-          places(id, name, address, lat, lng)
+          places(place_id, name, address, lat, lng)
         `)
         .not('photo_url', 'is', null)
         .order('created_at', { ascending: false })
