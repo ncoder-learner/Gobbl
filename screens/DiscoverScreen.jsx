@@ -11,7 +11,6 @@ import {
   StatusBar,
   useWindowDimensions,
   Platform,
-  Animated,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
@@ -85,11 +84,18 @@ export default function DiscoverScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [userLocation, setUserLocation] = useState(null);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [containerHeight, setContainerHeight] = useState(0);
   const locationRequestedRef = useRef(false);
 
-  // Calculate precise card height (accounting for bottom tab bar)
-  const TAB_BAR_HEIGHT = 49;
-  const cardHeight = height - insets.bottom - TAB_BAR_HEIGHT;
+  // Dynamic layout measurement to guarantee 100% card height match (no header bleed)
+  const activeCardHeight = containerHeight > 0 ? containerHeight : height - insets.bottom - 49;
+
+  const onContainerLayout = useCallback((e) => {
+    const h = e.nativeEvent.layout.height;
+    if (h > 0 && Math.abs(h - containerHeight) > 1) {
+      setContainerHeight(h);
+    }
+  }, [containerHeight]);
 
   // ─── Fetch Meals ────────────────────────────────────────────────────────────
 
@@ -273,7 +279,7 @@ export default function DiscoverScreen() {
     const avatarUrl = item.profile?.avatar_url || null;
 
     return (
-      <View style={[styles.cardContainer, { height: cardHeight, width }]}>
+      <View style={[styles.cardContainer, { height: activeCardHeight, width }]}>
         {/* Main Food Photo */}
         <Image
           source={{ uri: item.photo_url }}
@@ -387,7 +393,7 @@ export default function DiscoverScreen() {
   }
 
   return (
-    <View style={styles.container}>
+    <View style={styles.container} onLayout={onContainerLayout}>
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
 
       {meals.length === 0 ? (
@@ -412,10 +418,15 @@ export default function DiscoverScreen() {
           renderItem={renderCard}
           pagingEnabled
           showsVerticalScrollIndicator={false}
-          snapToInterval={cardHeight}
+          snapToInterval={activeCardHeight}
           snapToAlignment="start"
           decelerationRate="fast"
           disableIntervalMomentum
+          getItemLayout={(data, index) => ({
+            length: activeCardHeight,
+            offset: activeCardHeight * index,
+            index,
+          })}
           onViewableItemsChanged={onViewableItemsChanged}
           viewabilityConfig={{ itemVisiblePercentThreshold: 60 }}
           refreshControl={
