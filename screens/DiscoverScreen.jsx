@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -6,26 +6,109 @@ import {
   Image,
   FlatList,
   TouchableOpacity,
-  ActivityIndicator,
-  RefreshControl,
-  StatusBar,
   useWindowDimensions,
-  Platform,
+  Vibration,
+  Linking,
+  Modal,
+  StatusBar,
+  ActivityIndicator,
+  SafeAreaView,
+  RefreshControl,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
-import { supabase } from '../lib/supabase';
-import { THEME as C } from '../lib/theme';
-import { isHomeMeal } from '../lib/homePrivacy';
 
-// ─── Distance Calculation Helper (Haversine Formula) ──────────────────────────
+// ─── Put your Google Maps API Key here ─────────────────────────────────────────
+const GOOGLE_PLACES_API_KEY =
+  process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY || 'AIzaSyDg-yGNEW8SJlJLYLPPUd5lKvPpYOrXOFk';
 
-function getDistanceInMiles(lat1, lon1, lat2, lon2) {
-  if (lat1 == null || lon1 == null || lat2 == null || lon2 == null) return null;
-  const R = 3958.8; // Earth's radius in miles
+// Broad search radius (10 miles in meters)
+const SEARCH_RADIUS_METERS = 16000;
+
+// Diverse search categories used to fetch a multitude of places
+const CUISINE_CATEGORIES = [
+  { keyword: 'restaurant food', label: 'POPULAR' },
+  { keyword: 'smash burger fries', label: 'BURGERS' },
+  { keyword: 'artisan pizza wood fired', label: 'PIZZA' },
+  { keyword: 'birria tacos mexican', label: 'MEXICAN' },
+  { keyword: 'sushi sashimi japanese', label: 'SUSHI' },
+  { keyword: 'tonkotsu ramen noodles', label: 'RAMEN' },
+  { keyword: 'korean fried chicken wings', label: 'KOREAN' },
+  { keyword: 'thai pad thai curry', label: 'THAI' },
+  { keyword: 'bbq smoked brisket ribs', label: 'BBQ' },
+  { keyword: 'pasta italian kitchen', label: 'ITALIAN' },
+  { keyword: 'bakery cafe coffee brunch', label: 'CAFE' },
+  { keyword: 'mediterranean gyro falafel', label: 'MEDITERRANEAN' },
+];
+
+// Strict non-food blacklist (filters out golf clubs, gyms, gas stations, plazas)
+const NON_FOOD_KEYWORDS = [
+  'golf',
+  'country club',
+  'mall',
+  'shopping center',
+  'plaza',
+  'athletic club',
+  'tennis',
+  'fitness',
+  'gym',
+  'hotel',
+  'motel',
+  'resort',
+  'gas',
+  'chevron',
+  'shell',
+  'car wash',
+  'spa',
+  'salon',
+  'supermarket',
+  'grocery',
+  'stadium',
+];
+
+const NON_FOOD_TYPES = [
+  'shopping_mall',
+  'golf_course',
+  'lodging',
+  'gas_station',
+  'gym',
+  'spa',
+  'supermarket',
+  'grocery_or_supermarket',
+  'convenience_store',
+  'car_dealer',
+  'park',
+  'tourist_attraction',
+  'stadium',
+];
+
+function isLegitRestaurant(place) {
+  const nameLower = (place.name || '').toLowerCase();
+  const types = place.types || [];
+
+  for (const word of NON_FOOD_KEYWORDS) {
+    if (nameLower.includes(word)) return false;
+  }
+
+  for (const badType of NON_FOOD_TYPES) {
+    if (types.includes(badType)) return false;
+  }
+
+  return (
+    types.includes('restaurant') ||
+    types.includes('meal_takeaway') ||
+    types.includes('cafe') ||
+    types.includes('bakery') ||
+    types.includes('bar') ||
+    types.includes('food')
+  );
+}
+
+function calculateDistanceMiles(lat1, lon1, lat2, lon2) {
+  if (!lat1 || !lon1 || !lat2 || !lon2) return null;
+  const R = 3958.8;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
   const dLon = ((lon2 - lon1) * Math.PI) / 180;
   const a =
@@ -34,369 +117,451 @@ function getDistanceInMiles(lat1, lon1, lat2, lon2) {
       Math.cos((lat2 * Math.PI) / 180) *
       Math.sin(dLon / 2) *
       Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-function formatDistance(miles) {
-  if (miles == null) return null;
-  if (miles < 0.1) return 'Right here';
-  if (miles < 10) return `${miles.toFixed(1)} mi away`;
-  return `${Math.round(miles)} mi away`;
+function cleanRestaurantName(name) {
+  return (name || '')
+    .replace(/#\d+/g, '')
+    .replace(/\(.*?\)/g, '')
+    .trim();
 }
 
-// ─── School Meal Exclusion Helper ─────────────────────────────────────────────
-
-function isSchoolMeal(meal) {
-  if (!meal) return false;
-  const placeId = (meal.place_id || '').toLowerCase();
-  if (placeId.startsWith('school:')) return true;
-
-  const placeName = (meal.places?.name || '').toLowerCase();
-  const address = (meal.places?.address || '').toLowerCase();
-
-  const schoolKeywords = [
-    'school',
-    'academy',
-    'university',
-    'college',
-    'campus',
-    'cafeteria',
-    'dining hall',
-    'high school',
-    'middle school',
-    'elementary',
-  ];
-
-  return schoolKeywords.some(
-    kw => placeName.includes(kw) || address.includes(kw)
-  );
+function formatNumber(num) {
+  if (!num) return '0';
+  if (num >= 1000) return `${(num / 1000).toFixed(1)}k`;
+  return num.toString();
 }
 
 export default function DiscoverScreen() {
-  const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
 
-  const [meals, setMeals] = useState([]);
+  const [foodItems, setFoodItems] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [userLocation, setUserLocation] = useState(null);
-  const [activeIndex, setActiveIndex] = useState(0);
-  const [containerHeight, setContainerHeight] = useState(0);
-  const locationRequestedRef = useRef(false);
+  const [likedMap, setLikedMap] = useState({});
+  const [selectedPlace, setSelectedPlace] = useState(null);
+  const [activeTab, setActiveTab] = useState('feed'); // 'feed' | 'craved'
 
-  // Dynamic layout measurement to guarantee 100% card height match (no header bleed)
-  const activeCardHeight = containerHeight > 0 ? containerHeight : height - insets.bottom - 49;
+  const categoryIndexRef = useRef(0);
+  const seenPlaceIdsRef = useRef(new Set());
+  const isFetchingRef = useRef(false);
 
-  const onContainerLayout = useCallback((e) => {
-    const h = e.nativeEvent.layout.height;
-    if (h > 0 && Math.abs(h - containerHeight) > 1) {
-      setContainerHeight(h);
-    }
-  }, [containerHeight]);
+  const cardHeight = height - insets.bottom - 48;
 
-  // ─── Fetch Meals ────────────────────────────────────────────────────────────
+  // ─── Fetch a Multitude of Places Around User ────────────────────────────────
+  const fetchPlacesBatch = useCallback(
+    async (coords, isReset = false) => {
+      if (!coords || isFetchingRef.current) return;
+      isFetchingRef.current = true;
 
-  const fetchMeals = useCallback(async (currentLoc = userLocation) => {
-    try {
-      // Query public restaurant meals that have an image URL
-      const { data, error } = await supabase
-        .from('meals')
-        .select(`
-          id,
-          name,
-          score,
-          rating,
-          photo_url,
-          tag,
-          notes,
-          created_at,
-          place_id,
-          places(place_id, name, address, lat, lng)
-        `)
-        .not('photo_url', 'is', null)
-        .not('place_id', 'is', null)
-        .not('place_id', 'like', 'home:%')
-        .not('place_id', 'like', 'school:%')
-        .order('created_at', { ascending: false })
-        .limit(50);
-
-      if (error) throw error;
-
-      // Filter out home and school meals strictly for privacy & quality
-      const publicMeals = (data || []).filter(
-        m => !isHomeMeal(m) && !isSchoolMeal(m) && m.place_id && m.places?.name
-      );
-
-      if (publicMeals.length === 0) {
-        setMeals([]);
-        return;
+      if (isReset) {
+        setLoading(true);
+        seenPlaceIdsRef.current.clear();
+        categoryIndexRef.current = 0;
+      } else {
+        setLoadingMore(true);
       }
 
-      // Format meals with computed distances (anonymous - no user data)
-      const formatted = publicMeals.map(meal => {
-        const place = meal.places || {};
-        let dist = null;
+      try {
+        // On initial reset, fetch 3 categories in parallel for an instant multitude of spots
+        const categoriesToFetch = isReset
+          ? [CUISINE_CATEGORIES[0], CUISINE_CATEGORIES[1], CUISINE_CATEGORIES[2], CUISINE_CATEGORIES[3]]
+          : [
+              CUISINE_CATEGORIES[categoryIndexRef.current % CUISINE_CATEGORIES.length],
+              CUISINE_CATEGORIES[(categoryIndexRef.current + 1) % CUISINE_CATEGORIES.length],
+            ];
 
-        if (currentLoc && place.lat != null && place.lng != null) {
-          dist = getDistanceInMiles(
-            currentLoc.latitude,
-            currentLoc.longitude,
-            place.lat,
-            place.lng
-          );
+        categoryIndexRef.current += isReset ? 4 : 2;
+
+        const promises = categoriesToFetch.map(async (cat) => {
+          const url = `https://maps.googleapis.com/maps/api/place/nearbysearch/json?location=${coords.latitude},${coords.longitude}&radius=${SEARCH_RADIUS_METERS}&type=restaurant&keyword=${encodeURIComponent(cat.keyword)}&key=${GOOGLE_PLACES_API_KEY}`;
+          const res = await fetch(url);
+          const data = await res.json();
+          return { data, category: cat.label };
+        });
+
+        const results = await Promise.all(promises);
+        const newBatch = [];
+
+        for (const { data, category } of results) {
+          if (!data.results || data.results.length === 0) continue;
+
+          for (const place of data.results) {
+            if (!place.place_id || seenPlaceIdsRef.current.has(place.place_id)) continue;
+            if (!isLegitRestaurant(place)) continue;
+            if (!place.photos || place.photos.length === 0) continue;
+
+            seenPlaceIdsRef.current.add(place.place_id);
+
+            // Select real photo
+            const targetPhoto = place.photos.length > 1 ? place.photos[1] : place.photos[0];
+            const realPhotoUrl = `https://maps.googleapis.com/maps/api/place/photo?maxwidth=1200&photo_reference=${targetPhoto.photo_reference}&key=${GOOGLE_PLACES_API_KEY}`;
+
+            const dist = calculateDistanceMiles(
+              coords.latitude,
+              coords.longitude,
+              place.geometry?.location?.lat,
+              place.geometry?.location?.lng
+            );
+
+            if (dist !== null && dist > 15.0) continue;
+
+            newBatch.push({
+              id: place.place_id,
+              name: place.name,
+              restaurant: place.name,
+              address: place.vicinity || place.formatted_address || 'Nearby Spot',
+              image: realPhotoUrl,
+              rating: place.rating || 4.5,
+              reviewsCount: place.user_ratings_total || 0,
+              distance: dist ? `${dist.toFixed(1)} mi away` : 'Nearby',
+              cuisine: category,
+              priceLevel: place.price_level ? '$'.repeat(place.price_level) : '$$',
+              isOpen: place.opening_hours?.open_now,
+            });
+          }
         }
 
-        return {
-          ...meal,
-          place,
-          distanceMiles: dist,
-        };
-      });
-
-      // If user location is available, sort by distance ascending
-      if (currentLoc) {
-        formatted.sort((a, b) => {
-          if (a.distanceMiles != null && b.distanceMiles != null) {
-            return a.distanceMiles - b.distanceMiles;
-          }
-          if (a.distanceMiles != null) return -1;
-          if (b.distanceMiles != null) return 1;
-          return new Date(b.created_at) - new Date(a.created_at);
-        });
+        // Shuffle so user gets a vibrant mix of burgers, tacos, sushi, etc.
+        const shuffled = newBatch.sort(() => Math.random() - 0.5);
+        setFoodItems((prev) => (isReset ? shuffled : [...prev, ...shuffled]));
+      } catch (e) {
+        console.warn('[DiscoverScreen] Error fetching places:', e);
+      } finally {
+        isFetchingRef.current = false;
+        setLoading(false);
+        setLoadingMore(false);
+        setRefreshing(false);
       }
+    },
+    []
+  );
 
-      setMeals(formatted);
-    } catch (err) {
-      console.error('[DiscoverScreen] Error fetching meals:', err.message || err);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [userLocation]);
-
-  // ─── Location Handling ──────────────────────────────────────────────────────
-
-  const requestLocation = useCallback(async () => {
-    if (locationRequestedRef.current) return;
-    locationRequestedRef.current = true;
-
+  // ─── GPS Location Acquisition ────────────────────────────────────────────────
+  const getLocation = useCallback(async () => {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
-
-      if (status === 'granted') {
-        const loc = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
-        });
-
-        if (loc?.coords) {
-          const coords = {
-            latitude: loc.coords.latitude,
-            longitude: loc.coords.longitude,
-          };
-          setUserLocation(coords);
-
-          // Re-sort current meals by location immediately
-          setMeals(prev => {
-            if (!prev || prev.length === 0) return prev;
-            const updated = prev.map(m => {
-              const place = m.place || {};
-              const dist =
-                place.lat != null && place.lng != null
-                  ? getDistanceInMiles(
-                      coords.latitude,
-                      coords.longitude,
-                      place.lat,
-                      place.lng
-                    )
-                  : null;
-              return { ...m, distanceMiles: dist };
-            });
-
-            return updated.sort((a, b) => {
-              if (a.distanceMiles != null && b.distanceMiles != null) {
-                return a.distanceMiles - b.distanceMiles;
-              }
-              if (a.distanceMiles != null) return -1;
-              if (b.distanceMiles != null) return 1;
-              return new Date(b.created_at) - new Date(a.created_at);
-            });
-          });
-        }
+      if (status !== 'granted') {
+        console.warn('Location permission denied, using default coordinates.');
+      }
+      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      if (loc?.coords) {
+        const coords = { latitude: loc.coords.latitude, longitude: loc.coords.longitude };
+        setUserLocation(coords);
+        fetchPlacesBatch(coords, true);
+        return;
       }
     } catch (err) {
-      console.warn('[DiscoverScreen] Location request error:', err.message || err);
+      console.warn('Location lookup error:', err);
     }
-  }, []);
 
-  // Initial load
-  useFocusEffect(
-    useCallback(() => {
-      fetchMeals();
-      requestLocation();
-    }, [fetchMeals, requestLocation])
-  );
+    const fallback = { latitude: 37.7749, longitude: -122.4194 };
+    setUserLocation(fallback);
+    fetchPlacesBatch(fallback, true);
+  }, [fetchPlacesBatch]);
+
+  useEffect(() => {
+    getLocation();
+  }, [getLocation]);
 
   const onRefresh = () => {
     setRefreshing(true);
-    fetchMeals();
+    if (userLocation) fetchPlacesBatch(userLocation, true);
+    else getLocation();
   };
 
-  const onViewableItemsChanged = useRef(({ viewableItems }) => {
-    if (viewableItems && viewableItems.length > 0) {
-      setActiveIndex(viewableItems[0].index || 0);
-    }
-  }).current;
+  const handleToggleLike = (id) => {
+    Vibration.vibrate(25);
+    setLikedMap((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
 
-  // ─── Card Renderer (Anonymous) ──────────────────────────────────────────────
+  // ─── 3 External URL Actions ─────────────────────────────────────────────────
 
-  const renderCard = ({ item, index }) => {
-    const restaurantName = item.place?.name || 'Restaurant Spot';
-    const restaurantAddress = item.place?.address || null;
-    const distanceText = formatDistance(item.distanceMiles);
-    const scoreVal = item.score ? item.score.toFixed(1) : null;
+  // 1. Direct Official Google Business Profile (by place_id)
+  const handleOpenGoogleProfile = (item) => {
+    Vibration.vibrate(15);
+    const url = `https://www.google.com/maps/place/?q=place_id:${item.id}`;
+    Linking.openURL(url).catch((err) => console.warn('Could not open Google Profile:', err));
+  };
+
+  // 2. DoorDash Plain Web Search
+  const handleOpenDoorDash = (item) => {
+    Vibration.vibrate(15);
+    const cleaned = cleanRestaurantName(item.name);
+    const url = `https://www.doordash.com/search/store/${encodeURIComponent(cleaned)}/`;
+    Linking.openURL(url).catch((err) => console.warn('Could not open DoorDash:', err));
+  };
+
+  // 3. Uber Eats Plain Web Search
+  const handleOpenUberEats = (item) => {
+    Vibration.vibrate(15);
+    const cleaned = cleanRestaurantName(item.name);
+    const url = `https://www.ubereats.com/search?q=${encodeURIComponent(cleaned)}`;
+    Linking.openURL(url).catch((err) => console.warn('Could not open Uber Eats:', err));
+  };
+
+  const cravedItems = foodItems.filter((item) => !!likedMap[item.id]);
+
+  // ─── Card Renderer ───────────────────────────────────────────────────────────
+  const renderFoodCard = ({ item }) => {
+    const isLiked = !!likedMap[item.id];
+    const displayCount = item.reviewsCount + (isLiked ? 1 : 0);
 
     return (
-      <View style={[styles.cardContainer, { height: activeCardHeight, width }]}>
-        {/* Main Food Photo */}
-        <Image
-          source={{ uri: item.photo_url }}
-          style={styles.cardImage}
-          resizeMode="cover"
-        />
+      <View style={[styles.card, { width, height: cardHeight }]}>
+        {/* Real Live Google Place Photo */}
+        <Image source={{ uri: item.image }} style={styles.dishImage} resizeMode="cover" />
 
-        {/* Premium Layered Gradients */}
+        {/* Ambient Gradients */}
+        <LinearGradient colors={['rgba(0,0,0,0.65)', 'transparent']} style={styles.topGradient} />
         <LinearGradient
-          colors={['rgba(0,0,0,0.7)', 'rgba(0,0,0,0.2)', 'transparent']}
-          style={styles.topGradient}
-        />
-        <LinearGradient
-          colors={['transparent', 'rgba(0,0,0,0.6)', 'rgba(0,0,0,0.92)']}
+          colors={['transparent', 'rgba(0,0,0,0.5)', 'rgba(0,0,0,0.96)']}
           style={styles.bottomGradient}
         />
 
-        {/* Top Header Bar Overlay */}
-        <View style={[styles.topOverlay, { paddingTop: insets.top + 8 }]}>
-          <View style={styles.headerLeft}>
-            <Ionicons name="compass" size={24} color={C.orange} />
-            <Text style={styles.headerTitle}>Discover</Text>
-          </View>
-
-          <View style={styles.headerRight}>
-            {distanceText && (
-              <View style={styles.distanceBadge}>
-                <Ionicons name="navigate" size={11} color={C.orange} />
-                <Text style={styles.distanceText}>{distanceText}</Text>
-              </View>
-            )}
-            <View style={styles.counterBadge}>
-              <Text style={styles.counterText}>{index + 1}/{meals.length}</Text>
-            </View>
-          </View>
-        </View>
-
-        {/* Bottom Information Overlay (Anonymous - Food & Spot Only) */}
-        <View style={styles.bottomOverlay}>
-          {/* Meal Title & Score */}
-          <View style={styles.mealTitleRow}>
-            <Text style={styles.mealName} numberOfLines={2}>
-              {item.name}
-            </Text>
-
-            {scoreVal && (
-              <View style={styles.scorePill}>
-                <Ionicons name="star" size={13} color={C.gold} />
-                <Text style={styles.scoreText}>{scoreVal}</Text>
-              </View>
-            )}
-          </View>
-
-          {/* Restaurant Name & Address Card */}
+        {/* Right Floating Actions */}
+        <View style={styles.rightActions}>
+          {/* Like / Crave Button */}
           <TouchableOpacity
-            style={styles.locationRow}
-            onPress={() => {
-              if (item.id) {
-                navigation.navigate('MealDetail', { mealId: item.id });
-              }
-            }}
+            style={styles.actionBtn}
+            onPress={() => handleToggleLike(item.id)}
             activeOpacity={0.8}
           >
-            <View style={styles.locationIconBg}>
-              <Ionicons name="restaurant" size={16} color={C.orange} />
+            <View style={[styles.actionIconBg, isLiked && styles.actionIconBgLiked]}>
+              <Ionicons
+                name={isLiked ? 'heart' : 'heart-outline'}
+                size={26}
+                color={isLiked ? '#FF2E55' : '#FFF'}
+              />
             </View>
-            <View style={styles.locationTextWrapper}>
-              <Text style={styles.restaurantName} numberOfLines={1}>
-                {restaurantName}
-              </Text>
-              {restaurantAddress && (
-                <Text style={styles.restaurantAddress} numberOfLines={1}>
-                  {restaurantAddress}
-                </Text>
-              )}
-            </View>
-            <Ionicons name="chevron-forward" size={16} color={C.gray1} />
+            <Text style={[styles.actionCountText, isLiked && { color: '#FF2E55' }]}>
+              {formatNumber(displayCount)}
+            </Text>
+            <Text style={styles.actionSubLabel}>{isLiked ? 'Saved' : 'Saves'}</Text>
           </TouchableOpacity>
+
+          {/* Action 1: Google Profile */}
+          <TouchableOpacity
+            style={styles.actionBtn}
+            onPress={() => handleOpenGoogleProfile(item)}
+            activeOpacity={0.8}
+          >
+            <View style={[styles.actionIconBg, { backgroundColor: 'rgba(66, 133, 244, 0.85)' }]}>
+              <Ionicons name="storefront-outline" size={22} color="#FFF" />
+            </View>
+            <Text style={styles.actionLabel}>Profile</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Bottom Details & Direct Ordering Buttons */}
+        <View style={styles.bottomContent}>
+          {/* Profile Badges */}
+          <View style={styles.tagsRow}>
+            <View style={styles.tagBadge}>
+              <Text style={styles.tagText}>{item.distance}</Text>
+            </View>
+            <View style={styles.tagBadge}>
+              <Text style={styles.tagText}>{item.priceLevel}</Text>
+            </View>
+            <View style={styles.ratingBadge}>
+              <Ionicons name="star" size={12} color="#FFB800" />
+              <Text style={styles.ratingText}>
+                {item.rating} ({formatNumber(item.reviewsCount)})
+              </Text>
+            </View>
+            {item.isOpen !== undefined && (
+              <View
+                style={[
+                  styles.tagBadge,
+                  { backgroundColor: item.isOpen ? 'rgba(52, 199, 89, 0.25)' : 'rgba(255, 59, 48, 0.25)' },
+                ]}
+              >
+                <Text style={[styles.tagText, { color: item.isOpen ? '#34C759' : '#FF3B30' }]}>
+                  {item.isOpen ? 'Open Now' : 'Closed'}
+                </Text>
+              </View>
+            )}
+          </View>
+
+          {/* Restaurant Title (Tap opens Google Profile) */}
+          <TouchableOpacity onPress={() => handleOpenGoogleProfile(item)} activeOpacity={0.8}>
+            <Text style={styles.dishName} numberOfLines={2}>
+              {item.name}
+            </Text>
+          </TouchableOpacity>
+
+          {/* Address & Cuisine */}
+          <Text style={styles.restaurantAddress} numberOfLines={1}>
+            {item.address} · {item.cuisine}
+          </Text>
+
+          {/* 3 Dedicated Action Buttons */}
+          <View style={styles.buttonRow}>
+            {/* Action 1: Google Profile */}
+            <TouchableOpacity
+              style={[styles.btn, styles.googleBtn]}
+              onPress={() => handleOpenGoogleProfile(item)}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="logo-google" size={14} color="#FFF" />
+              <Text style={styles.btnText}>Google Profile</Text>
+            </TouchableOpacity>
+
+            {/* Action 2: DoorDash */}
+            <TouchableOpacity
+              style={[styles.btn, styles.doorDashBtn]}
+              onPress={() => handleOpenDoorDash(item)}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="bag-handle" size={14} color="#FFF" />
+              <Text style={styles.btnText}>DoorDash</Text>
+            </TouchableOpacity>
+
+            {/* Action 3: Uber Eats */}
+            <TouchableOpacity
+              style={[styles.btn, styles.uberEatsBtn]}
+              onPress={() => handleOpenUberEats(item)}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="flash" size={13} color="#FFF" />
+              <Text style={styles.btnText}>Uber Eats</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
     );
   };
 
-  // ─── Render Screen ──────────────────────────────────────────────────────────
-
   if (loading && !refreshing) {
     return (
       <SafeAreaView style={styles.loadingContainer}>
         <StatusBar barStyle="light-content" />
-        <ActivityIndicator size="large" color={C.orange} />
-        <Text style={styles.loadingText}>Curating top restaurant spots...</Text>
+        <ActivityIndicator size="large" color="#FB7238" />
+        <Text style={styles.loadingText}>Discovering a multitude of places around you...</Text>
       </SafeAreaView>
     );
   }
 
   return (
-    <View style={styles.container} onLayout={onContainerLayout}>
+    <View style={styles.container}>
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
 
-      {meals.length === 0 ? (
-        <SafeAreaView style={styles.emptyContainer}>
-          <Ionicons name="compass-outline" size={64} color={C.gray2} />
-          <Text style={styles.emptyTitle}>No Restaurant Discoveries Yet</Text>
-          <Text style={styles.emptySub}>
-            Be the first to log a meal at a restaurant with a photo to feature it on Discover!
-          </Text>
+      {/* Top Navigation Bar */}
+      <View style={[styles.topBar, { paddingTop: insets.top + 8 }]}>
+        <View style={styles.brandIcon}>
+          <Ionicons name="restaurant" size={18} color="#FFF" />
+        </View>
+
+        <View style={styles.modeSwitchWrapper}>
           <TouchableOpacity
-            style={styles.logButton}
-            onPress={() => navigation.navigate('LogMeal')}
+            style={[styles.modePill, activeTab === 'feed' && styles.modePillActive]}
+            onPress={() => setActiveTab('feed')}
           >
-            <Ionicons name="camera-outline" size={20} color={C.white} />
-            <Text style={styles.logButtonText}>Log a Meal</Text>
+            <Text style={[styles.modePillText, activeTab === 'feed' && styles.modePillTextActive]}>
+              Discover ({foodItems.length})
+            </Text>
           </TouchableOpacity>
-        </SafeAreaView>
+
+          <TouchableOpacity
+            style={[styles.modePill, activeTab === 'craved' && styles.modePillActiveCraved]}
+            onPress={() => setActiveTab('craved')}
+          >
+            <Ionicons
+              name={activeTab === 'craved' ? 'heart' : 'heart-outline'}
+              size={13}
+              color={activeTab === 'craved' ? '#FF2E55' : '#8E8E93'}
+            />
+            <Text style={[styles.modePillText, activeTab === 'craved' && styles.modePillTextActive]}>
+              Saved ({cravedItems.length})
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* Main Endless Swiper */}
+      {activeTab === 'craved' ? (
+        cravedItems.length === 0 ? (
+          <SafeAreaView style={styles.emptyContainer}>
+            <View style={styles.emptyHeartBg}>
+              <Ionicons name="heart" size={40} color="#FF2E55" />
+            </View>
+            <Text style={styles.emptyTitle}>No Saved Places Yet</Text>
+            <Text style={styles.emptySub}>
+              Tap the heart on any spot in the feed to save it to your collection!
+            </Text>
+            <TouchableOpacity style={styles.explorePill} onPress={() => setActiveTab('feed')}>
+              <Text style={styles.explorePillText}>Explore Places</Text>
+            </TouchableOpacity>
+          </SafeAreaView>
+        ) : (
+          <FlatList
+            data={cravedItems}
+            keyExtractor={(item) => `crave-${item.id}`}
+            numColumns={2}
+            contentContainerStyle={[styles.gridContainer, { paddingTop: insets.top + 60 }]}
+            columnWrapperStyle={{ gap: 12 }}
+            renderItem={({ item }) => (
+              <View style={styles.gridCard}>
+                <Image source={{ uri: item.image }} style={styles.gridImage} />
+                <LinearGradient colors={['transparent', 'rgba(0,0,0,0.92)']} style={styles.gridGradient} />
+                <TouchableOpacity style={styles.gridHeart} onPress={() => handleToggleLike(item.id)}>
+                  <Ionicons name="heart" size={18} color="#FF2E55" />
+                </TouchableOpacity>
+                <View style={styles.gridOverlay}>
+                  <Text style={styles.gridDish} numberOfLines={1}>
+                    {item.name}
+                  </Text>
+                  <Text style={styles.gridRestaurant} numberOfLines={1}>
+                    {item.distance} · {item.cuisine}
+                  </Text>
+                  <View style={{ flexDirection: 'row', gap: 6, marginTop: 6 }}>
+                    <TouchableOpacity
+                      style={styles.gridSmallBtn}
+                      onPress={() => handleOpenDoorDash(item)}
+                    >
+                      <Text style={styles.gridBtnText}>DoorDash</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.gridSmallBtn}
+                      onPress={() => handleOpenGoogleProfile(item)}
+                    >
+                      <Text style={styles.gridBtnText}>Profile</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
+            )}
+          />
+        )
       ) : (
         <FlatList
-          data={meals}
-          keyExtractor={item => item.id}
-          renderItem={renderCard}
+          data={foodItems}
+          keyExtractor={(item) => item.id}
+          renderItem={renderFoodCard}
+          horizontal
           pagingEnabled
-          showsVerticalScrollIndicator={false}
-          snapToInterval={activeCardHeight}
-          snapToAlignment="start"
+          showsHorizontalScrollIndicator={false}
+          snapToInterval={width}
           decelerationRate="fast"
-          disableIntervalMomentum
-          getItemLayout={(data, index) => ({
-            length: activeCardHeight,
-            offset: activeCardHeight * index,
-            index,
-          })}
-          onViewableItemsChanged={onViewableItemsChanged}
-          viewabilityConfig={{ itemVisiblePercentThreshold: 60 }}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              tintColor={C.orange}
-            />
+          // Automatically loads more batches of places as you swipe near the end
+          onEndReached={() => {
+            if (!loadingMore && userLocation) {
+              fetchPlacesBatch(userLocation, false);
+            }
+          }}
+          onEndReachedThreshold={0.5}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#FB7238" />}
+          getItemLayout={(_, index) => ({ length: width, offset: width * index, index })}
+          ListFooterComponent={
+            loadingMore ? (
+              <View style={[styles.loadingMoreBox, { width: 100, height: cardHeight }]}>
+                <ActivityIndicator size="small" color="#FB7238" />
+              </View>
+            ) : null
           }
         />
       )}
@@ -405,206 +570,171 @@ export default function DiscoverScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: C.bg,
+  container: { flex: 1, backgroundColor: '#121212' },
+  loadingContainer: { flex: 1, backgroundColor: '#121212', alignItems: 'center', justifyContent: 'center' },
+  loadingText: { color: '#8E8E93', fontSize: 13, marginTop: 12, fontWeight: '600' },
+  topBar: {
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    top: 0,
+    zIndex: 30,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
-  loadingContainer: {
-    flex: 1,
-    backgroundColor: C.bg,
+  brandIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    backgroundColor: '#FB7238',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  loadingText: {
-    marginTop: 12,
-    color: C.gray1,
-    fontSize: 14,
-  },
-  cardContainer: {
-    position: 'relative',
-    backgroundColor: C.surface,
-    overflow: 'hidden',
-  },
-  cardImage: {
-    ...StyleSheet.absoluteFillObject,
-    width: '100%',
-    height: '100%',
-  },
-  topGradient: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    top: 0,
-    height: 140,
-  },
-  bottomGradient: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    height: 280,
-  },
-  topOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 16,
-    right: 16,
+  modeSwitchWrapper: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    zIndex: 10,
-  },
-  headerLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  headerTitle: {
-    fontFamily: C.serif,
-    fontSize: 28,
-    color: C.white,
-    letterSpacing: 0.5,
-  },
-  headerRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  distanceBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    backgroundColor: 'rgba(22, 22, 22, 0.85)',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: C.pill,
+    backgroundColor: 'rgba(20, 20, 20, 0.88)',
+    padding: 3,
+    borderRadius: 24,
     borderWidth: 1,
-    borderColor: C.glassBorder,
+    borderColor: 'rgba(255,255,255,0.15)',
+    gap: 3,
   },
-  distanceText: {
-    color: C.white,
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  counterBadge: {
-    backgroundColor: 'rgba(22, 22, 22, 0.75)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: C.pill,
-    borderWidth: 1,
-    borderColor: C.glassBorder,
-  },
-  counterText: {
-    color: C.gray1,
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  bottomOverlay: {
-    position: 'absolute',
-    bottom: 28,
-    left: 16,
-    right: 16,
-    zIndex: 10,
-  },
-  mealTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
-    marginBottom: 10,
-  },
-  mealName: {
-    flex: 1,
-    color: C.white,
-    fontSize: 24,
-    fontWeight: '700',
-    lineHeight: 30,
-    textShadowColor: 'rgba(0,0,0,0.9)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 4,
-  },
-  scorePill: {
+  modePill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: 'rgba(22, 22, 22, 0.9)',
     paddingHorizontal: 12,
-    paddingVertical: 5,
-    borderRadius: C.pill,
+    paddingVertical: 6,
+    borderRadius: 22,
+  },
+  modePillActive: { backgroundColor: 'rgba(255,255,255,0.18)' },
+  modePillActiveCraved: {
+    backgroundColor: 'rgba(255, 46, 85, 0.22)',
     borderWidth: 1,
-    borderColor: C.glassBorder,
+    borderColor: 'rgba(255, 46, 85, 0.4)',
   },
-  scoreText: {
-    color: C.white,
-    fontSize: 14,
-    fontWeight: '700',
+  modePillText: { color: '#8E8E93', fontSize: 12, fontWeight: '700' },
+  modePillTextActive: { color: '#FFF' },
+  card: { position: 'relative', overflow: 'hidden' },
+  dishImage: { ...StyleSheet.absoluteFillObject, width: '100%', height: '100%' },
+  topGradient: { position: 'absolute', top: 0, left: 0, right: 0, height: 140 },
+  bottomGradient: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 340 },
+  rightActions: {
+    position: 'absolute',
+    right: 16,
+    bottom: 180,
+    gap: 14,
+    alignItems: 'center',
+    zIndex: 10,
   },
-  locationRow: {
+  actionBtn: { alignItems: 'center' },
+  actionIconBg: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(20,20,20,0.85)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  actionIconBgLiked: { backgroundColor: 'rgba(255,46,85,0.3)', borderColor: '#FF2E55' },
+  actionCountText: { color: '#FFF', fontSize: 12, fontWeight: '900', marginTop: 3 },
+  actionSubLabel: { color: '#AAA', fontSize: 9, fontWeight: '600' },
+  actionLabel: { color: '#FFF', fontSize: 10, fontWeight: '700', marginTop: 3 },
+  bottomContent: { position: 'absolute', bottom: 20, left: 16, right: 16 },
+  tagsRow: { flexDirection: 'row', gap: 6, marginBottom: 8, alignItems: 'center', flexWrap: 'wrap' },
+  tagBadge: {
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  tagText: { color: '#FFF', fontSize: 11, fontWeight: '700' },
+  ratingBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    backgroundColor: 'rgba(22, 22, 22, 0.88)',
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: C.glassBorder,
-    marginTop: 4,
+    gap: 3,
+    backgroundColor: 'rgba(255,184,0,0.2)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
   },
-  locationIconBg: {
+  ratingText: { color: '#FFB800', fontSize: 11, fontWeight: '800' },
+  dishName: { color: '#FFF', fontSize: 24, fontWeight: '900', marginBottom: 4 },
+  restaurantAddress: { color: '#CCC', fontSize: 12, marginBottom: 14 },
+  buttonRow: { flexDirection: 'row', gap: 8 },
+  btn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  googleBtn: {
+    backgroundColor: 'rgba(66, 133, 244, 0.9)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+  },
+  doorDashBtn: { backgroundColor: '#FF3008' },
+  uberEatsBtn: { backgroundColor: '#06C167' },
+  btnText: { color: '#FFF', fontSize: 11, fontWeight: '800' },
+  loadingMoreBox: { alignItems: 'center', justifyContent: 'center' },
+  gridContainer: { paddingHorizontal: 16, paddingBottom: 32 },
+  gridCard: {
+    flex: 1,
+    height: 230,
+    borderRadius: 18,
+    overflow: 'hidden',
+    backgroundColor: '#1C1C1E',
+    marginBottom: 12,
+    position: 'relative',
+  },
+  gridImage: { width: '100%', height: '100%' },
+  gridGradient: { position: 'absolute', left: 0, right: 0, bottom: 0, height: 130 },
+  gridHeart: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: 'rgba(251, 114, 56, 0.15)',
+    backgroundColor: 'rgba(0,0,0,0.6)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  locationTextWrapper: {
+  gridOverlay: { position: 'absolute', bottom: 10, left: 10, right: 10 },
+  gridDish: { color: '#FFF', fontWeight: '800', fontSize: 13 },
+  gridRestaurant: { color: '#CCC', fontSize: 11, marginTop: 2 },
+  gridSmallBtn: {
     flex: 1,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    paddingVertical: 4,
+    borderRadius: 6,
+    alignItems: 'center',
   },
-  restaurantName: {
-    color: C.white,
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  restaurantAddress: {
-    color: C.gray1,
-    fontSize: 12,
-    marginTop: 2,
-  },
-  emptyContainer: {
-    flex: 1,
+  gridBtnText: { color: '#FFF', fontSize: 9, fontWeight: '700' },
+  emptyContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 },
+  emptyHeartBg: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: 'rgba(255, 46, 85, 0.15)',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 32,
+    marginBottom: 16,
   },
-  emptyTitle: {
-    fontFamily: C.serif,
-    fontSize: 24,
-    color: C.white,
-    marginTop: 16,
-    textAlign: 'center',
-  },
-  emptySub: {
-    color: C.gray1,
-    fontSize: 14,
-    textAlign: 'center',
-    marginTop: 8,
-    lineHeight: 20,
-  },
-  logButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: C.orange,
+  emptyTitle: { fontSize: 22, color: '#FFF', fontWeight: '700' },
+  emptySub: { color: '#8E8E93', fontSize: 13, textAlign: 'center', marginTop: 8, lineHeight: 18 },
+  explorePill: {
+    backgroundColor: '#FB7238',
     paddingHorizontal: 20,
     paddingVertical: 12,
-    borderRadius: C.pill,
-    marginTop: 24,
+    borderRadius: 24,
+    marginTop: 20,
   },
-  logButtonText: {
-    color: C.white,
-    fontSize: 15,
-    fontWeight: '600',
-  },
+  explorePillText: { color: '#FFF', fontSize: 14, fontWeight: '700' },
 });
