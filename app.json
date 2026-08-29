@@ -2,7 +2,7 @@
   "expo": {
     "name": "Gobbl",
     "slug": "FoodWrapped",
-    "version": "4.2.0",
+    "version": "5.0.0",
     "scheme": "com.ncoderpro.foodwrapped",
     "orientation": "portrait",
     "icon": "./assets/icon.png",

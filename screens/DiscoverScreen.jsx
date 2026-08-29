@@ -9,7 +9,7 @@ import {
   useWindowDimensions,
   Vibration,
   Linking,
-  Modal,
+  Platform,
   StatusBar,
   ActivityIndicator,
   SafeAreaView,
@@ -19,12 +19,24 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// ─── Put your Google Maps API Key here ─────────────────────────────────────────
-const GOOGLE_PLACES_API_KEY =
-  process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY || 'AIzaSyDg-yGNEW8SJlJLYLPPUd5lKvPpYOrXOFk';
+// ─── API Key ─────────────────────────────────────────────────────────────────
+// NEVER hardcode a real key here as a fallback string. This file gets bundled
+// into the app binary and can be extracted from the APK/IPA, and if it's ever
+// committed to git it's in your history forever. Read from env only.
+const GOOGLE_PLACES_API_KEY = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
 
-// Broad search radius (10 miles in meters)
+if (__DEV__ && !GOOGLE_PLACES_API_KEY) {
+  console.warn(
+    '[DiscoverScreen] Missing EXPO_PUBLIC_GOOGLE_MAPS_API_KEY. See setup notes at the bottom of this file.'
+  );
+}
+
+// Key under which the user's saved ("Craved") places are persisted locally.
+const CRAVED_STORAGE_KEY = '@discover_craved_places_v1';
+
+// Broad search radius (~10 miles in meters)
 const SEARCH_RADIUS_METERS = 16000;
 
 // Diverse search categories used to fetch a multitude of places
@@ -133,6 +145,27 @@ function formatNumber(num) {
   return num.toString();
 }
 
+// Tries a native app URL scheme first (if the app is installed), falling back
+// to a normal web URL. Used for cases where a real scheme exists and is worth
+// trying (e.g. Google Maps). For DoorDash/Uber Eats see the notes further
+// down — there's no verified scheme for a name-based search, so those just
+// open the web URL, which iOS/Android already hand off to the installed app
+// via Universal Links / App Links.
+async function openExternalApp(schemeUrl, webUrl) {
+  try {
+    if (schemeUrl) {
+      const canOpen = await Linking.canOpenURL(schemeUrl);
+      if (canOpen) {
+        await Linking.openURL(schemeUrl);
+        return;
+      }
+    }
+    await Linking.openURL(webUrl);
+  } catch (err) {
+    console.warn('Could not open external app:', err);
+  }
+}
+
 export default function DiscoverScreen() {
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
@@ -141,33 +174,67 @@ export default function DiscoverScreen() {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState(null);
+  const [noMoreResults, setNoMoreResults] = useState(false);
   const [userLocation, setUserLocation] = useState(null);
-  const [likedMap, setLikedMap] = useState({});
-  const [selectedPlace, setSelectedPlace] = useState(null);
+  // Craved items are stored as full objects (id -> item), not just booleans,
+  // so the Saved tab still works after a restart even if a fresh fetch
+  // doesn't happen to re-surface that place in foodItems.
+  const [cravedMap, setCravedMap] = useState({});
+  const [brokenImages, setBrokenImages] = useState({});
   const [activeTab, setActiveTab] = useState('feed'); // 'feed' | 'craved'
 
   const categoryIndexRef = useRef(0);
   const seenPlaceIdsRef = useRef(new Set());
   const isFetchingRef = useRef(false);
+  const emptyBatchStreakRef = useRef(0);
+  const isMountedRef = useRef(true);
 
   const cardHeight = height - insets.bottom - 48;
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  // ─── Load / persist Craved places ───────────────────────────────────────────
+  useEffect(() => {
+    (async () => {
+      try {
+        const raw = await AsyncStorage.getItem(CRAVED_STORAGE_KEY);
+        if (raw && isMountedRef.current) setCravedMap(JSON.parse(raw));
+      } catch (e) {
+        console.warn('[DiscoverScreen] Could not load saved places:', e);
+      }
+    })();
+  }, []);
 
   // ─── Fetch a Multitude of Places Around User ────────────────────────────────
   const fetchPlacesBatch = useCallback(
     async (coords, isReset = false) => {
       if (!coords || isFetchingRef.current) return;
+      if (!GOOGLE_PLACES_API_KEY) {
+        setLoadError('Missing Google Maps API key. Add EXPO_PUBLIC_GOOGLE_MAPS_API_KEY to your .env file.');
+        setLoading(false);
+        return;
+      }
       isFetchingRef.current = true;
 
       if (isReset) {
         setLoading(true);
+        setLoadError(null);
+        setNoMoreResults(false);
         seenPlaceIdsRef.current.clear();
         categoryIndexRef.current = 0;
+        emptyBatchStreakRef.current = 0;
       } else {
         setLoadingMore(true);
       }
 
       try {
-        // On initial reset, fetch 3 categories in parallel for an instant multitude of spots
+        // On initial reset, fetch 4 categories in parallel for an instant multitude of spots
         const categoriesToFetch = isReset
           ? [CUISINE_CATEGORIES[0], CUISINE_CATEGORIES[1], CUISINE_CATEGORIES[2], CUISINE_CATEGORIES[3]]
           : [
@@ -186,8 +253,20 @@ export default function DiscoverScreen() {
 
         const results = await Promise.all(promises);
         const newBatch = [];
+        let anyOk = false;
+        let anyErrorStatus = false;
 
         for (const { data, category } of results) {
+          if (data.status === 'OK') {
+            anyOk = true;
+          } else if (data.status && data.status !== 'ZERO_RESULTS') {
+            anyErrorStatus = true;
+            console.warn(
+              `[DiscoverScreen] Places API error (${category}): ${data.status}${data.error_message ? ' - ' + data.error_message : ''}`
+            );
+            continue;
+          }
+
           if (!data.results || data.results.length === 0) continue;
 
           for (const place of data.results) {
@@ -201,12 +280,9 @@ export default function DiscoverScreen() {
             const targetPhoto = place.photos.length > 1 ? place.photos[1] : place.photos[0];
             const realPhotoUrl = `https://maps.googleapis.com/maps/api/place/photo?maxwidth=1200&photo_reference=${targetPhoto.photo_reference}&key=${GOOGLE_PLACES_API_KEY}`;
 
-            const dist = calculateDistanceMiles(
-              coords.latitude,
-              coords.longitude,
-              place.geometry?.location?.lat,
-              place.geometry?.location?.lng
-            );
+            const lat = place.geometry?.location?.lat;
+            const lng = place.geometry?.location?.lng;
+            const dist = calculateDistanceMiles(coords.latitude, coords.longitude, lat, lng);
 
             if (dist !== null && dist > 15.0) continue;
 
@@ -222,8 +298,27 @@ export default function DiscoverScreen() {
               cuisine: category,
               priceLevel: place.price_level ? '$'.repeat(place.price_level) : '$$',
               isOpen: place.opening_hours?.open_now,
+              lat,
+              lng,
             });
           }
+        }
+
+        if (!isMountedRef.current) return;
+
+        // Nothing came back OK at all on a fresh load - surface it instead of
+        // leaving the user staring at an empty screen with no explanation.
+        if (isReset && !anyOk && anyErrorStatus) {
+          setLoadError('Could not load restaurants nearby. Check your connection and try again.');
+        }
+
+        // Stop hammering the API once swiping stops turning up new places -
+        // this is a paid endpoint, don't burn quota on empty cycles.
+        if (newBatch.length < 2) {
+          emptyBatchStreakRef.current += 1;
+          if (emptyBatchStreakRef.current >= 3) setNoMoreResults(true);
+        } else {
+          emptyBatchStreakRef.current = 0;
         }
 
         // Shuffle so user gets a vibrant mix of burgers, tacos, sushi, etc.
@@ -231,11 +326,16 @@ export default function DiscoverScreen() {
         setFoodItems((prev) => (isReset ? shuffled : [...prev, ...shuffled]));
       } catch (e) {
         console.warn('[DiscoverScreen] Error fetching places:', e);
+        if (isReset && isMountedRef.current) {
+          setLoadError('Could not load restaurants nearby. Check your connection and try again.');
+        }
       } finally {
         isFetchingRef.current = false;
-        setLoading(false);
-        setLoadingMore(false);
-        setRefreshing(false);
+        if (isMountedRef.current) {
+          setLoading(false);
+          setLoadingMore(false);
+          setRefreshing(false);
+        }
       }
     },
     []
@@ -249,7 +349,7 @@ export default function DiscoverScreen() {
         console.warn('Location permission denied, using default coordinates.');
       }
       const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      if (loc?.coords) {
+      if (loc?.coords && isMountedRef.current) {
         const coords = { latitude: loc.coords.latitude, longitude: loc.coords.longitude };
         setUserLocation(coords);
         fetchPlacesBatch(coords, true);
@@ -259,6 +359,7 @@ export default function DiscoverScreen() {
       console.warn('Location lookup error:', err);
     }
 
+    if (!isMountedRef.current) return;
     const fallback = { latitude: 37.7749, longitude: -122.4194 };
     setUserLocation(fallback);
     fetchPlacesBatch(fallback, true);
@@ -270,51 +371,124 @@ export default function DiscoverScreen() {
 
   const onRefresh = () => {
     setRefreshing(true);
+    setNoMoreResults(false);
+    setLoadError(null);
     if (userLocation) fetchPlacesBatch(userLocation, true);
     else getLocation();
   };
 
-  const handleToggleLike = (id) => {
+  // item is the full place object (needed so Craved can persist independent
+  // of whatever happens to be in foodItems this session)
+  const handleToggleLike = (item) => {
     Vibration.vibrate(25);
-    setLikedMap((prev) => ({ ...prev, [id]: !prev[id] }));
+    setCravedMap((prev) => {
+      const next = { ...prev };
+      if (next[item.id]) {
+        delete next[item.id];
+      } else {
+        next[item.id] = item;
+      }
+      AsyncStorage.setItem(CRAVED_STORAGE_KEY, JSON.stringify(next)).catch((e) =>
+        console.warn('[DiscoverScreen] Could not persist saved places:', e)
+      );
+      return next;
+    });
   };
 
-  // ─── 3 External URL Actions ─────────────────────────────────────────────────
+// ─── External URL Actions ───────────────────────────────────────────────────
 
-  // 1. Direct Official Google Business Profile (by place_id)
-  const handleOpenGoogleProfile = (item) => {
-    Vibration.vibrate(15);
-    const url = `https://www.google.com/maps/place/?q=place_id:${item.id}`;
-    Linking.openURL(url).catch((err) => console.warn('Could not open Google Profile:', err));
-  };
+// Google Profile
+// Opens Google Search for the exact restaurant instead of intentionally
+// launching Google Maps. The name + address makes the result specific.
+const handleOpenGoogleProfile = (item) => {
+  Vibration.vibrate(15);
 
-  // 2. DoorDash Plain Web Search
-  const handleOpenDoorDash = (item) => {
-    Vibration.vibrate(15);
-    const cleaned = cleanRestaurantName(item.name);
-    const url = `https://www.doordash.com/search/store/${encodeURIComponent(cleaned)}/`;
-    Linking.openURL(url).catch((err) => console.warn('Could not open DoorDash:', err));
-  };
+  const query = encodeURIComponent(`${item.name}, ${item.address}`);
+  const url = `https://www.google.com/search?q=${query}`;
 
-  // 3. Uber Eats Plain Web Search
-  const handleOpenUberEats = (item) => {
-    Vibration.vibrate(15);
-    const cleaned = cleanRestaurantName(item.name);
-    const url = `https://www.ubereats.com/search?q=${encodeURIComponent(cleaned)}`;
-    Linking.openURL(url).catch((err) => console.warn('Could not open Uber Eats:', err));
-  };
+  Linking.openURL(url).catch((err) =>
+    console.warn('Could not open Google Profile:', err)
+  );
+};
 
-  const cravedItems = foodItems.filter((item) => !!likedMap[item.id]);
+// DoorDash
+// Until we have a real DoorDash restaurant/store URL, use the restaurant
+// name + address so DoorDash gets a much more precise search.
+const handleOpenDoorDash = (item) => {
+  Vibration.vibrate(15);
+
+  const cleaned = cleanRestaurantName(item.name);
+  const url = `https://www.doordash.com/search/store/${encodeURIComponent(cleaned)}/`;
+
+  Linking.openURL(url).catch((err) =>
+    console.warn('Could not open DoorDash:', err)
+  );
+};
+
+// Uber Eats
+// Until we have a real Uber Eats restaurant URL/ID, search using the
+// restaurant name + address rather than just the restaurant name.
+const handleOpenUberEats = (item) => {
+  Vibration.vibrate(15);
+
+  const query = encodeURIComponent(`${item.name}, ${item.address}`);
+  const url = `https://www.ubereats.com/search?q=${query}`;
+
+  Linking.openURL(url).catch((err) =>
+    console.warn('Could not open Uber Eats:', err)
+  );
+};
+
+// Directions
+// This is intentionally the ONLY Google action that launches Google Maps.
+// Uses the exact Google Place ID + coordinates for the destination.
+const handleGetDirections = (item) => {
+  Vibration.vibrate(15);
+
+  if (item.lat == null || item.lng == null) return;
+
+  const webUrl =
+    `https://www.google.com/maps/dir/?api=1` +
+    `&destination=${item.lat},${item.lng}` +
+    `&destination_place_id=${encodeURIComponent(item.id)}`;
+
+  if (Platform.OS === 'ios') {
+    const iosScheme =
+      `comgooglemaps://?daddr=${item.lat},${item.lng}` +
+      `&q=${encodeURIComponent(item.name)}`;
+
+    openExternalApp(iosScheme, webUrl);
+  } else {
+    Linking.openURL(webUrl).catch((err) =>
+      console.warn('Could not open directions:', err)
+    );
+  }
+};
+
+  const cravedItems = Object.values(cravedMap);
 
   // ─── Card Renderer ───────────────────────────────────────────────────────────
   const renderFoodCard = ({ item }) => {
-    const isLiked = !!likedMap[item.id];
+    const isLiked = !!cravedMap[item.id];
     const displayCount = item.reviewsCount + (isLiked ? 1 : 0);
 
     return (
       <View style={[styles.card, { width, height: cardHeight }]}>
-        {/* Real Live Google Place Photo */}
-        <Image source={{ uri: item.image }} style={styles.dishImage} resizeMode="cover" />
+        {/* Real Live Google Place Photo, with a graceful fallback if the
+            photo reference 404s (common if the API key's app restrictions
+            end up blocking the Photo endpoint) */}
+        {brokenImages[item.id] ? (
+          <View style={[styles.dishImage, styles.imageFallback]}>
+            <Ionicons name="restaurant-outline" size={48} color="#3A3A3C" />
+          </View>
+        ) : (
+          <Image
+            source={{ uri: item.image }}
+            style={styles.dishImage}
+            resizeMode="cover"
+            onError={() => setBrokenImages((prev) => ({ ...prev, [item.id]: true }))}
+          />
+        )}
 
         {/* Ambient Gradients */}
         <LinearGradient colors={['rgba(0,0,0,0.65)', 'transparent']} style={styles.topGradient} />
@@ -328,7 +502,7 @@ export default function DiscoverScreen() {
           {/* Like / Crave Button */}
           <TouchableOpacity
             style={styles.actionBtn}
-            onPress={() => handleToggleLike(item.id)}
+            onPress={() => handleToggleLike(item)}
             activeOpacity={0.8}
           >
             <View style={[styles.actionIconBg, isLiked && styles.actionIconBgLiked]}>
@@ -344,7 +518,7 @@ export default function DiscoverScreen() {
             <Text style={styles.actionSubLabel}>{isLiked ? 'Saved' : 'Saves'}</Text>
           </TouchableOpacity>
 
-          {/* Action 1: Google Profile */}
+          {/* Action: Google Profile */}
           <TouchableOpacity
             style={styles.actionBtn}
             onPress={() => handleOpenGoogleProfile(item)}
@@ -354,6 +528,18 @@ export default function DiscoverScreen() {
               <Ionicons name="storefront-outline" size={22} color="#FFF" />
             </View>
             <Text style={styles.actionLabel}>Profile</Text>
+          </TouchableOpacity>
+
+          {/* Action: Directions */}
+          <TouchableOpacity
+            style={styles.actionBtn}
+            onPress={() => handleGetDirections(item)}
+            activeOpacity={0.8}
+          >
+            <View style={[styles.actionIconBg, { backgroundColor: 'rgba(52, 199, 89, 0.85)' }]}>
+              <Ionicons name="navigate" size={20} color="#FFF" />
+            </View>
+            <Text style={styles.actionLabel}>Directions</Text>
           </TouchableOpacity>
         </View>
 
@@ -446,6 +632,22 @@ export default function DiscoverScreen() {
     );
   }
 
+  if (loadError && foodItems.length === 0) {
+    return (
+      <SafeAreaView style={styles.loadingContainer}>
+        <StatusBar barStyle="light-content" />
+        <Ionicons name="cloud-offline-outline" size={40} color="#8E8E93" />
+        <Text style={styles.loadingText}>{loadError}</Text>
+        <TouchableOpacity
+          style={styles.explorePill}
+          onPress={() => (userLocation ? fetchPlacesBatch(userLocation, true) : getLocation())}
+        >
+          <Text style={styles.explorePillText}>Try Again</Text>
+        </TouchableOpacity>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
@@ -499,6 +701,11 @@ export default function DiscoverScreen() {
           </SafeAreaView>
         ) : (
           <FlatList
+            // Distinct key from the feed FlatList below - without this, RN
+            // reuses the same list instance when switching tabs and throws
+            // ("Changing numColumns on the fly is not supported"). This is
+            // the actual crash fix.
+            key="craved-grid"
             data={cravedItems}
             keyExtractor={(item) => `crave-${item.id}`}
             numColumns={2}
@@ -506,9 +713,19 @@ export default function DiscoverScreen() {
             columnWrapperStyle={{ gap: 12 }}
             renderItem={({ item }) => (
               <View style={styles.gridCard}>
-                <Image source={{ uri: item.image }} style={styles.gridImage} />
+                {brokenImages[item.id] ? (
+                  <View style={[styles.gridImage, styles.imageFallback]}>
+                    <Ionicons name="restaurant-outline" size={32} color="#3A3A3C" />
+                  </View>
+                ) : (
+                  <Image
+                    source={{ uri: item.image }}
+                    style={styles.gridImage}
+                    onError={() => setBrokenImages((prev) => ({ ...prev, [item.id]: true }))}
+                  />
+                )}
                 <LinearGradient colors={['transparent', 'rgba(0,0,0,0.92)']} style={styles.gridGradient} />
-                <TouchableOpacity style={styles.gridHeart} onPress={() => handleToggleLike(item.id)}>
+                <TouchableOpacity style={styles.gridHeart} onPress={() => handleToggleLike(item)}>
                   <Ionicons name="heart" size={18} color="#FF2E55" />
                 </TouchableOpacity>
                 <View style={styles.gridOverlay}>
@@ -537,8 +754,26 @@ export default function DiscoverScreen() {
             )}
           />
         )
+      ) : foodItems.length === 0 ? (
+        <SafeAreaView style={styles.emptyContainer}>
+          <View style={styles.emptyHeartBg}>
+            <Ionicons name="restaurant-outline" size={40} color="#FB7238" />
+          </View>
+          <Text style={styles.emptyTitle}>Nothing Nearby</Text>
+          <Text style={styles.emptySub}>
+            Couldn't find restaurants in your area. Try refreshing.
+          </Text>
+          <TouchableOpacity
+            style={styles.explorePill}
+            onPress={() => userLocation && fetchPlacesBatch(userLocation, true)}
+          >
+            <Text style={styles.explorePillText}>Refresh</Text>
+          </TouchableOpacity>
+        </SafeAreaView>
       ) : (
         <FlatList
+          // Distinct key from the craved grid FlatList above - see note there.
+          key="feed-swiper"
           data={foodItems}
           keyExtractor={(item) => item.id}
           renderItem={renderFoodCard}
@@ -549,7 +784,7 @@ export default function DiscoverScreen() {
           decelerationRate="fast"
           // Automatically loads more batches of places as you swipe near the end
           onEndReached={() => {
-            if (!loadingMore && userLocation) {
+            if (!loadingMore && userLocation && !noMoreResults) {
               fetchPlacesBatch(userLocation, false);
             }
           }}
@@ -561,6 +796,11 @@ export default function DiscoverScreen() {
               <View style={[styles.loadingMoreBox, { width: 100, height: cardHeight }]}>
                 <ActivityIndicator size="small" color="#FB7238" />
               </View>
+            ) : noMoreResults ? (
+              <View style={[styles.loadingMoreBox, { width: 240, height: cardHeight, paddingHorizontal: 24 }]}>
+                <Ionicons name="checkmark-circle-outline" size={28} color="#8E8E93" />
+                <Text style={styles.loadingMoreText}>You've seen every spot nearby. Pull down to refresh.</Text>
+              </View>
             ) : null
           }
         />
@@ -571,8 +811,10 @@ export default function DiscoverScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#121212' },
-  loadingContainer: { flex: 1, backgroundColor: '#121212', alignItems: 'center', justifyContent: 'center' },
-  loadingText: { color: '#8E8E93', fontSize: 13, marginTop: 12, fontWeight: '600' },
+  loadingContainer: { flex: 1, backgroundColor: '#121212', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 },
+  loadingText: { color: '#8E8E93', fontSize: 13, marginTop: 12, fontWeight: '600', textAlign: 'center' },
+  loadingMoreText: { color: '#8E8E93', fontSize: 11, fontWeight: '600', textAlign: 'center', marginTop: 10 },
+  imageFallback: { backgroundColor: '#1C1C1E', alignItems: 'center', justifyContent: 'center' },
   topBar: {
     position: 'absolute',
     left: 16,
@@ -738,3 +980,68 @@ const styles = StyleSheet.create({
   },
   explorePillText: { color: '#FFF', fontSize: 14, fontWeight: '700' },
 });
+
+/*
+─── API KEY SETUP ──────────────────────────────────────────────────────────
+
+1. Rotate your key. The one that was in this file is exposed now - go to
+   Google Cloud Console → APIs & Services → Credentials and regenerate it,
+   or delete it and create a fresh one.
+
+2. Never hardcode a fallback value in source. Create a `.env` file at your
+   project root (same level as package.json):
+
+     EXPO_PUBLIC_GOOGLE_MAPS_API_KEY=your_new_key_here
+
+   Add `.env` to .gitignore before you commit anything.
+
+3. Restrict the key in Google Cloud Console, under "Application restrictions":
+   - Android: restrict by package name + SHA-1 signing certificate fingerprint
+   - iOS: restrict by bundle identifier
+   Do NOT use "HTTP referrers" restriction - that's for websites, and it'll
+   just silently break every request from the app.
+   Under "API restrictions", limit the key to only Places API (+ Places
+   Photos), not "don't restrict".
+
+4. Set a daily quota / billing alert on the key in Cloud Console. Nearby
+   Search + Photo calls add up fast, especially now that pagination stops
+   itself (see noMoreResults below) but every swipe still costs money.
+
+5. Best real fix, when you have time: don't ship this key in the app at all.
+   Proxy Places requests through a tiny backend endpoint you control, so the
+   key never leaves your server. A restricted client-side key still gets
+   pulled out of app binaries by anyone determined enough.
+
+─── WHAT ELSE CHANGED ──────────────────────────────────────────────────────
+
+- Crashed Craved tab: fixed via the `key="feed-swiper"` / `key="craved-grid"`
+  props on the two FlatLists. RN throws when it reuses one FlatList instance
+  across incompatible configs (horizontal <-> numColumns) - that was the bug.
+- Saved places now persist across app restarts (AsyncStorage) and store the
+  full place object, not just an id -> boolean, so they survive even if a
+  fresh fetch doesn't happen to include that place again.
+- Added a real error screen for failed loads instead of an infinite spinner
+  or silently-empty feed.
+- Added an empty state for the Discover feed itself (previously only Craved
+  had one).
+- Stops auto-paginating once 3 batches in a row return basically nothing new,
+  instead of burning API calls forever once you've seen everything nearby.
+- Guards all setState calls with a mounted check so it doesn't warn/crash if
+  a request resolves after the screen unmounts.
+- Broken/expired photo URLs now fall back to a placeholder icon instead of
+  a broken image.
+- Added a Directions button that tries Google Maps' native iOS scheme first,
+  falling back to the web URL (Android's web URL already opens the app
+  directly, no scheme needed there).
+
+You'll need to install AsyncStorage if it's not already in the project:
+  npx expo install @react-native-async-storage/async-storage
+
+FEATURE IDEAS I DIDN'T BUILD (didn't want to guess at scope you don't want):
+- Cuisine filter chips / "Open Now only" toggle
+- Swipe-to-undo when removing a Craved item, with a toast
+- Skeleton loading cards instead of a single spinner
+- expo-image instead of RN's Image, for caching + faster reloads
+- A real backend proxy for the Places calls (see point 5 above) - this is
+  the one I'd actually prioritize before you ship, everything else is polish
+*/
