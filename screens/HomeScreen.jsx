@@ -11,11 +11,17 @@ import {
   StatusBar,
   Dimensions,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
-import { loadNotifPrefs, getPermissionStatus, syncStreakRiskNotification } from '../lib/notifications';
+import {
+  loadNotifPrefs,
+  getPermissionStatus,
+  syncStreakRiskNotification,
+  sendUserNotification,
+} from '../lib/notifications';
 import { useFirstVisit } from '../lib/firstVisit';
 import { fetchSkipDayKeys } from '../lib/skips';
 import { localDateKey } from '../lib/dateKey';
@@ -388,8 +394,28 @@ export default function HomeScreen() {
   // Notification nudge (shown once after the user has ≥1 meal and hasn't set up notifs)
   const [notifNudgeVisible, dismissNotifNudge] = useFirstVisit('@fw_notif_nudge_v1');
   const [notifPermStatus, setNotifPermStatus] = useState('undetermined');
+  const [debugSending, setDebugSending] = useState(false);
 
   const monthName = MONTH_NAMES[new Date().getMonth()];
+
+  async function handleDebugTestNotification() {
+    if (debugSending) return;
+    setDebugSending(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        Alert.alert('Not signed in', 'Sign in first to send a test notification.');
+        return;
+      }
+      await sendUserNotification(user.id, '🧪 Test push', 'This is a debug notification from the app.');
+      Alert.alert('Test notification sent', 'Check your device for the notification.');
+    } catch (err) {
+      console.warn('[HomeScreen] debug notification failed:', err?.message ?? err);
+      Alert.alert('Notification test failed', 'This may be because the device is not registered or notifications are blocked.');
+    } finally {
+      setDebugSending(false);
+    }
+  }
 
   const loadData = useCallback(async () => {
     setError(null);
@@ -582,6 +608,19 @@ export default function HomeScreen() {
           </Text>
         </View>
 
+        {__DEV__ && (
+          <TouchableOpacity
+            style={styles.debugTestButton}
+            activeOpacity={0.85}
+            onPress={handleDebugTestNotification}
+            disabled={debugSending}
+          >
+            <Text style={styles.debugTestButtonText}>
+              {debugSending ? 'Sending…' : 'Send test notification'}
+            </Text>
+          </TouchableOpacity>
+        )}
+
         {error && (
           <View style={styles.loadErrorBanner}>
             <Text style={styles.loadErrorText}>{error}</Text>
@@ -722,6 +761,18 @@ const styles = StyleSheet.create({
   greeting: { fontSize: 13, color: C.gray1, marginBottom: 2 },
   title: { fontFamily: 'Syne_800ExtraBold', fontSize: 28, color: C.white, letterSpacing: -0.5, lineHeight: 34 },
   titleAccent: { color: C.orange },
+  debugTestButton: {
+    marginHorizontal: 24,
+    marginTop: 14,
+    backgroundColor: '#1f2a1f',
+    borderWidth: 1,
+    borderColor: '#355d42',
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    alignItems: 'center',
+  },
+  debugTestButtonText: { fontSize: 12, fontWeight: '600', color: C.white },
 
   loadErrorBanner: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',

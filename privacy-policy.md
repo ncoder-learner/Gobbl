@@ -52,6 +52,17 @@ When you use the social features, we collect:
 
 - **Push notification token** — used solely to deliver push notifications to your device (for example, when a friend likes your post or accepts a friend request). You can disable notifications at any time in your device settings or within the app.
 
+### Health and Nutrition Information
+
+If you choose to use diet or health-related features, we may collect and process:
+
+- Approximate nutrition values such as calories, protein, and sodium
+- Activity context such as training intensity or sport/fitness goals
+- Restriction or preference settings, such as inclusions/exclusions or dietary goals
+- Consent timestamps and disclosures related to diet guidance
+
+This data is used only to generate personalized meal or diet suggestions, provide weekly nutrition insights, and improve the feature experience. We do not sell this data.
+
 ---
 
 ## 4. How We Use Your Information
@@ -63,6 +74,8 @@ We use the information we collect to:
 - Enable social features — friends, posts, likes, and comments
 - **Automatically identify food in your photos using AI** — when you upload or take a food photo, it is sent to Anthropic's Claude API to identify the food in the image. This result is used to populate your meal log. See Section 5 for details.
 - Send push notifications about social activity (likes, comments, friend requests) if you have enabled them
+- Generate personalized diet and nutrition suggestions from your logged meals, health goals, and selected restrictions
+- Provide weekly summaries of calories, protein, and sodium trends when you opt in to nutrition insights
 - Respond to your support and privacy requests
 
 We do **not** use your data for advertising purposes. We do **not** sell your personal information.
@@ -123,6 +136,10 @@ To request a copy of your personal data, or to request deletion if you are unabl
 ### Push Notifications
 
 You can enable or disable push notifications at any time in your device settings or in the app under **Account → Notifications**.
+
+### Diet and Wellness Guidance
+
+If you use any nutrition or diet guidance feature, the app may show suggestion-based advice rather than medical direction. The guidance is informational only and not a substitute for professional medical or dietary advice. If you have a health condition, allergy, eating disorder, dietary restriction, or are pregnant, please consult your doctor or a registered dietitian before making significant diet changes.
 
 ---
 

@@ -41,6 +41,7 @@ import {
   logMealEvent,
   logShareEvent,
 } from '../lib/analytics';
+import { notifyFriendMealLogged } from '../lib/retentionNotifications';
 
 // ─── Stages ───────────────────────────────────────────────────────────────────
 // 'camera' → 'preview' → 'identifying' → 'confirm' → 'saving' → 'done'
@@ -832,6 +833,35 @@ export default function LogMealScreen() {
       setSavedMealId(inserted?.id ?? null);
       setSavedPhotoUrl(publicUrl);
       setSharePosted(false);
+
+      try {
+        const { data: friendRows } = await supabase
+          .from('friendships')
+          .select('requester_id, addressee_id')
+          .eq('status', 'accepted')
+          .or(`requester_id.eq.${user.id},addressee_id.eq.${user.id}`);
+
+        const friendIds = (friendRows || [])
+          .map(row => row.requester_id === user.id ? row.addressee_id : row.requester_id)
+          .filter(Boolean);
+
+        if (friendIds.length > 0) {
+          const { data: actorProfile } = await supabase
+            .from('profiles')
+            .select('username, display_name')
+            .eq('id', user.id)
+            .maybeSingle();
+
+          const actorUsername = actorProfile?.username || actorProfile?.display_name || 'Someone';
+          const mealLabel = mealTag || mealName.trim() || 'a meal';
+
+          await Promise.all(
+            friendIds.map(friendId => notifyFriendMealLogged(friendId, actorUsername, mealLabel)),
+          );
+        }
+      } catch (notifyErr) {
+        console.warn('[LogMeal] friend meal ping failed:', notifyErr?.message ?? notifyErr);
+      }
 
       // Log meal event
       await logMealEvent({

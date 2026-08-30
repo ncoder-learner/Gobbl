@@ -12,7 +12,12 @@ import { useFonts, InstrumentSerif_400Regular, InstrumentSerif_400Regular_Italic
 import { supabase } from './lib/supabase';
 import { withTimeout } from './lib/withTimeout';
 import { completeAuthFromUrl } from './lib/authCallback';
-import { ensureDefaultNotifications, registerPushTokenForUser, setupNotificationHandler } from './lib/notifications';
+import {
+  ensureDefaultNotifications,
+  registerPushTokenForUser,
+  setupNotificationHandler,
+  syncMealWindowNotifications,
+} from './lib/notifications';
 import { identifyOneSignalUser, initializeOneSignal, logoutOneSignalUser } from './lib/oneSignal';
 import LogMealScreen from './screens/LogMealScreen';
 import RecapsScreen from './screens/RecapsScreen';
@@ -460,6 +465,7 @@ export default function App() {
           identifyOneSignalUser(session.user.id);
           checkProfile(session.user.id);
           ensureDefaultNotifications(session.user.id).catch(() => registerPushToken(session.user.id));
+          syncMealWindowNotifications().catch(() => {});
         } else {
           // `undefined`, not `false` — isLoading below waits specifically
           // for `undefined` ("not checked yet"). A stale `false` here would
