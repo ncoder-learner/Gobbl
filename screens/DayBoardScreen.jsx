@@ -20,9 +20,6 @@ import { useFirstVisit, FirstVisitTooltip } from '../lib/firstVisit';
 import { useTour, TourTarget } from '../lib/tourContext';
 import { THEME as C } from '../lib/theme';
 import StripedPlaceholder from '../components/StripedPlaceholder';
-import { getNearbyDeals } from '../lib/deals';
-import DealHuntCard from '../components/DealHuntCard';
-import * as Location from 'expo-location';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -457,42 +454,7 @@ function DayTrailCard({ images, locatedImages, avgScore, totalDistance, delay, o
   );
 }
 // Add this near your other card components (DuelCard, DayTrailCard)
-function HomeDealsCard({ delay }) {
-  const [deals, setDeals] = useState([]);
-  const [loaded, setLoaded] = useState(false);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const { status } = await Location.requestForegroundPermissionsAsync();
-        if (status !== 'granted') { setLoaded(true); return; }
-        const loc = await Location.getCurrentPositionAsync({});
-        const nearby = await getNearbyDeals(loc.coords.latitude, loc.coords.longitude);
-        setDeals(nearby.slice(0, 5)); // cap it, this is a home-screen teaser not the full list
-      } catch {
-        // fail silently — a broken deals fetch shouldn't break the home board
-      } finally {
-        setLoaded(true);
-      }
-    })();
-  }, []);
-
-  if (!loaded || deals.length === 0) return null;
-
-  return (
-    <FadeScaleIn delay={delay} style={styles.dealsCardWrap}>
-      <View style={styles.dealsSectionHeader}>
-        <Ionicons name="pricetag" size={15} color={C.orange} />
-        <Text style={styles.dealsSectionTitle}>Deals near you</Text>
-      </View>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10 }}>
-        {deals.map(deal => (
-          <DealHuntCard key={deal.id} deal={deal} />
-        ))}
-      </ScrollView>
-    </FadeScaleIn>
-  );
-}
 
 export default function DayBoardScreen() {
   const navigation = useNavigation();
@@ -1008,8 +970,6 @@ export default function DayBoardScreen() {
           ))}
 
 
-          <HomeDealsCard delay={MEAL_TAGS.length * STAGGER_SECTION + 100} />
-
           {trailUnlocked && (
             <TourTarget id="board.trailcard" action={handleOpenMyTrail}>
               <DayTrailCard
@@ -1332,19 +1292,4 @@ const styles = StyleSheet.create({
   footerStreakLabel: { fontSize: 13, color: C.gray1, flex: 1 },
   footerDivider: { height: 0.5, backgroundColor: C.border, marginVertical: 12 },
   footerStat: { fontSize: 13, color: C.gray2, fontWeight: '500' },
-  dealsCardWrap: {
-  marginHorizontal: 16,
-  marginBottom: 16,
-},
-dealsSectionHeader: {
-  flexDirection: 'row',
-  alignItems: 'center',
-  gap: 6,
-  marginBottom: 10,
-},
-dealsSectionTitle: {
-  color: C.white,
-  fontSize: 15,
-  fontWeight: '600',
-},
 });

@@ -10,6 +10,7 @@ const SAFE_FALLBACK = {
   description: '',
   cuisine: '',
   emoji: '🍽️',
+  items: [{ name: 'Food item', amount: 1, unit: 'serving', calories: 650, protein_g: 30, carbs_g: 70, fat_g: 25, sodium_mg: 700 }],
   confidence: 'low',
   is_food: false,
   is_appropriate: true,
@@ -61,6 +62,7 @@ serve(async (req) => {
   "description": "one sentence description",
   "cuisine": "cuisine type (e.g. Italian, Mexican, Japanese)",
   "emoji": "single most relevant emoji",
+  "items": [{ "name": "food item", "amount": 1, "unit": "serving", "calories": 650, "protein_g": 30, "carbs_g": 70, "fat_g": 25, "sodium_mg": 700 }],
   "confidence": "high | medium | low",
   "is_food": true,
   "is_appropriate": true
@@ -69,6 +71,7 @@ serve(async (req) => {
 Rules:
 - is_food: true if the image plausibly contains any food or drink, even if the photo is dark, blurry, partially out-of-frame, or from an unusual angle. Set false ONLY when the image clearly contains no food whatsoever.
 - is_appropriate: true unless the image contains explicit sexual content, graphic violence, gore, or other clearly unsafe material. When in doubt, set true.
+- items: list each clearly visible food or drink item separately. For each item, estimate the visible amount and its nutrition. Use whole-number calories and grams/milligrams. These are estimates, not medical advice. Do not copy the example values. If is_food is true, every item must have a realistic non-zero calorie estimate based on the visible food and amount, even when confidence is low.
 - If is_appropriate is false, you may set all other fields to empty defaults.
 - If no food is visible: is_food false, name "Unknown", description "Could not identify food", cuisine "", emoji "🍽️", confidence "low".`,
               },
@@ -101,6 +104,17 @@ Rules:
     // If the model omitted them or returned non-boolean values, default conservatively.
     if (typeof parsed.is_appropriate !== 'boolean') parsed.is_appropriate = true;
     if (typeof parsed.is_food !== 'boolean') parsed.is_food = false;
+    const rawItems = Array.isArray(parsed.items) && parsed.items.length > 0 ? parsed.items : [SAFE_FALLBACK.items[0]];
+    parsed.items = rawItems.map((item: any) => ({
+      name: String(item.name || 'Food item'),
+      amount: Math.max(0.25, Number(item.amount) || 1),
+      unit: String(item.unit || 'serving'),
+      calories: Math.max(0, Math.round(Number(item.calories) || 0)),
+      protein_g: Math.max(0, Math.round(Number(item.protein_g) || 0)),
+      carbs_g: Math.max(0, Math.round(Number(item.carbs_g) || 0)),
+      fat_g: Math.max(0, Math.round(Number(item.fat_g) || 0)),
+      sodium_mg: Math.max(0, Math.round(Number(item.sodium_mg) || 0)),
+    }));
 
     return new Response(JSON.stringify(parsed), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

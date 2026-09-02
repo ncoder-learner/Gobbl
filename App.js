@@ -38,6 +38,8 @@ import MapScreen from './screens/MapScreen';
 import DayTrailDetailScreen from './screens/DayTrailDetailScreen';
 import DayBoardScreen from './screens/DayBoardScreen';
 import DiscoverScreen from './screens/DiscoverScreen';
+import DiaryScreen from './screens/DiaryScreen';
+import DietSetupScreen from './screens/DietSetupScreen';
 import SlotViewerScreen from './screens/SlotViewerScreen';
 import DuelScreen from './screens/DuelScreen';
 import DuelLiveListener from './components/DuelLiveListener';
@@ -118,6 +120,14 @@ function TabNavigator() {
         component={DiscoverScreen}
         options={{
           tabBarLabel: 'Discover',
+          tabBarIcon: ({ color, size }) => <Ionicons name="compass-outline" size={size} color={color} />,
+        }}
+      />
+      <Tab.Screen
+        name="Health"
+        component={DiaryScreen}
+        options={{
+          tabBarLabel: 'Health',
           tabBarIcon: ({ color, size }) => <Ionicons name="compass-outline" size={size} color={color} />,
         }}
       />

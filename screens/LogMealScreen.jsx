@@ -41,7 +41,6 @@ import {
   logMealEvent,
   logShareEvent,
 } from '../lib/analytics';
-import { notifyFriendMealLogged } from '../lib/retentionNotifications';
 
 // ─── Stages ───────────────────────────────────────────────────────────────────
 // 'camera' → 'preview' → 'identifying' → 'confirm' → 'saving' → 'done'
@@ -248,6 +247,8 @@ export default function LogMealScreen() {
   // now match it) rather than saving identified.* directly.
   const [mealEmoji, setMealEmoji] = useState('');
   const [mealCuisine, setMealCuisine] = useState('');
+  const [nutrition, setNutrition] = useState({ calories: '0', protein_g: '0', carbs_g: '0', fat_g: '0', sodium_mg: '0' });
+  const [nutritionItems, setNutritionItems] = useState([]);
   // Extra photos beyond the primary shot — held locally (no meal id exists
   // yet to attach meal_photos rows to) and uploaded right after the meal
   // insert succeeds in saveMeal(). Same storage bucket + meal_photos table
@@ -642,6 +643,36 @@ export default function LogMealScreen() {
       setMealName(result.name);
       setMealEmoji(result.emoji || '🍽️');
       setMealCuisine(result.cuisine || '');
+      const legacyNutrition = result.nutrition || {};
+      const identifiedItems = (result.items || [{
+        name: result.name || 'Food item',
+        amount: 1,
+        unit: 'serving',
+        calories: legacyNutrition.calories,
+        protein_g: legacyNutrition.protein_g,
+        carbs_g: legacyNutrition.carbs_g,
+        fat_g: legacyNutrition.fat_g,
+        sodium_mg: legacyNutrition.sodium_mg,
+      }]).map(item => ({
+        ...item,
+        amount: Number(item.amount) || 1,
+        baseAmount: Number(item.amount) || 1,
+        calories: Number(item.calories) || 0,
+        protein_g: Number(item.protein_g) || 0,
+        carbs_g: Number(item.carbs_g) || 0,
+        fat_g: Number(item.fat_g) || 0,
+        sodium_mg: Number(item.sodium_mg) || 0,
+      }));
+      setNutritionItems(identifiedItems);
+      const identifiedNutrition = identifiedItems.reduce((total, item) => ({
+        calories: total.calories + Math.round(item.calories * item.amount / item.baseAmount),
+        protein_g: total.protein_g + Math.round(item.protein_g * item.amount / item.baseAmount),
+        carbs_g: total.carbs_g + Math.round(item.carbs_g * item.amount / item.baseAmount),
+        fat_g: total.fat_g + Math.round(item.fat_g * item.amount / item.baseAmount),
+        sodium_mg: total.sodium_mg + Math.round(item.sodium_mg * item.amount / item.baseAmount),
+      }), { calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0, sodium_mg: 0 });
+      const nutritionStrings = Object.fromEntries(Object.entries(identifiedNutrition).map(([key, value]) => [key, String(value)]));
+      setNutrition(nutritionStrings);
       setStage('confirm');
     } catch (err) {
       // Network error, timeout, or unexpected failure — fail safe: stay on
@@ -791,6 +822,12 @@ export default function LogMealScreen() {
           cuisine: mealCuisine.trim(),
           rating: derivedRating,
           score,
+          calories: Number(nutrition.calories) || 0,
+          protein_g: Number(nutrition.protein_g) || 0,
+          carbs_g: Number(nutrition.carbs_g) || 0,
+          fat_g: Number(nutrition.fat_g) || 0,
+          sodium_mg: Number(nutrition.sodium_mg) || 0,
+          nutrition_items: nutritionItems,
           notes: notes.trim() || null,
           photo_url: publicUrl,
           business_id: sponsored?.id || null,
@@ -833,35 +870,6 @@ export default function LogMealScreen() {
       setSavedMealId(inserted?.id ?? null);
       setSavedPhotoUrl(publicUrl);
       setSharePosted(false);
-
-      try {
-        const { data: friendRows } = await supabase
-          .from('friendships')
-          .select('requester_id, addressee_id')
-          .eq('status', 'accepted')
-          .or(`requester_id.eq.${user.id},addressee_id.eq.${user.id}`);
-
-        const friendIds = (friendRows || [])
-          .map(row => row.requester_id === user.id ? row.addressee_id : row.requester_id)
-          .filter(Boolean);
-
-        if (friendIds.length > 0) {
-          const { data: actorProfile } = await supabase
-            .from('profiles')
-            .select('username, display_name')
-            .eq('id', user.id)
-            .maybeSingle();
-
-          const actorUsername = actorProfile?.username || actorProfile?.display_name || 'Someone';
-          const mealLabel = mealTag || mealName.trim() || 'a meal';
-
-          await Promise.all(
-            friendIds.map(friendId => notifyFriendMealLogged(friendId, actorUsername, mealLabel)),
-          );
-        }
-      } catch (notifyErr) {
-        console.warn('[LogMeal] friend meal ping failed:', notifyErr?.message ?? notifyErr);
-      }
 
       // Log meal event
       await logMealEvent({
@@ -906,6 +914,23 @@ export default function LogMealScreen() {
     }
   }
 
+  function updateItemAmount(index, nextAmount) {
+    const amount = Math.max(0.25, Number(nextAmount) || 0.25);
+    const nextItems = nutritionItems.map((item, itemIndex) => itemIndex === index ? { ...item, amount } : item);
+    setNutritionItems(nextItems);
+    const totals = nextItems.reduce((total, item) => {
+      const scale = item.amount / item.baseAmount;
+      return {
+        calories: total.calories + Math.round(item.calories * scale),
+        protein_g: total.protein_g + Math.round(item.protein_g * scale),
+        carbs_g: total.carbs_g + Math.round(item.carbs_g * scale),
+        fat_g: total.fat_g + Math.round(item.fat_g * scale),
+        sodium_mg: total.sodium_mg + Math.round(item.sodium_mg * scale),
+      };
+    }, { calories: 0, protein_g: 0, carbs_g: 0, fat_g: 0, sodium_mg: 0 });
+    setNutrition(Object.fromEntries(Object.entries(totals).map(([key, value]) => [key, String(value)])));
+  }
+
   // ── Permission guard ────────────────────────────────────────────────────────
 
   if (!permission) return <View style={styles.safe} />;
@@ -945,6 +970,8 @@ export default function LogMealScreen() {
     setMealName('');
     setMealEmoji('');
     setMealCuisine('');
+    setNutrition({ calories: '0', protein_g: '0', carbs_g: '0', fat_g: '0', sodium_mg: '0' });
+    setNutritionItems([]);
     setExtraPhotos([]);
     setScore(5.5);
     setMealTag(guessMealTag());
@@ -1391,6 +1418,57 @@ export default function LogMealScreen() {
             />
           </View>
 
+          <View style={styles.fieldGroup}>
+            <Text style={styles.fieldLabel}>Nutrition estimate <Text style={styles.optional}>(editable)</Text></Text>
+            <Text style={styles.nutritionHint}>Adjust each item to match what you ate. Amounts can be quarter servings or more.</Text>
+            {nutritionItems.map((item, index) => (
+              <View key={`${item.name}-${index}`} style={styles.itemAmountRow}>
+                <View style={styles.itemAmountText}>
+                  <Text style={styles.itemName} numberOfLines={1}>{item.name}</Text>
+                  <Text style={styles.itemCalories}>{Math.round(item.calories * item.amount / item.baseAmount)} kcal</Text>
+                </View>
+                <TouchableOpacity style={styles.amountStep} onPress={() => updateItemAmount(index, item.amount - 0.25)}>
+                  <Text style={styles.amountStepText}>−</Text>
+                </TouchableOpacity>
+                <TextInput
+                  style={styles.amountInput}
+                  value={String(item.amount)}
+                  onChangeText={value => updateItemAmount(index, value)}
+                  keyboardType="decimal-pad"
+                  selectTextOnFocus
+                />
+                <Text style={styles.amountUnit}>{item.unit || 'serving'}</Text>
+                <TouchableOpacity style={styles.amountStep} onPress={() => updateItemAmount(index, item.amount + 0.25)}>
+                  <Text style={styles.amountStepText}>+</Text>
+                </TouchableOpacity>
+              </View>
+            ))}
+            <View style={styles.nutritionGrid}>
+              {[
+                ['calories', 'Calories', 'kcal'],
+                ['protein_g', 'Protein', 'g'],
+                ['carbs_g', 'Carbs', 'g'],
+                ['fat_g', 'Fat', 'g'],
+                ['sodium_mg', 'Sodium', 'mg'],
+              ].map(([field, label, unit]) => (
+                <View key={field} style={styles.nutritionField}>
+                  <Text style={styles.nutritionLabel}>{label}</Text>
+                  <View style={styles.nutritionInputRow}>
+                    <TextInput
+                      style={styles.nutritionInput}
+                      value={nutrition[field]}
+                      onChangeText={value => setNutrition(current => ({ ...current, [field]: value.replace(/[^0-9]/g, '') }))}
+                      keyboardType="number-pad"
+                      placeholder="0"
+                      placeholderTextColor={C.gray4}
+                    />
+                    <Text style={styles.nutritionUnit}>{unit}</Text>
+                  </View>
+                </View>
+              ))}
+            </View>
+          </View>
+
           {/* Rating */}
           <View style={styles.fieldGroup}>
             <Text style={styles.fieldLabel}>Your rating</Text>
@@ -1545,6 +1623,21 @@ const styles = StyleSheet.create({
   fieldGroup: { paddingHorizontal: 24, marginTop: 24 },
   fieldLabel: { fontSize: 13, color: C.gray2, marginBottom: 8, fontWeight: '500' },
   optional: { color: C.gray4, fontWeight: '400' },
+  nutritionHint: { color: C.gray3, fontSize: 11, lineHeight: 16, marginBottom: 10 },
+  itemAmountRow: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: C.surface, borderRadius: 12, padding: 8, marginBottom: 7 },
+  itemAmountText: { flex: 1, minWidth: 0 },
+  itemName: { color: C.white, fontSize: 13, fontWeight: '600' },
+  itemCalories: { color: C.gray3, fontSize: 10, marginTop: 2 },
+  amountStep: { width: 30, height: 30, borderRadius: 15, backgroundColor: C.inputBg, alignItems: 'center', justifyContent: 'center' },
+  amountStepText: { color: C.orange, fontSize: 20, lineHeight: 22 },
+  amountInput: { width: 42, height: 30, color: C.white, backgroundColor: C.inputBg, borderRadius: 7, textAlign: 'center', padding: 0 },
+  amountUnit: { color: C.gray3, fontSize: 10, maxWidth: 55 },
+  nutritionGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  nutritionField: { width: '31%', minWidth: 88 },
+  nutritionLabel: { color: C.gray3, fontSize: 10, marginBottom: 4 },
+  nutritionInputRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: C.inputBg, borderWidth: 0.5, borderColor: C.border, borderRadius: 10, paddingRight: 7 },
+  nutritionInput: { flex: 1, minWidth: 0, paddingHorizontal: 9, paddingVertical: 9, color: C.white, fontSize: 14 },
+  nutritionUnit: { color: C.gray3, fontSize: 10 },
 
   // Meal tag picker
   textInput: { backgroundColor: C.inputBg, borderWidth: 0.5, borderColor: C.border, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: C.white },

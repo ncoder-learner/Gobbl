@@ -31,6 +31,9 @@ Deno.serve(async (req) => {
   // Children before parents: post_likes/post_comments reference posts, which
   // references meals; friendships/reports/blocks reference profiles directly.
   const tableDeletes = [
+    supabaseAdmin.from('diet_disclaimer_audit_logs').delete().eq('user_id', user.id),
+    supabaseAdmin.from('diet_meal_logs').delete().eq('user_id', user.id),
+    supabaseAdmin.from('user_diet_preferences').delete().eq('user_id', user.id),
     supabaseAdmin.from('post_likes').delete().eq('user_id', user.id),
     supabaseAdmin.from('post_comments').delete().eq('user_id', user.id),
     supabaseAdmin.from('posts').delete().eq('user_id', user.id),

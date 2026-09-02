@@ -106,17 +106,6 @@ const MOCK_SPONSORED = {
   bgColor: '#0f1a10',
 };
 
-const MOCK_COUPONS = [
-  {
-    id: 'c1',
-    title: 'Free chips & salsa',
-    businessName: 'Taco Loco PHX',
-    discount: 'FREE',
-    code: 'FW2024',
-    expiry: 'Jun 12',
-  },
-];
-
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function StarRating({ rating, size = 10 }) {
@@ -282,35 +271,6 @@ function SponsoredBanner({ ad, onLogAndTry, onDismiss }) {
   );
 }
 
-function CouponCard({ coupon }) {
-  const [copied, setCopied] = useState(false);
-
-  function handleCopy() {
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }
-
-  return (
-    <TouchableOpacity style={styles.coupon} activeOpacity={0.85} onPress={handleCopy}>
-      <View style={styles.couponStripe} />
-      <View style={styles.couponIcon}>
-        <Text style={{ fontSize: 22 }}>🎟️</Text>
-      </View>
-      <View style={styles.couponText}>
-        <Text style={styles.couponTag}>Coupon · expires {coupon.expiry}</Text>
-        <Text style={styles.couponTitle}>{coupon.title}</Text>
-        <Text style={styles.couponBiz}>{coupon.businessName} · tap to copy code</Text>
-      </View>
-      <View style={styles.couponRight}>
-        <Text style={styles.couponAmount}>{coupon.discount}</Text>
-        <View style={styles.couponCodeBox}>
-          <Text style={styles.couponCode}>{copied ? 'COPIED!' : coupon.code}</Text>
-        </View>
-      </View>
-    </TouchableOpacity>
-  );
-}
-
 function StatCard({ iconName, iconColor, value, label }) {
   return (
     <View style={styles.statCard}>
@@ -386,9 +346,8 @@ export default function HomeScreen() {
   const [mealsThisMonth, setMealsThisMonth] = useState(0);
   const [avgScore, setAvgScore] = useState(null);
 
-  // Ad / coupons (still mock-backed)
+  // Sponsored ad
   const [sponsored, setSponsored] = useState(MOCK_SPONSORED);
-  const [coupons, setCoupons] = useState(MOCK_COUPONS);
   const [showAd, setShowAd] = useState(true);
 
   // Notification nudge (shown once after the user has ≥1 meal and hasn't set up notifs)
@@ -436,7 +395,6 @@ export default function HomeScreen() {
         todayResult,
         streakResult,
         monthResult,
-        couponResult,
         adResult,
         skipDayKeysResult,
       ] = await Promise.allSettled([
@@ -465,13 +423,6 @@ export default function HomeScreen() {
           .select('score')
           .eq('user_id', user.id)
           .gte('created_at', monthStart),
-
-        supabase
-          .from('coupons')
-          .select('*, businesses(name)')
-          .gt('expires_at', new Date().toISOString())
-          .eq('active', true)
-          .limit(3),
 
         supabase
           .from('sponsored_posts')
@@ -523,20 +474,6 @@ export default function HomeScreen() {
           const total = data.reduce((sum, m) => sum + (m.score ?? 5), 0);
           setAvgScore(total / data.length);
         }
-      }
-
-      // Coupons
-      if (couponResult.status === 'fulfilled' && couponResult.value.data?.length) {
-        setCoupons(
-          couponResult.value.data.map((c) => ({
-            id: c.id,
-            title: c.title,
-            businessName: c.businesses?.name,
-            discount: c.discount_label,
-            code: c.code,
-            expiry: new Date(c.expires_at).toLocaleDateString([], { month: 'short', day: 'numeric' }),
-          }))
-        );
       }
 
       // Sponsored ad
@@ -704,18 +641,6 @@ export default function HomeScreen() {
           />
         )}
 
-        {/* Coupons */}
-        {coupons.length > 0 && (
-          <>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Deals near you</Text>
-            </View>
-            {coupons.map((c) => (
-              <CouponCard key={c.id} coupon={c} />
-            ))}
-          </>
-        )}
-
         {/* Stats */}
         <View style={styles.statsRow}>
           <StatCard
@@ -875,19 +800,6 @@ const styles = StyleSheet.create({
   adCta: { backgroundColor: C.orange, borderRadius: 10, paddingHorizontal: 16, paddingVertical: 8 },
   adCtaText: { fontSize: 13, fontWeight: '500', color: C.white },
   adDismiss: { fontSize: 13, color: C.gray4 },
-
-  // Coupon
-  coupon: { marginHorizontal: 24, marginTop: 12, backgroundColor: C.greenDim, borderWidth: 0.5, borderColor: C.greenBorder, borderRadius: 16, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 14, position: 'relative', overflow: 'hidden' },
-  couponStripe: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, backgroundColor: C.green, borderTopLeftRadius: 16, borderBottomLeftRadius: 16 },
-  couponIcon: { width: 44, height: 44, backgroundColor: '#0a2820', borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  couponText: { flex: 1 },
-  couponTag: { fontSize: 10, color: C.green, fontWeight: '500', letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 2 },
-  couponTitle: { fontSize: 14, fontWeight: '500', color: C.white, marginBottom: 1 },
-  couponBiz: { fontSize: 12, color: C.greenText },
-  couponRight: { alignItems: 'flex-end' },
-  couponAmount: { fontFamily: 'Syne_800ExtraBold', fontSize: 20, color: C.green },
-  couponCodeBox: { marginTop: 4, backgroundColor: '#0a2820', borderWidth: 0.5, borderStyle: 'dashed', borderColor: '#1a5a4a', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 2 },
-  couponCode: { fontSize: 11, color: C.green, fontWeight: '500', letterSpacing: 1 },
 
   // Stats
   statsRow: { flexDirection: 'row', gap: 10, paddingHorizontal: 24, marginTop: 20 },
