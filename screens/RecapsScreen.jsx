@@ -13,19 +13,12 @@ import {
   Easing,
   Alert,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
 import { supabase } from '../lib/supabase';
 import { WrappedPlayer, computeWrappedStats, MONTH_NAMES } from './WrappedScreen';
 import { THEME as C } from '../lib/theme';
-
-const CARD_GRADIENTS = [
-  ['#241900', '#000000'],
-  ['#1a0f00', '#000000'],
-  ['#1a1400', '#000000'],
-  ['#200d00', '#000000'],
-  ['#161616', '#000000'],
-];
+import { useAppForeground } from '../lib/useAppForeground';
 
 // ─── RecapCard ────────────────────────────────────────────────────────────────
 function RecapCard({ snap, index, onPress }) {
@@ -39,7 +32,6 @@ function RecapCard({ snap, index, onPress }) {
     }).start();
   }, []);
 
-  const gradient = CARD_GRADIENTS[index % CARD_GRADIENTS.length];
   const monthLabel = MONTH_NAMES[month];
   const personality = stats?.personality;
 
@@ -49,12 +41,6 @@ function RecapCard({ snap, index, onPress }) {
         onPress={onPress}
         style={({ pressed }) => [styles.card, pressed && { opacity: 0.82 }]}
       >
-        <LinearGradient
-          colors={gradient}
-          start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-          style={StyleSheet.absoluteFill}
-        />
-
         {!viewed && (
           <View style={styles.newBadge}>
             <Text style={styles.newBadgeText}>NEW</Text>
@@ -63,7 +49,7 @@ function RecapCard({ snap, index, onPress }) {
 
         <View style={styles.cardInner}>
           <View style={styles.cardEmoji}>
-            <Text style={styles.cardEmojiText}>{personality?.emoji ?? '✨'}</Text>
+            <Ionicons name="bar-chart-outline" size={22} color={C.orange} />
           </View>
 
           <View style={styles.cardInfo}>
@@ -91,11 +77,6 @@ function ThisMonthCard({ stats, onPress }) {
       onPress={onPress}
       style={({ pressed }) => [styles.thisMonthCard, pressed && { opacity: 0.82 }]}
     >
-      <LinearGradient
-        colors={['#1c0d00', '#000000']}
-        start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-        style={StyleSheet.absoluteFill}
-      />
       <View style={styles.thisMonthLivePill}>
         <View style={styles.liveDot} />
         <Text style={styles.livePillText}>LIVE</Text>
@@ -103,7 +84,7 @@ function ThisMonthCard({ stats, onPress }) {
 
       <View style={styles.cardInner}>
         <View style={[styles.cardEmoji, { backgroundColor: 'rgba(255,107,61,0.15)', borderColor: 'rgba(255,107,61,0.3)' }]}>
-          <Text style={styles.cardEmojiText}>{personality?.emoji ?? '✨'}</Text>
+          <Ionicons name="pulse-outline" size={22} color={C.orange} />
         </View>
 
         <View style={styles.cardInfo}>
@@ -112,7 +93,7 @@ function ThisMonthCard({ stats, onPress }) {
           <Text style={styles.cardMealCount}>{stats?.totalMeals ?? 0} meals so far</Text>
         </View>
 
-        <Text style={styles.cardLock}>🔒</Text>
+        <Ionicons name="lock-closed-outline" size={20} color={C.gray2} />
       </View>
 
       <Text style={styles.thisMonthHint}>Finalises at the end of {monthLabel} — keep logging!</Text>
@@ -138,6 +119,7 @@ export default function RecapsScreen() {
       refreshSnapshots();
     }
   }, []));
+  useAppForeground(() => loadAll());
 
   async function loadAll() {
     setLoading(true);
@@ -310,7 +292,7 @@ export default function RecapsScreen() {
 
           {!hasContent && !generating && (
             <View style={styles.emptyWrap}>
-              <Text style={styles.emptyEmoji}>📭</Text>
+              <Ionicons name="archive-outline" size={42} color={C.gray2} />
               <Text style={styles.emptyTitle}>No recaps yet</Text>
               <Text style={styles.emptySub}>
                 Log meals this month and your first Recap will appear here at the end of the month.

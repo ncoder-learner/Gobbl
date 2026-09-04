@@ -5,12 +5,10 @@ import {
   Animated, Easing, Dimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { computeTierRank, createPost, mealTagSlot } from '../lib/postUtils';
+import { computeTierRank, createPost, mealTagSlot, notifyFriendsOfPost } from '../lib/postUtils';
 import { THEME as C } from '../lib/theme';
 import StripedPlaceholder from './StripedPlaceholder';
 import { logShareEvent } from '../lib/analytics';
-import { supabase } from '../lib/supabase';
-import { notifyFriendPost } from '../lib/notifications';
 
 function scoreToneColor(score) {
   const n = Number(score);
@@ -86,22 +84,7 @@ export default function ShareBottomSheet({ visible, meal, onDismiss, onPosted })
       const tierRank = await computeTierRank(meal.id).catch(() => null);
       const postId = await createPost({ [mealTagSlot(meal.tag)]: meal.id }, caption, tierRank);
 
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        const [{ data: friendRows }, { data: actorProfile }] = await Promise.all([
-          supabase
-            .from('friendships')
-            .select('requester_id, addressee_id')
-            .eq('status', 'accepted')
-            .or(`requester_id.eq.${user.id},addressee_id.eq.${user.id}`),
-          supabase.from('profiles').select('username, display_name').eq('id', user.id).maybeSingle(),
-        ]);
-        const actorUsername = actorProfile?.username || actorProfile?.display_name || 'Someone';
-        const friendIds = (friendRows || [])
-          .map(row => row.requester_id === user.id ? row.addressee_id : row.requester_id)
-          .filter(Boolean);
-        await Promise.all(friendIds.map(friendId => notifyFriendPost(friendId, actorUsername, meal.name)));
-      }
+      await notifyFriendsOfPost(meal.name);
       
       // Log share event
       await logShareEvent({

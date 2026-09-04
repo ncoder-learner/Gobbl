@@ -218,7 +218,7 @@ export default function EditMealScreen() {
       <SafeAreaView style={styles.safe} edges={['top']}>
         <StatusBar barStyle="light-content" backgroundColor={C.bg} />
         <View style={styles.center}>
-          <Text style={styles.emptyEmoji}>⚠️</Text>
+          <Ionicons name="alert-circle-outline" size={44} color={C.gray2} />
           <Text style={styles.emptyTitle}>
             {notOwner ? "You can only edit your own meals" : "Couldn't load this meal"}
           </Text>

@@ -14,12 +14,15 @@ import {
   ActivityIndicator,
   SafeAreaView,
   RefreshControl,
+  Animated,
+  Pressable,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useAppForeground } from '../lib/useAppForeground';
 
 // ─── API Key ─────────────────────────────────────────────────────────────────
 // NEVER hardcode a real key here as a fallback string. This file gets bundled
@@ -183,14 +186,47 @@ export default function DiscoverScreen() {
   const [cravedMap, setCravedMap] = useState({});
   const [brokenImages, setBrokenImages] = useState({});
   const [activeTab, setActiveTab] = useState('feed'); // 'feed' | 'craved'
+  const [tapDirection, setTapDirection] = useState('next');
+  const [feedHeight, setFeedHeight] = useState(0);
+  const [heartBurstId, setHeartBurstId] = useState(null);
 
   const categoryIndexRef = useRef(0);
   const seenPlaceIdsRef = useRef(new Set());
   const isFetchingRef = useRef(false);
   const emptyBatchStreakRef = useRef(0);
   const isMountedRef = useRef(true);
+  const feedListRef = useRef(null);
+  const currentFeedIndexRef = useRef(0);
+  const lastForegroundRefreshRef = useRef(0);
+  const lastCardTapRef = useRef({ id: null, time: 0 });
+  const tapHintOpacity = useRef(new Animated.Value(0)).current;
+  const tapHintShift = useRef(new Animated.Value(0)).current;
+  const heartBurstScale = useRef(new Animated.Value(0.45)).current;
+  const heartBurstOpacity = useRef(new Animated.Value(0)).current;
 
-  const cardHeight = height - insets.bottom - 48;
+  const cardHeight = feedHeight || height;
+
+  const handleTapNavigate = useCallback((direction) => {
+    const nextIndex = currentFeedIndexRef.current + direction;
+    if (nextIndex < 0 || nextIndex >= foodItems.length) return;
+
+    currentFeedIndexRef.current = nextIndex;
+    feedListRef.current?.scrollToOffset({ offset: width * nextIndex, animated: true });
+    setTapDirection(direction > 0 ? 'next' : 'previous');
+    tapHintOpacity.stopAnimation();
+    tapHintShift.stopAnimation();
+    tapHintOpacity.setValue(0);
+    tapHintShift.setValue(direction > 0 ? -8 : 8);
+
+    Animated.sequence([
+      Animated.parallel([
+        Animated.timing(tapHintOpacity, { toValue: 1, duration: 110, useNativeDriver: true }),
+        Animated.timing(tapHintShift, { toValue: 0, duration: 160, useNativeDriver: true }),
+      ]),
+      Animated.delay(160),
+      Animated.timing(tapHintOpacity, { toValue: 0, duration: 180, useNativeDriver: true }),
+    ]).start();
+  }, [foodItems.length, tapHintOpacity, tapHintShift, width]);
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -369,6 +405,16 @@ export default function DiscoverScreen() {
     getLocation();
   }, [getLocation]);
 
+  const refreshOnForeground = useCallback(() => {
+    const now = Date.now();
+    if (now - lastForegroundRefreshRef.current < 15 * 60 * 1000) return;
+    lastForegroundRefreshRef.current = now;
+    if (userLocation) fetchPlacesBatch(userLocation, true);
+    else getLocation();
+  }, [fetchPlacesBatch, getLocation, userLocation]);
+
+  useAppForeground(refreshOnForeground);
+
   const onRefresh = () => {
     setRefreshing(true);
     setNoMoreResults(false);
@@ -393,6 +439,29 @@ export default function DiscoverScreen() {
       );
       return next;
     });
+  };
+
+  const handleCardTap = (item) => {
+    const now = Date.now();
+    const previous = lastCardTapRef.current;
+    if (previous.id === item.id && now - previous.time < 320) {
+      lastCardTapRef.current = { id: null, time: 0 };
+      if (!cravedMap[item.id]) handleToggleLike(item);
+      setHeartBurstId(item.id);
+      heartBurstScale.setValue(0.45);
+      heartBurstOpacity.setValue(1);
+      Animated.parallel([
+        Animated.spring(heartBurstScale, { toValue: 1, useNativeDriver: true, speed: 18, bounciness: 8 }),
+        Animated.sequence([
+          Animated.delay(180),
+          Animated.timing(heartBurstOpacity, { toValue: 0, duration: 260, useNativeDriver: true }),
+        ]),
+      ]).start(({ finished }) => {
+        if (finished) setHeartBurstId(null);
+      });
+      return;
+    }
+    lastCardTapRef.current = { id: item.id, time: now };
   };
 
 // ─── External URL Actions ───────────────────────────────────────────────────
@@ -477,17 +546,27 @@ const handleGetDirections = (item) => {
         {/* Real Live Google Place Photo, with a graceful fallback if the
             photo reference 404s (common if the API key's app restrictions
             end up blocking the Photo endpoint) */}
-        {brokenImages[item.id] ? (
-          <View style={[styles.dishImage, styles.imageFallback]}>
-            <Ionicons name="restaurant-outline" size={48} color="#3A3A3C" />
-          </View>
-        ) : (
-          <Image
-            source={{ uri: item.image }}
-            style={styles.dishImage}
-            resizeMode="cover"
-            onError={() => setBrokenImages((prev) => ({ ...prev, [item.id]: true }))}
-          />
+        <Pressable style={StyleSheet.absoluteFill} onPress={() => handleCardTap(item)}>
+          {brokenImages[item.id] ? (
+            <View style={[styles.dishImage, styles.imageFallback]}>
+              <Ionicons name="restaurant-outline" size={48} color="#3A3A3C" />
+            </View>
+          ) : (
+            <Image
+              source={{ uri: item.image }}
+              style={styles.dishImage}
+              resizeMode="cover"
+              onError={() => setBrokenImages((prev) => ({ ...prev, [item.id]: true }))}
+            />
+          )}
+        </Pressable>
+        {heartBurstId === item.id && (
+          <Animated.View
+            pointerEvents="none"
+            style={[styles.heartBurst, { opacity: heartBurstOpacity, transform: [{ scale: heartBurstScale }] }]}
+          >
+            <Ionicons name="heart" size={92} color="#FF2E55" />
+          </Animated.View>
         )}
 
         {/* Ambient Gradients */}
@@ -771,39 +850,77 @@ const handleGetDirections = (item) => {
           </TouchableOpacity>
         </SafeAreaView>
       ) : (
-        <FlatList
-          // Distinct key from the craved grid FlatList above - see note there.
-          key="feed-swiper"
-          data={foodItems}
-          keyExtractor={(item) => item.id}
-          renderItem={renderFoodCard}
-          horizontal
-          pagingEnabled
-          showsHorizontalScrollIndicator={false}
-          snapToInterval={width}
-          decelerationRate="fast"
-          // Automatically loads more batches of places as you swipe near the end
-          onEndReached={() => {
-            if (!loadingMore && userLocation && !noMoreResults) {
-              fetchPlacesBatch(userLocation, false);
-            }
+        <View
+          style={styles.feedStage}
+          onLayout={(event) => {
+            const nextHeight = Math.round(event.nativeEvent.layout.height);
+            if (nextHeight > 0 && nextHeight !== feedHeight) setFeedHeight(nextHeight);
           }}
-          onEndReachedThreshold={0.5}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#FB7238" />}
-          getItemLayout={(_, index) => ({ length: width, offset: width * index, index })}
-          ListFooterComponent={
-            loadingMore ? (
-              <View style={[styles.loadingMoreBox, { width: 100, height: cardHeight }]}>
-                <ActivityIndicator size="small" color="#FB7238" />
-              </View>
-            ) : noMoreResults ? (
-              <View style={[styles.loadingMoreBox, { width: 240, height: cardHeight, paddingHorizontal: 24 }]}>
-                <Ionicons name="checkmark-circle-outline" size={28} color="#8E8E93" />
-                <Text style={styles.loadingMoreText}>You've seen every spot nearby. Pull down to refresh.</Text>
-              </View>
-            ) : null
-          }
-        />
+        >
+          <FlatList
+            // Distinct key from the craved grid FlatList above - see note there.
+            key="feed-swiper"
+            ref={feedListRef}
+            data={foodItems}
+            keyExtractor={(item) => item.id}
+            renderItem={renderFoodCard}
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            snapToInterval={width}
+            decelerationRate="fast"
+            onMomentumScrollEnd={(event) => {
+              currentFeedIndexRef.current = Math.round(event.nativeEvent.contentOffset.x / width);
+            }}
+            // Automatically loads more batches of places as you swipe near the end
+            onEndReached={() => {
+              if (!loadingMore && userLocation && !noMoreResults) {
+                fetchPlacesBatch(userLocation, false);
+              }
+            }}
+            onEndReachedThreshold={0.5}
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#FB7238" />}
+            getItemLayout={(_, index) => ({ length: width, offset: width * index, index })}
+            ListFooterComponent={
+              loadingMore ? (
+                <View style={[styles.loadingMoreBox, { width: 100, height: cardHeight }]}>
+                  <ActivityIndicator size="small" color="#FB7238" />
+                </View>
+              ) : noMoreResults ? (
+                <View style={[styles.loadingMoreBox, { width: 240, height: cardHeight, paddingHorizontal: 24 }]}>
+                  <Ionicons name="checkmark-circle-outline" size={28} color="#8E8E93" />
+                  <Text style={styles.loadingMoreText}>You've seen every spot nearby. Pull down to refresh.</Text>
+                </View>
+              ) : null
+            }
+          />
+          <TouchableOpacity
+            accessibilityLabel="Previous place"
+            style={[styles.tapZone, styles.tapZoneLeft]}
+            onPress={() => handleTapNavigate(-1)}
+            activeOpacity={1}
+          />
+          <TouchableOpacity
+            accessibilityLabel="Next place"
+            style={[styles.tapZone, styles.tapZoneRight]}
+            onPress={() => handleTapNavigate(1)}
+            activeOpacity={1}
+          />
+          <Animated.View
+            pointerEvents="none"
+            style={[
+              styles.tapHint,
+              tapDirection === 'next' ? styles.tapHintRight : styles.tapHintLeft,
+              { opacity: tapHintOpacity, transform: [{ translateX: tapHintShift }] },
+            ]}
+          >
+            <Ionicons
+              name={tapDirection === 'next' ? 'chevron-forward' : 'chevron-back'}
+              size={22}
+              color="#FFF"
+            />
+          </Animated.View>
+        </View>
       )}
     </View>
   );
@@ -811,6 +928,29 @@ const handleGetDirections = (item) => {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#121212' },
+  feedStage: { flex: 1 },
+  tapZone: {
+    position: 'absolute',
+    top: 82,
+    bottom: 156,
+    width: 58,
+    zIndex: 4,
+  },
+  tapZoneLeft: { left: 0 },
+  tapZoneRight: { right: 0 },
+  tapHint: {
+    position: 'absolute',
+    top: '48%',
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: 'rgba(0,0,0,0.42)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 12,
+  },
+  tapHintLeft: { left: 12 },
+  tapHintRight: { right: 12 },
   loadingContainer: { flex: 1, backgroundColor: '#121212', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32 },
   loadingText: { color: '#8E8E93', fontSize: 13, marginTop: 12, fontWeight: '600', textAlign: 'center' },
   loadingMoreText: { color: '#8E8E93', fontSize: 11, fontWeight: '600', textAlign: 'center', marginTop: 10 },
@@ -837,7 +977,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     backgroundColor: 'rgba(20, 20, 20, 0.88)',
     padding: 3,
-    borderRadius: 24,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.15)',
     gap: 3,
@@ -848,7 +988,7 @@ const styles = StyleSheet.create({
     gap: 4,
     paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 22,
+    borderRadius: 6,
   },
   modePillActive: { backgroundColor: 'rgba(255,255,255,0.18)' },
   modePillActiveCraved: {
@@ -859,6 +999,14 @@ const styles = StyleSheet.create({
   modePillText: { color: '#8E8E93', fontSize: 12, fontWeight: '700' },
   modePillTextActive: { color: '#FFF' },
   card: { position: 'relative', overflow: 'hidden' },
+  heartBurst: {
+    position: 'absolute',
+    left: '50%',
+    top: '45%',
+    marginLeft: -46,
+    marginTop: -46,
+    zIndex: 8,
+  },
   dishImage: { ...StyleSheet.absoluteFillObject, width: '100%', height: '100%' },
   topGradient: { position: 'absolute', top: 0, left: 0, right: 0, height: 140 },
   bottomGradient: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 340 },
@@ -874,7 +1022,7 @@ const styles = StyleSheet.create({
   actionIconBg: {
     width: 48,
     height: 48,
-    borderRadius: 24,
+    borderRadius: 8,
     backgroundColor: 'rgba(20,20,20,0.85)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.15)',
@@ -885,7 +1033,7 @@ const styles = StyleSheet.create({
   actionCountText: { color: '#FFF', fontSize: 12, fontWeight: '900', marginTop: 3 },
   actionSubLabel: { color: '#AAA', fontSize: 9, fontWeight: '600' },
   actionLabel: { color: '#FFF', fontSize: 10, fontWeight: '700', marginTop: 3 },
-  bottomContent: { position: 'absolute', bottom: 20, left: 16, right: 16 },
+  bottomContent: { position: 'absolute', bottom: 20, left: 16, right: 16, zIndex: 10 },
   tagsRow: { flexDirection: 'row', gap: 6, marginBottom: 8, alignItems: 'center', flexWrap: 'wrap' },
   tagBadge: {
     backgroundColor: 'rgba(255,255,255,0.2)',
@@ -929,7 +1077,7 @@ const styles = StyleSheet.create({
   gridCard: {
     flex: 1,
     height: 230,
-    borderRadius: 18,
+    borderRadius: 8,
     overflow: 'hidden',
     backgroundColor: '#1C1C1E',
     marginBottom: 12,

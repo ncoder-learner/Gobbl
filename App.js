@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect } from 'react';
-import { View, ActivityIndicator } from 'react-native';
+import { View, Text, ActivityIndicator, TouchableOpacity, Linking as NativeLinking } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Linking from 'expo-linking';
 import { Ionicons } from '@expo/vector-icons';
@@ -17,6 +17,9 @@ import {
   registerPushTokenForUser,
   setupNotificationHandler,
   syncMealWindowNotifications,
+  requestPermission,
+  getPermissionStatus,
+  saveNotifPrefs,
 } from './lib/notifications';
 import { identifyOneSignalUser, initializeOneSignal, logoutOneSignalUser } from './lib/oneSignal';
 import LogMealScreen from './screens/LogMealScreen';
@@ -128,7 +131,7 @@ function TabNavigator() {
         component={DiaryScreen}
         options={{
           tabBarLabel: 'Health',
-          tabBarIcon: ({ color, size }) => <Ionicons name="compass-outline" size={size} color={color} />,
+          tabBarIcon: ({ color, size }) => <Ionicons name="heart-outline" size={size} color={color} />,
         }}
       />
       <Tab.Screen
@@ -304,6 +307,74 @@ function AutoStartTour({ trigger, onStarted }) {
   return null;
 }
 
+function NotificationPermissionPrompt({ sessionUserId, onDone }) {
+  const [loading, setLoading] = useState(false);
+  const [status, setStatus] = useState('undetermined');
+
+  useEffect(() => {
+    getPermissionStatus().then((next) => setStatus(next)).catch(() => setStatus('undetermined'));
+  }, []);
+
+  async function handleEnable() {
+    setLoading(true);
+    try {
+      if (status === 'denied') {
+        await NativeLinking.openSettings();
+        return;
+      }
+      const granted = await requestPermission();
+      if (!granted) {
+        setStatus('denied');
+        await saveNotifPrefs({ enabled: false, reminderHour: 19, reminderMinute: 0 });
+        return;
+      }
+      setStatus('granted');
+      await saveNotifPrefs({ enabled: true, reminderHour: 19, reminderMinute: 0 });
+      if (sessionUserId) await registerPushTokenForUser(sessionUserId).catch(() => {});
+      onDone();
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleLater() {
+    onDone();
+  }
+
+  return (
+    <View style={{ flex: 1, backgroundColor: C.bg, justifyContent: 'center', paddingHorizontal: 24 }}>
+      <View style={{ backgroundColor: '#121212', borderWidth: 1, borderColor: 'rgba(255,107,61,0.25)', borderRadius: 24, padding: 24 }}>
+        <Text style={{ fontSize: 12, color: C.orange, letterSpacing: 1.5, textTransform: 'uppercase', fontWeight: '700', marginBottom: 12 }}>
+          Stay on track
+        </Text>
+        <Text style={{ fontFamily: 'InstrumentSerif_400Regular', fontSize: 34, color: C.white, lineHeight: 38, marginBottom: 10 }}>
+          Turn on notifications
+        </Text>
+        <Text style={{ fontSize: 14, lineHeight: 20, color: 'rgba(245,245,247,0.7)', marginBottom: 24 }}>
+          Get meal reminders, streak nudges, and friend activity without missing a beat.
+        </Text>
+
+        <TouchableOpacity
+          style={{ backgroundColor: C.orange, borderRadius: 16, paddingVertical: 16, alignItems: 'center', marginBottom: 12 }}
+          onPress={handleEnable}
+          disabled={loading}
+        >
+          <Text style={{ color: C.bg, fontWeight: '800', fontSize: 15 }}>
+            {loading ? 'Enabling…' : status === 'denied' ? 'Open settings' : 'Enable notifications'}
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={{ borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)', borderRadius: 16, paddingVertical: 14, alignItems: 'center' }}
+          onPress={handleLater}
+        >
+          <Text style={{ color: C.white, fontWeight: '600', fontSize: 14 }}>Maybe later</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function onboardingKey(userId) {
@@ -326,6 +397,7 @@ export default function App() {
   const [hasProfileInfo, setHasProfileInfo] = useState(undefined);
   const [hasUsername, setHasUsername]       = useState(undefined);
   const [autoStartTour, setAutoStartTour]   = useState(false);
+  const [showNotificationPrompt, setShowNotificationPrompt] = useState(false);
   const lastCheckedUserRef                  = useRef(null);
   const [fontsLoaded]                       = useFonts({
     InstrumentSerif_400Regular,
@@ -474,8 +546,13 @@ export default function App() {
         if (session) {
           identifyOneSignalUser(session.user.id);
           checkProfile(session.user.id);
-          ensureDefaultNotifications(session.user.id).catch(() => registerPushToken(session.user.id));
           syncMealWindowNotifications().catch(() => {});
+          setShowNotificationPrompt(false);
+          getPermissionStatus().then((status) => {
+            if (status === 'granted') {
+              registerPushToken(session.user.id).catch(() => {});
+            }
+          }).catch(() => {});
         } else {
           // `undefined`, not `false` — isLoading below waits specifically
           // for `undefined` ("not checked yet"). A stale `false` here would
@@ -520,6 +597,23 @@ export default function App() {
     setHasUsername(true);
   }
 
+  useEffect(() => {
+    if (!session || !onboardingDone || !hasProfileInfo || !hasUsername) {
+      setShowNotificationPrompt(false);
+      return;
+    }
+
+    let active = true;
+    getPermissionStatus().then((status) => {
+      if (!active) return;
+      setShowNotificationPrompt(status !== 'granted');
+    }).catch(() => {
+      if (active) setShowNotificationPrompt(true);
+    });
+
+    return () => { active = false; };
+  }, [session, onboardingDone, hasProfileInfo, hasUsername]);
+
   const isLoading =
     !fontsLoaded ||
     session === undefined ||
@@ -545,6 +639,8 @@ export default function App() {
           <ProfileInfoScreen onDone={handleProfileInfoDone} />
         ) : !hasUsername ? (
           <UsernamePromptScreen onDone={handleUsernameDone} />
+        ) : showNotificationPrompt ? (
+          <NotificationPermissionPrompt sessionUserId={session?.user?.id} onDone={() => setShowNotificationPrompt(false)} />
         ) : (
           <TourProvider>
             <AppNavigator />

@@ -16,6 +16,7 @@ import DayTrail from '../components/DayTrail';
 import { MEAL_TAGS, TAG_META } from '../lib/postUtils';
 import { mappableCoords, displayPlaceName, isHomeMeal } from '../lib/homePrivacy';
 import { THEME as C } from '../lib/theme';
+import { useAppForeground } from '../lib/useAppForeground';
 import StripedPlaceholder from '../components/StripedPlaceholder';
 import { logMealPhotoEvent } from '../lib/analytics';
 
@@ -186,6 +187,7 @@ export default function MealDetailScreen() {
   // Refetches on every focus (not just mealId/routePostId changes) so
   // returning here after EditMealScreen shows the saved changes.
   useFocusEffect(useCallback(() => { load(); }, [load]));
+  useAppForeground(load);
 
   // Live device position for the distance line — same pattern as
   // LogMealScreen/TierListScreen, non-blocking if denied.
@@ -309,7 +311,7 @@ export default function MealDetailScreen() {
       <SafeAreaView style={styles.safe} edges={['top']}>
         <StatusBar barStyle="light-content" backgroundColor={C.bg} />
         <View style={styles.center}>
-          <Text style={styles.emptyEmoji}>⚠️</Text>
+          <Ionicons name="alert-circle-outline" size={44} color={C.gray2} />
           <Text style={styles.emptyTitle}>Couldn't load this meal</Text>
           {error ? <Text style={styles.emptySub}>{error}</Text> : null}
           <TouchableOpacity style={styles.retryBtn} onPress={load} activeOpacity={0.85}>

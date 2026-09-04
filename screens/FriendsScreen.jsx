@@ -6,6 +6,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useAppForeground } from '../lib/useAppForeground';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { supabase } from '../lib/supabase';
@@ -240,6 +241,7 @@ export default function FriendsScreen() {
       loadFriends();
     }, [])
   );
+  useAppForeground(loadFriends);
 
   async function loadFriends() {
     setLoading(true);

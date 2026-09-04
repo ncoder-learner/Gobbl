@@ -26,8 +26,7 @@ const PAGE_SIZE    = 15;
 
 const C = {
   bg: '#0d0d0d', surface: '#1a1a1a', border: '#2a2a2a',
-  orange: '#FF6B3D', purple: '#8855cc', purpleDim: '#1a0d1a', purpleBorder: '#3a2a4a',
-  purpleText: '#ddb8ff', white: '#ffffff', gray1: '#888888', gray2: '#666666',
+  orange: '#FF6B3D', white: '#ffffff', gray1: '#888888', gray2: '#666666',
   gray3: '#555555', gray4: '#444444', green: '#00c896',
 };
 
@@ -292,7 +291,7 @@ function PersonalStrip({ streak, loggedToday, onLogMeal }) {
       <View style={styles.stripLeft}>
         {streak > 0 ? (
           <>
-            <Text style={styles.stripFlame}>🔥</Text>
+            <Ionicons name="flame-outline" size={20} color={C.orange} style={styles.stripFlame} />
             <Text style={styles.stripStreakNum}>{streak}</Text>
             <Text style={styles.stripStreakLabel}>
               {loggedToday ? 'day streak' : 'days · log today!'}
@@ -315,7 +314,7 @@ function PersonalStrip({ streak, loggedToday, onLogMeal }) {
 function NoFriendsState({ onAddFriends, onInvite }) {
   return (
     <View style={styles.empty}>
-      <Text style={styles.emptyEmoji}>👥</Text>
+      <Ionicons name="people-outline" size={42} color={C.gray2} />
       <Text style={styles.emptyTitle}>Your feed fills up as you add friends</Text>
       <Text style={styles.emptySub}>
         Find people by their @username, or invite friends to join Gobbl.
@@ -335,7 +334,7 @@ function NoFriendsState({ onAddFriends, onInvite }) {
 function HasFriendsEmptyState() {
   return (
     <View style={styles.empty}>
-      <Text style={styles.emptyEmoji}>🍽️</Text>
+      <Ionicons name="restaurant-outline" size={42} color={C.gray2} />
       <Text style={styles.emptyTitle}>No posts yet</Text>
       <Text style={styles.emptySub}>
         When friends share a meal, it shows up here. Share one of yours from History.
@@ -658,7 +657,7 @@ export default function FeedScreen() {
               </View>
             ) : pickerMeals.length === 0 ? (
               <View style={styles.pickerEmpty}>
-                <Text style={styles.pickerEmptyEmoji}>🍽️</Text>
+                <Ionicons name="restaurant-outline" size={40} color={C.gray2} />
                 <Text style={styles.pickerEmptyTitle}>Nothing to post yet</Text>
                 <Text style={styles.pickerEmptySub}>
                   All your logged meals are already posted, or you haven't logged any yet.
@@ -888,9 +887,9 @@ const styles = StyleSheet.create({
   infoBlock: { paddingHorizontal: 16, paddingTop: 14, paddingBottom: 18 },
   posterRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 4, gap: 9 },
   posterAvatar: {
-    backgroundColor: C.purpleDim, borderWidth: 1, borderColor: C.purpleBorder,
+    backgroundColor: C.surface, borderWidth: 1, borderColor: C.border,
   },
-  posterInitial: { color: C.purpleText },
+  posterInitial: { color: C.orange },
   posterUsername: { fontSize: 15, fontWeight: '700', color: C.white, letterSpacing: 0.1, flex: 1 },
   postTime: { fontSize: 12, color: C.gray2 },
   likeBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, marginLeft: 10 },

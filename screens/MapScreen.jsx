@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useAppForeground } from '../lib/useAppForeground';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { Ionicons } from '@expo/vector-icons';
@@ -243,6 +244,7 @@ export default function MapScreen() {
       load(mode);
     }, [mode, load])
   );
+  useAppForeground(() => load(mode));
 
   return (
     <View style={styles.safe}>

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, FlatList, TouchableOpacity, StyleSheet, Modal, ActivityIndicator } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, Modal, ActivityIndicator, useWindowDimensions } from 'react-native';
 import { supabase } from '../lib/supabase';
 import { localDateKey } from '../lib/dateKey';
 import { computeWeeklyInsights } from '../lib/nutritionEngine';
@@ -7,8 +7,11 @@ import { filterDietTemplatesForUser, getDietSuggestionCopy } from '../lib/dietTe
 import DietSetupScreen from './DietSetupScreen';
 import MealLogModal from '../components/MealLogModal';
 import { THEME as C } from '../lib/theme';
+import { useAppForeground } from '../lib/useAppForeground';
 
 export default function DiaryScreen() {
+  const { width } = useWindowDimensions();
+  const compact = width < 380;
   const [userId, setUserId] = useState(null);
   const [preferences, setPreferences] = useState(null);
   const [todayMeals, setTodayMeals] = useState([]);
@@ -72,6 +75,7 @@ export default function DiaryScreen() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+  useAppForeground(load);
 
   const totals = todayMeals.reduce((acc, m) => ({
     calories: acc.calories + Number(m.calories || 0),
@@ -81,7 +85,7 @@ export default function DiaryScreen() {
   }), { calories: 0, protein: 0, carbs: 0, fat: 0 });
 
   if (loading) {
-    return <View style={styles.center}><ActivityIndicator color="#10b981" /></View>;
+    return <View style={styles.center}><ActivityIndicator color={C.orange} /></View>;
   }
 
   const templates = filterDietTemplatesForUser({
@@ -91,10 +95,10 @@ export default function DiaryScreen() {
   const suggestionCopy = getDietSuggestionCopy();
 
   return (
-    <View style={styles.container}>
-      <View style={styles.headerRow}>
+    <View style={[styles.container, compact && styles.containerCompact]}>
+      <View style={[styles.headerRow, compact && styles.headerRowCompact]}>
         <View>
-          <Text style={styles.title}>Health</Text>
+          <Text style={[styles.title, compact && styles.titleCompact]}>Health</Text>
           <Text style={styles.subtitle}>A clearer read on your week</Text>
         </View>
         {preferences && (
@@ -107,8 +111,8 @@ export default function DiaryScreen() {
       {error && <Text style={styles.error}>{error}</Text>}
 
       {!preferences ? (
-        <View style={styles.setupCard}>
-          <Text style={styles.setupTitle}>Build your nutrition baseline</Text>
+          <View style={[styles.setupCard, compact && styles.cardCompact]}>
+          <Text style={[styles.setupTitle, compact && styles.setupTitleCompact]}>Build your nutrition baseline</Text>
           <Text style={styles.setupBody}>Set goals and boundaries first. You stay in control of every suggestion.</Text>
           <TouchableOpacity style={styles.primaryButton} onPress={() => setSetupOpen(true)}>
             <Text style={styles.primaryButtonText}>Set up health</Text>
@@ -116,18 +120,18 @@ export default function DiaryScreen() {
         </View>
       ) : (
         <>
-          <View style={styles.totalsCard}>
+          <View style={[styles.totalsCard, compact && styles.cardCompact]}>
             <Text style={styles.cardEyebrow}>TODAY</Text>
-            <Text style={styles.totalsText}>{totals.calories} / {preferences.calories} kcal</Text>
+            <Text style={[styles.totalsText, compact && styles.totalsTextCompact]}>{totals.calories} / {preferences.calories} kcal</Text>
             <Text style={styles.totalsSubText}>P {totals.protein}/{preferences.protein_grams}g  ·  C {totals.carbs}/{preferences.carbs_grams}g  ·  F {totals.fat}/{preferences.fat_grams}g</Text>
             <TouchableOpacity style={styles.logButton} onPress={() => setLogOpen(true)}>
               <Text style={styles.logButtonText}>Log a meal</Text>
             </TouchableOpacity>
           </View>
 
-          <View style={styles.suggestionCard}>
+          <View style={[styles.suggestionCard, compact && styles.cardCompact]}>
             <Text style={styles.cardEyebrow}>{suggestionCopy.title.toUpperCase()}</Text>
-            <Text style={styles.suggestionTitle}>{templates[0]?.name || 'Balanced everyday'}</Text>
+            <Text style={[styles.suggestionTitle, compact && styles.suggestionTitleCompact]}>{templates[0]?.name || 'Balanced everyday'}</Text>
             <Text style={styles.suggestionBody}>{templates[0]?.description || 'A moderate template for general maintenance and routine energy.'}</Text>
             <Text style={styles.disclaimer}>{suggestionCopy.disclaimer[0]}</Text>
           </View>
@@ -148,7 +152,7 @@ export default function DiaryScreen() {
       />}
 
       {insights && (
-        <View style={styles.insightsCard}>
+        <View style={[styles.insightsCard, compact && styles.cardCompact]}>
           <Text style={styles.cardEyebrow}>LAST 7 DAYS</Text>
           <Text style={styles.insightsTitle}>Weekly insights</Text>
           <Text style={styles.insightsBody}>{insights.topDeficiencyInsight}</Text>
@@ -170,26 +174,33 @@ export default function DiaryScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, paddingHorizontal: 20, paddingTop: 18, backgroundColor: C.bg },
+  containerCompact: { paddingHorizontal: 16, paddingTop: 14 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg },
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 },
+  headerRowCompact: { marginBottom: 14 },
   title: { color: C.white, fontFamily: C.serif, fontSize: 34 },
+  titleCompact: { fontSize: 30 },
   subtitle: { color: C.gray2, marginTop: 3 },
   editButton: { borderWidth: 1, borderColor: C.border, borderRadius: C.pill, paddingHorizontal: 14, paddingVertical: 8 },
   editButtonText: { color: C.gray1, fontWeight: '600' },
   error: { color: C.red, marginBottom: 12 },
-  setupCard: { backgroundColor: C.glassBg, borderColor: C.glassBorder, borderWidth: 1, borderRadius: 18, padding: 18, marginBottom: 18 },
+  setupCard: { backgroundColor: C.glassBg, borderColor: C.glassBorder, borderWidth: 1, borderRadius: 8, padding: 18, marginBottom: 18 },
+  cardCompact: { borderRadius: 8, padding: 14, marginBottom: 12 },
   setupTitle: { color: C.white, fontFamily: C.serif, fontSize: 23, marginBottom: 8 },
+  setupTitleCompact: { fontSize: 21 },
   setupBody: { color: C.gray1, lineHeight: 20, marginBottom: 16 },
   primaryButton: { backgroundColor: C.orange, borderRadius: C.pill, padding: 14, alignItems: 'center' },
   primaryButtonText: { color: C.bg, fontWeight: '800' },
   cardEyebrow: { color: C.gold, fontSize: 10, fontWeight: '800', letterSpacing: 1.2, marginBottom: 6 },
-  totalsCard: { backgroundColor: C.glassBg, borderColor: C.glassBorder, borderWidth: 1, borderRadius: 18, padding: 17, marginBottom: 12 },
+  totalsCard: { backgroundColor: C.glassBg, borderColor: C.glassBorder, borderWidth: 1, borderRadius: 8, padding: 17, marginBottom: 12 },
   totalsText: { fontFamily: C.serif, fontSize: 27, color: C.white },
+  totalsTextCompact: { fontSize: 24 },
   totalsSubText: { color: C.gray1, marginTop: 5, fontSize: 12 },
   logButton: { alignSelf: 'flex-start', backgroundColor: C.orange, borderRadius: C.pill, paddingHorizontal: 15, paddingVertical: 10, marginTop: 15 },
   logButtonText: { color: C.bg, fontWeight: '800' },
-  suggestionCard: { backgroundColor: '#201b14', borderColor: '#5b4225', borderWidth: 1, borderRadius: 18, padding: 17, marginBottom: 17 },
+  suggestionCard: { backgroundColor: '#201b14', borderColor: '#5b4225', borderWidth: 1, borderRadius: 8, padding: 17, marginBottom: 17 },
   suggestionTitle: { color: C.white, fontFamily: C.serif, fontSize: 22, marginBottom: 6 },
+  suggestionTitleCompact: { fontSize: 20 },
   suggestionBody: { color: C.gray1, lineHeight: 20 },
   disclaimer: { color: C.gray3, fontSize: 11, marginTop: 12 },
   sectionTitle: { color: C.white, fontFamily: C.serif, fontSize: 22, marginBottom: 4 },
@@ -197,7 +208,7 @@ const styles = StyleSheet.create({
   mealName: { color: C.white, fontWeight: '600', flex: 1 },
   mealMacros: { color: C.gray1, fontSize: 12 },
   empty: { color: C.gray2, textAlign: 'center', marginTop: 20 },
-  insightsCard: { backgroundColor: C.glassBg, borderColor: C.glassBorder, borderWidth: 1, borderRadius: 18, padding: 17, marginTop: 16 },
+  insightsCard: { backgroundColor: C.glassBg, borderColor: C.glassBorder, borderWidth: 1, borderRadius: 8, padding: 17, marginTop: 16 },
   insightsTitle: { fontFamily: C.serif, fontSize: 22, color: C.white, marginBottom: 6 },
   insightsBody: { color: C.gray1, marginBottom: 6 },
   insightsStat: { color: C.green, fontWeight: '600' },

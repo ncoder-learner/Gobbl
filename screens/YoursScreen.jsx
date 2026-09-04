@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, StatusBar } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
 import HistoryScreen from './HistoryScreen';
 import TierListScreen from './TierListScreen';
 import RecapsScreen from './RecapsScreen';
@@ -23,15 +22,9 @@ function YoursSegmentedControl({ value, onChange }) {
           activeOpacity={0.8}
           style={styles.segBtnTouch}
         >
-          {value === key ? (
-            <LinearGradient colors={[C.orange, C.orangeDim]} style={styles.segBtn}>
-              <Text style={[styles.segBtnText, styles.segBtnTextActive]}>{label}</Text>
-            </LinearGradient>
-          ) : (
-            <View style={styles.segBtn}>
-              <Text style={styles.segBtnText}>{label}</Text>
-            </View>
-          )}
+          <View style={[styles.segBtn, value === key && styles.segBtnActive]}>
+            <Text style={[styles.segBtnText, value === key && styles.segBtnTextActive]}>{label}</Text>
+          </View>
         </TouchableOpacity>
       ))}
     </View>
@@ -89,10 +82,11 @@ const styles = StyleSheet.create({
 
   segWrap: {
     flexDirection: 'row', backgroundColor: C.glassBg,
-    borderRadius: 13, borderWidth: 1, borderColor: C.glassBorder, padding: 4,
+    borderRadius: 8, borderWidth: 1, borderColor: C.glassBorder, padding: 3,
   },
   segBtnTouch: { flex: 1 },
-  segBtn: { paddingVertical: 8, borderRadius: 10, alignItems: 'center' },
+  segBtn: { paddingVertical: 8, borderRadius: 6, alignItems: 'center' },
+  segBtnActive: { backgroundColor: C.orange },
   segBtnText: { fontWeight: '500', fontSize: 12, color: 'rgba(245,245,247,0.5)' },
   segBtnTextActive: { color: C.bg, fontWeight: '700' },
 });

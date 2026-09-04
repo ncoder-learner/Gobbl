@@ -2,7 +2,6 @@ import { View, Text, Image, TouchableOpacity, StyleSheet } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
-import { TAG_META } from '../lib/postUtils';
 import { isHomeMeal, mappableCoords, displayPlaceName } from '../lib/homePrivacy';
 import { THEME as C } from '../lib/theme';
 
@@ -88,7 +87,7 @@ export default function DayTrail({ images, isOwner }) {
                 {meal.photo_url ? (
                   <Image source={{ uri: meal.photo_url }} style={styles.trailPinPhoto} />
                 ) : (
-                  <Text style={styles.trailPinEmoji}>{TAG_META[tag].emoji}</Text>
+                  <Ionicons name={tag === 'breakfast' ? 'sunny-outline' : tag === 'lunch' ? 'partly-sunny-outline' : 'moon-outline'} size={18} color={C.orange} />
                 )}
               </View>
             </Marker>
@@ -107,9 +106,7 @@ export default function DayTrail({ images, isOwner }) {
             <View key={s.tag} style={styles.sequenceItem}>
               {i > 0 && <View style={styles.sequenceConnector} />}
               <View style={[styles.sequenceIcon, s.kind === 'home' && styles.sequenceIconHome]}>
-                <Text style={styles.sequenceIconEmoji}>
-                  {s.kind === 'home' ? '🏠' : TAG_META[s.tag].emoji}
-                </Text>
+                <Ionicons name={s.kind === 'home' ? 'home-outline' : s.tag === 'breakfast' ? 'sunny-outline' : s.tag === 'lunch' ? 'partly-sunny-outline' : 'moon-outline'} size={16} color={s.kind === 'home' ? C.orange : C.white} />
               </View>
             </View>
           ))}

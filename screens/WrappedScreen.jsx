@@ -14,7 +14,7 @@ import {
   Alert,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
 import ViewShot from 'react-native-view-shot';
 import * as Sharing from 'expo-sharing';
 import { supabase } from '../lib/supabase';
@@ -144,7 +144,7 @@ function CountUpNumber({ to, decimals = 0, style, active }) {
 }
 
 // ─── Slide ────────────────────────────────────────────────────────────────────
-function Slide({ active, direction, gradient, children, noPadding }) {
+function Slide({ active, direction, children, noPadding }) {
   const fade   = useRef(new Animated.Value(0)).current;
   const slideX = useRef(new Animated.Value(0)).current;
   useEffect(() => {
@@ -160,7 +160,6 @@ function Slide({ active, direction, gradient, children, noPadding }) {
   if (!active) return null;
   return (
     <Animated.View style={[noPadding ? styles.slideFull : styles.slide, { opacity: fade, transform: [{ translateX: slideX }] }]}>
-      <LinearGradient colors={gradient ?? ['#000000', '#000000']} style={StyleSheet.absoluteFill} />
       {children}
     </Animated.View>
   );
@@ -239,11 +238,6 @@ function WrappedShareCard({ cardRef, personality, totalMeals, avgScore, cuisines
   return (
     <ViewShot ref={cardRef} options={{ format: 'png', quality: 1.0 }}>
       <View style={sc.card}>
-        <LinearGradient
-          colors={['#2d1050', '#1a0828', '#110820', '#000000']}
-          locations={[0, 0.35, 0.65, 1]}
-          style={StyleSheet.absoluteFill}
-        />
         <Text style={sc.kicker}>GOBBL · {monthName.toUpperCase()} {year}</Text>
         <View style={sc.hero}>
           <View style={sc.emojiBadge}><Text style={sc.emoji}>{personality.emoji}</Text></View>
@@ -567,7 +561,6 @@ export function WrappedPlayer({ stats, onClose }) {
       <Pressable style={styles.stage} onPress={handleTap}>
         {slide.key === 'teaser' && (
           <Slide active direction={directionRef.current} gradient={SLIDE_GRADIENT.teaser}>
-            <Text style={styles.teaserSparkle}>✨</Text>
             <Text style={styles.teaserMonth}>{monthName.toUpperCase()} {year}</Text>
             <Text style={styles.teaserTitle}>Your Wrapped{'\n'}is ready</Text>
             <Text style={styles.teaserHint}>tap anywhere to begin →</Text>
@@ -577,7 +570,7 @@ export function WrappedPlayer({ stats, onClose }) {
           <Slide active direction={directionRef.current} gradient={SLIDE_GRADIENT.meals}>
             <Text style={styles.bigLabel}>This month you logged</Text>
             <CountUpNumber to={totalMeals} style={styles.bigNumber} active />
-            <Text style={styles.bigEmoji}>🍽️</Text>
+            <Ionicons name="restaurant-outline" size={42} color={C.orange} />
             <Text style={styles.bigSuffix}>{totalMeals === 1 ? 'meal' : 'meals'}</Text>
           </Slide>
         )}
@@ -585,7 +578,7 @@ export function WrappedPlayer({ stats, onClose }) {
           <Slide active direction={directionRef.current} gradient={SLIDE_GRADIENT.cuisines}>
             <Text style={styles.bigLabel}>Cuisines explored</Text>
             <CountUpNumber to={cuisinesCount} style={styles.bigNumber} active />
-            <Text style={styles.bigEmoji}>🌍</Text>
+            <Ionicons name="globe-outline" size={42} color={C.orange} />
             <Text style={styles.bigSuffix}>different cuisines</Text>
           </Slide>
         )}
@@ -596,14 +589,14 @@ export function WrappedPlayer({ stats, onClose }) {
               <CountUpNumber to={streak} style={styles.bigNumber} active />
               <Text style={styles.streakSuffix}> days</Text>
             </View>
-            <Text style={styles.bigEmoji}>🔥</Text>
+            <Ionicons name="flame-outline" size={42} color={C.orange} />
           </Slide>
         )}
         {slide.key === 'rating' && (
           <Slide active direction={directionRef.current} gradient={SLIDE_GRADIENT.rating}>
             <Text style={styles.bigLabel}>Average rating</Text>
             <CountUpNumber to={avgRating} decimals={1} style={styles.bigNumber} active />
-            <Text style={styles.bigEmoji}>⭐</Text>
+            <Ionicons name="star-outline" size={42} color={C.gold} />
             <Text style={styles.subLine}>
               {avgRating >= 4 ? 'you love what you eat' : avgRating >= 3 ? 'a balanced critic' : 'tough to impress'}
             </Text>
@@ -719,7 +712,7 @@ export default function WrappedScreen() {
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <StatusBar barStyle="light-content" backgroundColor={C.bg} />
         <View style={styles.center}>
-          <Text style={styles.emptyEmoji}>⚠️</Text>
+          <Ionicons name="alert-circle-outline" size={44} color={C.gray2} />
           <Text style={styles.emptyTitle}>Something went wrong</Text>
           <Text style={styles.emptySub}>{error}</Text>
           <TouchableOpacity style={styles.retryBtn} onPress={() => setLoadKey(k => k + 1)} activeOpacity={0.8}>
@@ -736,7 +729,7 @@ export default function WrappedScreen() {
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         <StatusBar barStyle="light-content" backgroundColor={C.bg} />
         <View style={styles.center}>
-          <Text style={styles.emptyEmoji}>📭</Text>
+          <Ionicons name="archive-outline" size={44} color={C.gray2} />
           <Text style={styles.emptyTitle}>No {monthName} Wrapped yet</Text>
           <Text style={styles.emptySub}>Log a few meals this month and your recap will show up here.</Text>
         </View>

@@ -18,11 +18,13 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
-import { computeTierRank, createPost, mealTagSlot } from '../lib/postUtils';
+import { computeTierRank, createPost, mealTagSlot, notifyFriendsOfPost } from '../lib/postUtils';
 import { localDateKeyFromISO } from '../lib/dateKey';
 import { THEME as C } from '../lib/theme';
 import StripedPlaceholder from '../components/StripedPlaceholder';
+import { useAppForeground } from '../lib/useAppForeground';
 
 const PAGE_SIZE = 20;
 
@@ -135,7 +137,7 @@ function MealRow({ meal, onPress }) {
 function EmptyState({ onLog }) {
   return (
     <View style={styles.empty}>
-      <Text style={styles.emptyEmoji}>🍽️</Text>
+      <Ionicons name="restaurant-outline" size={44} color={C.gray2} />
       <Text style={styles.emptyTitle}>No meals logged yet</Text>
       <Text style={styles.emptyBody}>
         Start snapping your food to build your personal history and get your monthly Wrapped.
@@ -197,6 +199,7 @@ function MealDetailModal({ meal, onClose, onDeleted, onPostChanged }) {
     setError(null);
     try {
       const newPostId = await createPost({ [mealTagSlot(meal.tag)]: meal.id }, shareCaption, shareTierRank);
+      await notifyFriendsOfPost(meal.name);
       setIsPosted(true);
       setPostId(newPostId);
       onPostChanged?.(meal.id, newPostId);
@@ -356,7 +359,7 @@ function MealDetailModal({ meal, onClose, onDeleted, onPostChanged }) {
             {/* ── CONFIRM DELETE MODE ──────────────────────────────────── */}
             {mode === 'confirmDelete' && (
               <View style={styles.confirmBody}>
-                <Text style={styles.confirmEmoji}>🗑️</Text>
+                <Ionicons name="trash-outline" size={42} color={C.red} />
                 <Text style={styles.confirmTitle}>Delete this entry?</Text>
                 <Text style={styles.confirmMsg}>
                   This will permanently remove{' '}
@@ -500,6 +503,7 @@ export default function HistoryScreen() {
       fetchMeals(0, true);
     }, [])
   );
+  useAppForeground(() => fetchMeals(0, true));
 
   async function fetchMeals(pageNum, replace) {
     try {

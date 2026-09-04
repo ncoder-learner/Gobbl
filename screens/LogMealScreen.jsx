@@ -223,6 +223,8 @@ function TrailReminderCard({ onOpenSettings, onDismiss }) {
 
 const SCREEN_W = Dimensions.get('window').width;
 const SCREEN_H = Dimensions.get('window').height;
+const FORM_GUTTER = SCREEN_W < 380 ? 16 : 24;
+const HERO_HEIGHT = SCREEN_W < 380 ? 200 : 230;
 
 export default function LogMealScreen() {
   const navigation = useNavigation();
@@ -915,7 +917,7 @@ export default function LogMealScreen() {
   }
 
   function updateItemAmount(index, nextAmount) {
-    const amount = Math.max(0.25, Number(nextAmount) || 0.25);
+    const amount = Math.max(0.5, Number(nextAmount) || 0.5);
     const nextItems = nutritionItems.map((item, itemIndex) => itemIndex === index ? { ...item, amount } : item);
     setNutritionItems(nextItems);
     const totals = nextItems.reduce((total, item) => {
@@ -939,7 +941,7 @@ export default function LogMealScreen() {
     return (
       <SafeAreaView style={styles.safe} edges={['top']}>
         <View style={styles.permissionBox}>
-          <Text style={styles.permissionEmoji}>📸</Text>
+          <Ionicons name="camera-outline" size={44} color={C.orange} />
           <Text style={styles.permissionTitle}>Camera access needed</Text>
           <Text style={styles.permissionSub}>Gobbl needs your camera to log meals.</Text>
           {permission.canAskAgain ? (
@@ -1427,7 +1429,7 @@ export default function LogMealScreen() {
                   <Text style={styles.itemName} numberOfLines={1}>{item.name}</Text>
                   <Text style={styles.itemCalories}>{Math.round(item.calories * item.amount / item.baseAmount)} kcal</Text>
                 </View>
-                <TouchableOpacity style={styles.amountStep} onPress={() => updateItemAmount(index, item.amount - 0.25)}>
+                <TouchableOpacity style={styles.amountStep} onPress={() => updateItemAmount(index, item.amount - 0.5)}>
                   <Text style={styles.amountStepText}>−</Text>
                 </TouchableOpacity>
                 <TextInput
@@ -1438,7 +1440,7 @@ export default function LogMealScreen() {
                   selectTextOnFocus
                 />
                 <Text style={styles.amountUnit}>{item.unit || 'serving'}</Text>
-                <TouchableOpacity style={styles.amountStep} onPress={() => updateItemAmount(index, item.amount + 0.25)}>
+                <TouchableOpacity style={styles.amountStep} onPress={() => updateItemAmount(index, item.amount + 0.5)}>
                   <Text style={styles.amountStepText}>+</Text>
                 </TouchableOpacity>
               </View>
@@ -1592,10 +1594,10 @@ const styles = StyleSheet.create({
   // Photo — enlarged into a hero card (was a small 80x80 side thumbnail)
   // since it's a core feature of logging a meal, not incidental metadata.
   heroPhotoWrap: {
-    margin: 24, marginBottom: 0, borderRadius: 20, overflow: 'hidden',
+    margin: FORM_GUTTER, marginBottom: 0, borderRadius: 20, overflow: 'hidden',
     backgroundColor: C.surface, position: 'relative',
   },
-  heroPhoto: { width: '100%', height: 230 },
+  heroPhoto: { width: '100%', height: HERO_HEIGHT },
   heroIdentifiedOverlay: {
     position: 'absolute', left: 0, right: 0, bottom: 0,
     paddingHorizontal: 16, paddingVertical: 14,
@@ -1614,13 +1616,13 @@ const styles = StyleSheet.create({
   aiChipText: { fontSize: 10, color: 'rgba(245,245,247,0.6)' },
 
   // Business tag
-  bizTag: { marginHorizontal: 24, marginTop: 16, backgroundColor: '#0f1a0f', borderWidth: 0.5, borderColor: '#1a4a1a', borderRadius: 12, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 8 },
+  bizTag: { marginHorizontal: FORM_GUTTER, marginTop: 16, backgroundColor: '#0f1a0f', borderWidth: 0.5, borderColor: '#1a4a1a', borderRadius: 12, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 8 },
   bizTagEmoji: { fontSize: 18 },
   bizTagName: { fontSize: 14, fontWeight: '500', color: '#4caf50' },
   bizTagLabel: { fontSize: 12, color: '#2a6a2a', marginLeft: 'auto' },
 
   // Fields
-  fieldGroup: { paddingHorizontal: 24, marginTop: 24 },
+  fieldGroup: { paddingHorizontal: FORM_GUTTER, marginTop: 20 },
   fieldLabel: { fontSize: 13, color: C.gray2, marginBottom: 8, fontWeight: '500' },
   optional: { color: C.gray4, fontWeight: '400' },
   nutritionHint: { color: C.gray3, fontSize: 11, lineHeight: 16, marginBottom: 10 },
@@ -1633,7 +1635,7 @@ const styles = StyleSheet.create({
   amountInput: { width: 42, height: 30, color: C.white, backgroundColor: C.inputBg, borderRadius: 7, textAlign: 'center', padding: 0 },
   amountUnit: { color: C.gray3, fontSize: 10, maxWidth: 55 },
   nutritionGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  nutritionField: { width: '31%', minWidth: 88 },
+  nutritionField: { width: SCREEN_W < 380 ? '48%' : '31%', minWidth: 0 },
   nutritionLabel: { color: C.gray3, fontSize: 10, marginBottom: 4 },
   nutritionInputRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: C.inputBg, borderWidth: 0.5, borderColor: C.border, borderRadius: 10, paddingRight: 7 },
   nutritionInput: { flex: 1, minWidth: 0, paddingHorizontal: 9, paddingVertical: 9, color: C.white, fontSize: 14 },
@@ -1651,7 +1653,7 @@ const styles = StyleSheet.create({
 
   // More photos — same dashed "add" tile language used elsewhere in the app
   // (DayBoardScreen's empty "you" tile) for a consistent "tap to add" cue.
-  extraPhotosSection: { marginHorizontal: 24, marginTop: 20 },
+  extraPhotosSection: { marginHorizontal: FORM_GUTTER, marginTop: 20 },
   extraPhotosHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 7, marginBottom: 10 },
   extraPhotosLabel: { fontSize: 15, fontWeight: '700', color: C.white },
   extraPhotosRow: { gap: 10, paddingRight: 4 },

@@ -6,6 +6,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useAppForeground } from '../lib/useAppForeground';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import CommentSheet from '../components/CommentSheet';
@@ -207,6 +208,7 @@ export default function MyProfileScreen() {
       loadData();
     }, [])
   );
+  useAppForeground(loadData);
 
   async function loadData() {
     setLoading(true);

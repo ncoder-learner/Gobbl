@@ -749,7 +749,7 @@ export default function AccountScreen() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: C.bg },
-  scrollContent: { padding: 24, paddingBottom: 48 },
+  scrollContent: { padding: 20, paddingBottom: 40 },
 
   navBar: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
@@ -764,7 +764,7 @@ const styles = StyleSheet.create({
     backgroundColor: C.glassBg,
     borderWidth: 1,
     borderColor: C.glassBorder,
-    borderRadius: 18,
+    borderRadius: 8,
     marginBottom: 14,
     overflow: 'hidden',
   },
@@ -836,7 +836,7 @@ const styles = StyleSheet.create({
   rowDivider: { height: 0.5, backgroundColor: C.border, marginHorizontal: 18 },
 
   btn: {
-    borderRadius: 14,
+    borderRadius: 8,
     paddingVertical: 15,
     alignItems: 'center',
     marginBottom: 10,
@@ -866,7 +866,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#2a0a0a',
     borderWidth: 0.5,
     borderColor: '#5a1a1a',
-    borderRadius: 10,
+    borderRadius: 8,
     padding: 12,
     marginTop: 4,
   },
@@ -916,7 +916,7 @@ const styles = StyleSheet.create({
     marginTop: 24,
     borderWidth: 1,
     borderColor: '#3a2a00',
-    borderRadius: 14,
+    borderRadius: 8,
     padding: 16,
     backgroundColor: '#1a1400',
   },
@@ -988,7 +988,7 @@ const styles = StyleSheet.create({
     backgroundColor: C.surface,
     borderWidth: 0.5,
     borderColor: C.border,
-    borderRadius: 20,
+    borderRadius: 8,
     padding: 24,
   },
   modalTitle: {

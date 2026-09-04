@@ -6,12 +6,12 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
-import { Ionicons, Feather } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import ShareBottomSheet from '../components/ShareBottomSheet';
 import DayTrail from '../components/DayTrail';
 import AdMobBanner from '../components/AdMobBanner';
-import { fetchPostedMealIds, MEAL_TAGS, TAG_META, TAG_ICON } from '../lib/postUtils';
+import { fetchPostedMealIds, MEAL_TAGS, TAG_META } from '../lib/postUtils';
 import { skipMeal, unskipMeal } from '../lib/skips';
 import { localDateKey } from '../lib/dateKey';
 import { displayPlaceName } from '../lib/homePrivacy';
@@ -20,6 +20,7 @@ import { useFirstVisit, FirstVisitTooltip } from '../lib/firstVisit';
 import { useTour, TourTarget } from '../lib/tourContext';
 import { THEME as C } from '../lib/theme';
 import StripedPlaceholder from '../components/StripedPlaceholder';
+import { useAppForeground } from '../lib/useAppForeground';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -30,9 +31,12 @@ const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 // what determines how many tiles peek per row); capped so it doesn't balloon
 // on tablets. Section gap scales off height, giving more breathing room on
 // taller screens instead of a fixed gap that reads as cramped everywhere.
-const TILE_SIZE = Math.min(Math.round(SCREEN_WIDTH * 0.3), 140);
+const TILE_WIDTH = Math.min(Math.round(SCREEN_WIDTH * 0.31), 126);
+const TILE_HEIGHT = Math.round(TILE_WIDTH * 1.25);
 const SECTION_GAP = Math.round(SCREEN_HEIGHT * 0.045);
-const TILE_GAP = Math.round(TILE_SIZE * 0.12);
+const TILE_GAP = Math.round(TILE_WIDTH * 0.12);
+const BOARD_GUTTER = SCREEN_WIDTH < 380 ? 16 : 20;
+const DATE_HEADER_SIZE = SCREEN_WIDTH < 380 ? 34 : 40;
 
 // ─── Header-action helpers (ported verbatim from FeedScreen.jsx) ──────────────
 function scoreToneColor(score) {
@@ -165,7 +169,7 @@ function BoardTile({ tile, onPress, delay, onFire, likeCount, commentCount, isLe
         ) : (
           <StripedPlaceholder style={StyleSheet.absoluteFill}>
             <View style={styles.tileFallback}>
-              <Text style={styles.tileFallbackEmoji}>{meal.emoji || '🍽️'}</Text>
+              <Ionicons name="restaurant-outline" size={34} color={C.gray2} />
             </View>
           </StripedPlaceholder>
         )}
@@ -300,7 +304,7 @@ function BoardSection({
     <View style={[styles.section, isDimmed && styles.sectionDimmed]}>
       <View style={styles.sectionHeader}>
         <View style={styles.sectionTitleRow}>
-          <Feather name={TAG_ICON[tag]} size={16} color={C.white} />
+          <Ionicons name={tag === 'breakfast' ? 'sunny-outline' : tag === 'lunch' ? 'partly-sunny-outline' : 'moon-outline'} size={16} color={C.gray1} />
           <Text style={styles.sectionTitle}>{meta.label}</Text>
         </View>
         <Text style={styles.sectionCount}>
@@ -453,6 +457,67 @@ function DayTrailCard({ images, locatedImages, avgScore, totalDistance, delay, o
     </FadeScaleIn>
   );
 }
+
+function initials(profile) {
+  const source = profile?.display_name || profile?.username || '?';
+  return source.slice(0, 2).toUpperCase();
+}
+
+function FriendStoryStrip({ people, currentUserId, hasOwnStory, onPress }) {
+  return (
+    <View style={styles.storySection}>
+      <View style={styles.storyHeader}>
+        <Text style={styles.storyTitle}>Friend circles today</Text>
+        <Text style={styles.storyMeta}>{people.length} eating</Text>
+      </View>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.storyRow}>
+        <TouchableOpacity style={styles.storyItem} onPress={() => onPress({ id: currentUserId })} activeOpacity={0.8}>
+          <View style={[styles.storyRing, styles.storyRingMine]}>
+            <View style={styles.storyAvatarFallback}><Ionicons name={hasOwnStory ? 'person-outline' : 'add'} size={22} color={C.orange} /></View>
+            <View style={styles.storyPlus}><Ionicons name="add" size={11} color={C.bg} /></View>
+          </View>
+          <Text style={styles.storyName} numberOfLines={1}>{hasOwnStory ? 'Your story' : 'Add meal'}</Text>
+        </TouchableOpacity>
+        {people.map((person) => (
+          <TouchableOpacity key={person.id} style={styles.storyItem} onPress={() => onPress(person)} activeOpacity={0.8}>
+            <View style={[styles.storyRing, person.id === currentUserId && styles.storyRingMine]}>
+              {person.avatar_url ? <Image source={{ uri: person.avatar_url }} style={styles.storyAvatar} /> : <View style={styles.storyAvatarFallback}><Text style={styles.storyInitials}>{initials(person)}</Text></View>}
+              {person.id !== currentUserId && <View style={styles.onlineDot} />}
+            </View>
+            <Text style={styles.storyName} numberOfLines={1}>{person.username || person.first_name || 'friend'}</Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+    </View>
+  );
+}
+
+function MealStorySheet({ tile, onClose, onOpenDetails }) {
+  const [selectedReaction, setSelectedReaction] = useState(null);
+  if (!tile) return null;
+  const profile = tile.poster;
+  const meal = tile.meal;
+  return (
+    <Modal visible transparent animationType="fade" statusBarTranslucent onRequestClose={onClose}>
+      <View style={styles.storyModalBackdrop}>
+        <View style={styles.storySheet}>
+          {meal.photo_url ? <Image source={{ uri: meal.photo_url }} style={styles.storyImage} resizeMode="cover" /> : <View style={[styles.storyImage, styles.storyImageFallback]}><Ionicons name="restaurant-outline" size={68} color={C.gray2} /></View>}
+          <LinearGradient colors={['rgba(0,0,0,0.1)', 'rgba(0,0,0,0.9)']} style={StyleSheet.absoluteFill} pointerEvents="none" />
+          <TouchableOpacity style={styles.storyClose} onPress={onClose} hitSlop={10}><Ionicons name="close" size={22} color={C.white} /></TouchableOpacity>
+          <View style={styles.storyScore}><Text style={styles.storyScoreText}>{formatScore(meal.score)} ★</Text></View>
+          <View style={styles.storyContent}>
+            <View style={styles.storyCreatorRow}><View style={styles.storyCreatorAvatar}><Text style={styles.storyCreatorInitials}>{initials(profile)}</Text></View><Text style={styles.storyHandle}>@{profile?.username || 'friend'}</Text></View>
+            <Text style={styles.storyMealName}>{meal.name}</Text>
+            <Text style={styles.storyLocation}>{meal.places?.name || (tile.isMine ? 'Your meal' : 'Shared with friends')}</Text>
+            <View style={styles.storyReactions}>{[['flame-outline', 'Fire'], ['heart-outline', 'Love'], ['hand-left-outline', 'Chef'], ['ribbon-outline', 'Top']].map(([icon, label]) => <TouchableOpacity key={icon} accessibilityLabel={label} style={[styles.reactionButton, selectedReaction === icon && styles.reactionButtonSelected]} onPress={() => setSelectedReaction(current => current === icon ? null : icon)}><Ionicons name={icon} size={20} color={C.white} /></TouchableOpacity>)}</View>
+            <TouchableOpacity style={styles.storyDetailsButton} onPress={onOpenDetails} activeOpacity={0.85}><Text style={styles.storyDetailsText}>Open meal details</Text><Ionicons name="arrow-forward" size={16} color={C.bg} /></TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 // Add this near your other card components (DuelCard, DayTrailCard)
 
 
@@ -479,6 +544,7 @@ export default function DayBoardScreen() {
   const [pickerMeals, setPickerMeals]     = useState([]);
   const [pickerLoading, setPickerLoading] = useState(false);
   const [shareTarget, setShareTarget]     = useState(null); // meal to share
+  const [selectedStory, setSelectedStory] = useState(null);
 
   // First-visit teaching tooltips — each fires once, ever, on whichever
   // section first qualifies (see firstEmptyYouTag/firstDuelTag below), not
@@ -604,6 +670,7 @@ export default function DayBoardScreen() {
   }, []);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
+  useAppForeground(load);
 
   function tilesForTag(tag) {
     const tiles = [];
@@ -652,6 +719,12 @@ export default function DayBoardScreen() {
   ).size;
 
   const totalMealsToday = MEAL_TAGS.reduce((sum, tag) => sum + tilesByTag[tag].length, 0);
+  const storyPeople = Object.values(
+    Object.fromEntries(
+      MEAL_TAGS.flatMap(tag => tilesByTag[tag]).map(tile => [tile.poster?.id, tile.poster]).filter(([id, profile]) => id && profile && id !== currentUserId)
+    )
+  );
+  const hasOwnStory = MEAL_TAGS.some(tag => tilesByTag[tag].some(tile => tile.isMine));
 
   // Which single section shows the "+ you" / duel tooltip — never more than
   // one at once, even though up to 3 sections could otherwise qualify.
@@ -698,7 +771,32 @@ export default function DayBoardScreen() {
   const dateLabel = now => now.toLocaleDateString([], { weekday: 'long' });
 
   function handlePressTile(tag, orderedTiles, index) {
-    navigation.navigate('SlotViewer', { tag, people: orderedTiles, initialIndex: index });
+    setSelectedStory({ tile: orderedTiles[index], tag, people: orderedTiles, index });
+  }
+
+  function handlePressStoryPerson(person) {
+    const tile = person?.id === currentUserId
+      ? MEAL_TAGS.flatMap(tag => tilesByTag[tag]).find(candidate => candidate.isMine)
+      : MEAL_TAGS.flatMap(tag => tilesByTag[tag]).find(candidate => candidate.poster?.id === person?.id);
+    if (!tile) {
+      navigation.navigate('LogMeal');
+      return;
+    }
+    const tag = MEAL_TAGS.find(candidateTag => tilesByTag[candidateTag].some(candidate => candidate.mealId === tile.mealId));
+    if (tag) {
+      const people = tilesByTag[tag];
+      setSelectedStory({ tile, tag, people, index: people.findIndex(candidate => candidate.mealId === tile.mealId) });
+    }
+  }
+
+  function handleOpenStoryDetails() {
+    if (!selectedStory) return;
+    setSelectedStory(null);
+    navigation.navigate('SlotViewer', {
+      tag: selectedStory.tag,
+      people: selectedStory.people,
+      initialIndex: selectedStory.index,
+    });
   }
 
   // Opens the log/skip action sheet — the primary tap target on an empty
@@ -782,15 +880,6 @@ export default function DayBoardScreen() {
     <SafeAreaView style={styles.safe} edges={['top']}>
       <StatusBar barStyle="light-content" backgroundColor={C.bg} />
 
-      {/* Subtle top-to-bottom gradient instead of flat black — cheap depth
-          cue across the whole screen. */}
-      <LinearGradient
-        colors={['#161616', C.bg]}
-        locations={[0, 0.4]}
-        style={StyleSheet.absoluteFill}
-        pointerEvents="none"
-      />
-
       {/* ── Meal picker modal (ported verbatim from FeedScreen.jsx) ───────── */}
       <Modal
         visible={pickerVisible}
@@ -822,7 +911,7 @@ export default function DayBoardScreen() {
               </View>
             ) : pickerMeals.length === 0 ? (
               <View style={styles.pickerEmpty}>
-                <Text style={styles.pickerEmptyEmoji}>🍽️</Text>
+                <Ionicons name="restaurant-outline" size={40} color={C.gray2} />
                 <Text style={styles.pickerEmptyTitle}>Nothing to post yet</Text>
                 <Text style={styles.pickerEmptySub}>
                   All your logged meals are already posted, or you haven't logged any yet.
@@ -851,7 +940,7 @@ export default function DayBoardScreen() {
                     ) : (
                       <StripedPlaceholder style={styles.pickerThumb}>
                         <View style={styles.pickerThumbFallback}>
-                          <Text style={{ fontSize: 22 }}>{meal.emoji || '🍽️'}</Text>
+                          <Ionicons name="restaurant-outline" size={22} color={C.gray2} />
                         </View>
                       </StripedPlaceholder>
                     )}
@@ -885,6 +974,12 @@ export default function DayBoardScreen() {
         onDismiss={handleDismissYouAction}
         onLogMeal={handleActionLogMeal}
         onSkip={handleActionSkip}
+      />
+
+      <MealStorySheet
+        tile={selectedStory?.tile}
+        onClose={() => setSelectedStory(null)}
+        onOpenDetails={handleOpenStoryDetails}
       />
 
       <View style={styles.navBar}>
@@ -934,11 +1029,21 @@ export default function DayBoardScreen() {
       ) : (
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
           <Text style={styles.dateHeader}>{dateLabel(new Date())}</Text>
-          <Text style={styles.friendCount}>
+          <View style={styles.statusRow}>
+            <View style={styles.liveDot} />
+            <Text style={styles.friendCount}>
             {friendsEatingCount === 0
               ? "Log a meal below, then add friends to fill this in"
               : `${friendsEatingCount} friend${friendsEatingCount === 1 ? '' : 's'} eating`}
-          </Text>
+            </Text>
+            <TouchableOpacity style={styles.todayPill} onPress={() => {}}>
+              <Text style={styles.todayPillText}>Today</Text>
+            </TouchableOpacity>
+          </View>
+
+          {storyPeople.length > 0 && (
+            <FriendStoryStrip people={storyPeople} currentUserId={currentUserId} hasOwnStory={hasOwnStory} onPress={handlePressStoryPerson} />
+          )}
 
           {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
@@ -989,7 +1094,7 @@ export default function DayBoardScreen() {
 
           <View style={styles.footerCard}>
             <View style={styles.footerRow}>
-              <Text style={styles.footerFlame}>🔥</Text>
+              <Ionicons name="flame-outline" size={20} color={C.orange} style={styles.footerFlame} />
               <Text style={styles.footerStreakNum}>{streak}</Text>
               <Text style={styles.footerStreakLabel}>
                 {streak > 0
@@ -1118,27 +1223,65 @@ const styles = StyleSheet.create({
   },
   actionSheetCancelText: { fontSize: 15, color: C.gray1, fontWeight: '500' },
 
+  storyModalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.82)', justifyContent: 'center', paddingHorizontal: 12 },
+  storySheet: { height: '86%', borderRadius: 8, overflow: 'hidden', backgroundColor: C.surface, position: 'relative' },
+  storyImage: { ...StyleSheet.absoluteFillObject },
+  storyImageFallback: { backgroundColor: '#242424', alignItems: 'center', justifyContent: 'center' },
+  storyFallbackEmoji: { fontSize: 76 },
+  storyClose: { position: 'absolute', top: 16, left: 16, width: 38, height: 38, borderRadius: 19, backgroundColor: 'rgba(0,0,0,0.45)', alignItems: 'center', justifyContent: 'center', zIndex: 2 },
+  storyScore: { position: 'absolute', top: 18, right: 16, backgroundColor: 'rgba(0,0,0,0.58)', borderRadius: C.pill, paddingHorizontal: 12, paddingVertical: 7 },
+  storyScoreText: { color: C.gold, fontSize: 14, fontWeight: '800' },
+  storyContent: { position: 'absolute', left: 18, right: 18, bottom: 20 },
+  storyCreatorRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
+  storyCreatorAvatar: { width: 28, height: 28, borderRadius: 14, backgroundColor: C.orange, alignItems: 'center', justifyContent: 'center' },
+  storyCreatorInitials: { color: C.bg, fontSize: 10, fontWeight: '900' },
+  storyHandle: { color: C.white, fontSize: 13, fontWeight: '700' },
+  storyMealName: { color: C.white, fontFamily: C.serif, fontSize: 30, lineHeight: 34 },
+  storyLocation: { color: 'rgba(255,255,255,0.7)', fontSize: 13, marginTop: 5 },
+  storyReactions: { flexDirection: 'row', gap: 9, marginTop: 16 },
+  reactionButton: { width: 42, height: 42, borderRadius: 21, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center' },
+  reactionButtonSelected: { backgroundColor: C.orange, transform: [{ scale: 1.08 }] },
+  reactionText: { fontSize: 20 },
+  storyDetailsButton: { marginTop: 16, backgroundColor: C.orange, borderRadius: C.pill, paddingVertical: 13, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  storyDetailsText: { color: C.bg, fontSize: 14, fontWeight: '800' },
+
   dateHeader: {
-    fontFamily: C.serif, fontSize: 40, color: C.white,
-    paddingHorizontal: 20, marginTop: 8,
+    fontFamily: C.serif, fontSize: DATE_HEADER_SIZE, color: C.white,
+    paddingHorizontal: BOARD_GUTTER, marginTop: 8,
   },
-  friendCount: {
-    fontSize: 14, color: C.gray2, fontWeight: '500',
-    paddingHorizontal: 20, marginTop: 4, marginBottom: Math.round(SECTION_GAP * 0.8),
-  },
-  errorText: { fontSize: 13, color: '#ff6b6b', paddingHorizontal: 20, marginBottom: 12 },
+  statusRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: BOARD_GUTTER, marginTop: 4, marginBottom: 18, gap: 7 },
+  liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: C.green },
+  friendCount: { flex: 1, fontSize: 13, color: C.gray2, fontWeight: '500' },
+  todayPill: { borderWidth: 1, borderColor: C.glassBorder, borderRadius: C.pill, paddingHorizontal: 11, paddingVertical: 5 },
+  todayPillText: { color: C.gray1, fontSize: 11, fontWeight: '700' },
+  storySection: { marginBottom: 24 },
+  storyHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: BOARD_GUTTER, marginBottom: 12 },
+  storyTitle: { color: C.white, fontSize: 15, fontWeight: '700' },
+  storyMeta: { color: C.gray3, fontSize: 12 },
+  storyRow: { paddingHorizontal: BOARD_GUTTER, gap: 14 },
+  storyItem: { width: 58, alignItems: 'center' },
+  storyRing: { width: 54, height: 54, borderRadius: 27, padding: 2, backgroundColor: C.green, marginBottom: 6 },
+  storyRingMine: { backgroundColor: C.orange },
+  storyAvatar: { width: 50, height: 50, borderRadius: 25 },
+  storyAvatarFallback: { flex: 1, borderRadius: 25, backgroundColor: C.surface, alignItems: 'center', justifyContent: 'center' },
+  storyInitials: { color: C.white, fontSize: 14, fontWeight: '800' },
+  storyPlus: { position: 'absolute', right: -1, bottom: -1, width: 18, height: 18, borderRadius: 9, backgroundColor: C.orange, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: C.bg },
+  onlineDot: { position: 'absolute', right: -1, bottom: -1, width: 12, height: 12, borderRadius: 6, backgroundColor: C.green, borderWidth: 2, borderColor: C.bg },
+  storyName: { color: C.gray1, fontSize: 10, maxWidth: 62, textAlign: 'center' },
+  sectionEmoji: { fontSize: 16 },
+  errorText: { fontSize: 13, color: '#ff6b6b', paddingHorizontal: BOARD_GUTTER, marginBottom: 12 },
 
   section: { marginBottom: SECTION_GAP },
   sectionDimmed: { opacity: 0.55 },
   sectionHeader: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 20, marginBottom: 12,
+    paddingHorizontal: BOARD_GUTTER, marginBottom: 12,
   },
   sectionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   sectionTitle: { fontSize: 16, fontWeight: '700', color: C.white },
   sectionCount: { fontSize: 13, color: C.gray2, fontWeight: '500' },
 
-  tileRow: { paddingHorizontal: 20, gap: TILE_GAP },
+  tileRow: { paddingHorizontal: BOARD_GUTTER, gap: TILE_GAP },
 
   // Tooltip bubble sits above its target with the arrow pointing down —
   // anchored on the section (not the scrolling tile row) so it never clips.
@@ -1152,11 +1295,11 @@ const styles = StyleSheet.create({
   // Tier Duel card — a scheduled-event prompt, not a persistent stat, so it
   // gets a warm gold accent (matches the trophy/crown) rather than the
   // neutral surface used by the footer stat card.
-  duelCardWrap: { marginHorizontal: 20, marginTop: 12 },
+  duelCardWrap: { marginHorizontal: BOARD_GUTTER, marginTop: 12 },
   duelCard: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
     backgroundColor: 'rgba(251,114,56,0.1)', borderWidth: 1, borderColor: 'rgba(251,114,56,0.3)',
-    borderRadius: 18, padding: 14,
+    borderRadius: 8, padding: 14,
   },
   duelVsBadge: {
     width: 34, height: 34, borderRadius: C.pill,
@@ -1171,20 +1314,16 @@ const styles = StyleSheet.create({
   // BoardTile's comment) — gives every tile real depth instead of a flat
   // bordered square.
   tileShadowWrap: {
-    borderRadius: 18,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.4, shadowRadius: 10,
-    elevation: 6,
+    borderRadius: 8,
   },
   tile: {
-    width: TILE_SIZE, height: TILE_SIZE, borderRadius: 18, overflow: 'hidden',
+    width: TILE_WIDTH, height: TILE_HEIGHT, borderRadius: 8, overflow: 'hidden',
     backgroundColor: '#111', justifyContent: 'flex-end',
     borderWidth: 1, borderColor: C.border,
   },
   tileMine: { borderWidth: 2.5, borderColor: C.orange },
   tileLeader: {
     borderWidth: 2, borderColor: C.gold,
-    shadowColor: C.gold, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.5, shadowRadius: 8, elevation: 6,
   },
   tileFallback: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
   tileFallbackEmoji: { fontSize: 36 },
@@ -1218,13 +1357,10 @@ const styles = StyleSheet.create({
   // soft, low-opacity warm glow keeps it feeling lifted without implying
   // it's a physical card like the photo tiles.
   youTileShadowWrap: {
-    borderRadius: 18,
-    shadowColor: C.orange, shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.22, shadowRadius: 8,
-    elevation: 2,
+    borderRadius: 8,
   },
   youTile: {
-    width: TILE_SIZE, height: TILE_SIZE, borderRadius: 18,
+    width: TILE_WIDTH, height: TILE_HEIGHT, borderRadius: 8,
     borderWidth: 1.5, borderColor: C.orange, borderStyle: 'dashed',
     alignItems: 'center', justifyContent: 'center', gap: 5,
     backgroundColor: 'rgba(255,107,61,0.06)',
@@ -1233,9 +1369,9 @@ const styles = StyleSheet.create({
 
   // Muted "skipped" state — no shadow/glow at all (unlike the "+ you" tile),
   // so it visually reads as dormant/resolved rather than an active prompt.
-  skippedTileShadowWrap: { borderRadius: 18 },
+  skippedTileShadowWrap: { borderRadius: 8 },
   skippedTile: {
-    width: TILE_SIZE, height: TILE_SIZE, borderRadius: 18,
+    width: TILE_WIDTH, height: TILE_HEIGHT, borderRadius: 8,
     borderWidth: 1, borderColor: C.border, borderStyle: 'dashed',
     alignItems: 'center', justifyContent: 'center', gap: 5,
     backgroundColor: 'rgba(255,255,255,0.02)',
@@ -1245,7 +1381,7 @@ const styles = StyleSheet.create({
   // Pulsing ring on your own tile while you're on a streak
   fireRing: {
     position: 'absolute', top: -4, left: -4, right: -4, bottom: -4,
-    borderRadius: 22, borderWidth: 2, borderColor: C.orange,
+    borderRadius: 8, borderWidth: 2, borderColor: C.orange,
   },
 
   // Day Trail release card — deliberately louder than the footer stat card
@@ -1253,10 +1389,8 @@ const styles = StyleSheet.create({
   // unlocked, not another routine section.
   trailCardWrap: {
     marginHorizontal: 20, marginTop: Math.round(SECTION_GAP * 0.6),
-    backgroundColor: C.glassBg, borderWidth: 1, borderColor: C.orange + '55',
-    borderRadius: 22, padding: 16,
-    shadowColor: C.orange, shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25, shadowRadius: 14, elevation: 4,
+    backgroundColor: C.glassBg, borderWidth: 1, borderColor: C.orange,
+    borderRadius: 8, padding: 16,
   },
   trailUnlockBadge: {
     flexDirection: 'row', alignItems: 'center', gap: 5,
@@ -1284,7 +1418,7 @@ const styles = StyleSheet.create({
   footerCard: {
     marginHorizontal: 20, marginTop: Math.round(SECTION_GAP * 0.4),
     backgroundColor: C.glassBg, borderWidth: 1, borderColor: C.glassBorder,
-    borderRadius: 22, padding: 16,
+    borderRadius: 8, padding: 16,
   },
   footerRow: { flexDirection: 'row', alignItems: 'center' },
   footerFlame: { fontSize: 20, marginRight: 8 },

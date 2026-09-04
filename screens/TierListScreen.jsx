@@ -30,6 +30,7 @@ import * as Location from 'expo-location';
 import { supabase } from '../lib/supabase';
 import { FirstVisitTooltip, useFirstVisit } from '../lib/firstVisit';
 import { THEME as C } from '../lib/theme';
+import { useAppForeground } from '../lib/useAppForeground';
 import StripedPlaceholder from '../components/StripedPlaceholder';
 import TierRatingSliderModal from '../components/TierRatingSliderModal';
 
@@ -802,6 +803,7 @@ export default function TierListScreen() {
       if (yearlyEverLoadedRef.current) loadYearly();
     }, [load, loadYearly])
   );
+  useAppForeground(() => { load(); loadYearly(); });
 
   useEffect(() => {
     if (!loading) {
@@ -1091,7 +1093,7 @@ export default function TierListScreen() {
           <Ionicons name="chevron-back" size={24} color={C.white} />
         </TouchableOpacity>
         <View style={styles.center}>
-          <Text style={styles.emptyEmoji}>⚠️</Text>
+          <Ionicons name="alert-circle-outline" size={44} color={C.gray2} />
           <Text style={styles.emptyTitle}>Couldn't load tier list</Text>
           <Text style={styles.emptySub}>{error}</Text>
           <TouchableOpacity style={styles.retryBtn} onPress={load} activeOpacity={0.8}>
@@ -1107,7 +1109,7 @@ export default function TierListScreen() {
     if (meals.length === 0) {
       return (
         <View style={styles.inlineCenter}>
-          <Text style={styles.emptyEmoji}>🏆</Text>
+          <Ionicons name="trophy-outline" size={44} color={C.gold} />
           <Text style={styles.emptyTitle}>Nothing logged in {CURRENT_MONTH_LABEL} yet</Text>
           <Text style={styles.emptySub}>Log some meals this month and your rankings will show up here.</Text>
         </View>
@@ -1207,7 +1209,7 @@ export default function TierListScreen() {
     if (yearlyError) {
       return (
         <View style={styles.inlineCenter}>
-          <Text style={styles.emptyEmoji}>⚠️</Text>
+          <Ionicons name="alert-circle-outline" size={44} color={C.gray2} />
           <Text style={styles.emptyTitle}>Couldn't load {CURRENT_YEAR}</Text>
           <Text style={styles.emptySub}>{yearlyError}</Text>
           <TouchableOpacity style={styles.retryBtn} onPress={loadYearly} activeOpacity={0.8}>
@@ -1219,7 +1221,7 @@ export default function TierListScreen() {
     if (yearlyMeals.length === 0) {
       return (
         <View style={styles.inlineCenter}>
-          <Text style={styles.emptyEmoji}>📅</Text>
+          <Ionicons name="calendar-outline" size={44} color={C.gray2} />
           <Text style={styles.emptyTitle}>Nothing logged in {CURRENT_YEAR} yet</Text>
           <Text style={styles.emptySub}>Log meals this year and your top picks will appear here.</Text>
         </View>
@@ -1431,10 +1433,9 @@ const styles = StyleSheet.create({
   // name, bottom-right huge serif gold score. Matches the mockup's single
   // hero treatment (only rank 1 ever renders this; 2+ use rowCard below).
   heroCard: {
-    height: 220, borderRadius: 22, overflow: 'hidden', position: 'relative',
+    height: 220, borderRadius: 8, overflow: 'hidden', position: 'relative',
     backgroundColor: '#1a1a1a',
     borderWidth: 1.5, borderColor: 'rgba(233,184,114,0.5)',
-    shadowColor: C.gold, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.35, shadowRadius: 16, elevation: 8,
   },
   heroImgFallback: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
   heroEmoji: { fontSize: 44 },
@@ -1453,15 +1454,15 @@ const styles = StyleSheet.create({
   heroMeta: { fontSize: 12, color: 'rgba(245,245,247,0.6)', marginTop: 2 },
   heroScore: { fontFamily: C.serif, fontSize: 40, color: C.gold },
 
-  landGlow: { position: 'absolute', top: -4, left: -4, right: -4, bottom: -4, borderWidth: 2, borderColor: C.gold, borderRadius: 24 },
+  landGlow: { position: 'absolute', top: -1, left: -1, right: -1, bottom: -1, borderWidth: 1, borderColor: C.gold, borderRadius: 8 },
   landBadge: { position: 'absolute', top: -11, right: 16, backgroundColor: C.gold, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10, zIndex: 5 },
   landBadgeText: { fontWeight: '800', fontSize: 10, letterSpacing: 0.8, color: C.bg },
 
   // Plain list rows (rank 2+) — matches the mockup's flat list under the hero.
-  rowCard: { backgroundColor: C.glassBg, borderRadius: 16, borderWidth: 1, borderColor: C.glassBorder, overflow: 'hidden' },
+  rowCard: { backgroundColor: C.glassBg, borderRadius: 8, borderWidth: 1, borderColor: C.glassBorder, overflow: 'hidden' },
   rowCardPinned: { borderColor: C.orange + '50', borderWidth: 1, borderLeftWidth: 3, borderLeftColor: C.orange },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingLeft: 14, paddingRight: 40, paddingVertical: 12 },
-  rowGlow: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(255,107,61,0.13)' },
+  rowGlow: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(255,107,61,0.06)' },
   rowBadge: { position: 'absolute', right: 14, top: -1, backgroundColor: C.orange, paddingHorizontal: 7, paddingVertical: 2, borderRadius: 8 },
   rowBadgeText: { fontWeight: '800', fontSize: 9, letterSpacing: 0.6, color: '#000000' },
   rowRankPressable: { width: 30, alignItems: 'center', justifyContent: 'center', gap: 1 },

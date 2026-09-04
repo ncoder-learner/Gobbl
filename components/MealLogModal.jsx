@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, useSafeAreaInsets } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, useSafeAreaInsets, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 import { supabase } from '../lib/supabase';
 import { localDateKey } from '../lib/dateKey';
 
@@ -45,31 +45,44 @@ export default function MealLogModal({ userId, onSaved, onClose }) {
   };
 
   return (
-    <View style={[styles.container, { paddingBottom: Math.max(insets.bottom, 14) }]}>
-      {error && <Text style={styles.error}>{error}</Text>}
-      <View style={styles.chipRow}>
-        {MEAL_TYPES.map(t => (
-          <TouchableOpacity key={t} onPress={() => setMealType(t)}
-            style={[styles.chip, mealType === t && styles.chipActive]}>
-            <Text style={mealType === t ? styles.chipTextActive : styles.chipText}>{t.replace('_', ' ')}</Text>
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      style={styles.keyboardLayer}
+    >
+      <View style={[styles.container, { paddingBottom: Math.max(insets.bottom, 14) }]}>
+        <ScrollView
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.content}
+        >
+          {error && <Text style={styles.error}>{error}</Text>}
+          <View style={styles.chipRow}>
+            {MEAL_TYPES.map(t => (
+              <TouchableOpacity key={t} onPress={() => setMealType(t)}
+                style={[styles.chip, mealType === t && styles.chipActive]}>
+                <Text style={mealType === t ? styles.chipTextActive : styles.chipText}>{t.replace('_', ' ')}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          <TextInput style={styles.input} placeholder="Meal name" value={name} onChangeText={setName} />
+          <TextInput style={styles.input} placeholder="Calories" keyboardType="numeric" value={calories} onChangeText={setCalories} />
+          <TextInput style={styles.input} placeholder="Protein (g)" keyboardType="numeric" value={protein} onChangeText={setProtein} />
+          <TextInput style={styles.input} placeholder="Carbs (g)" keyboardType="numeric" value={carbs} onChangeText={setCarbs} />
+          <TextInput style={styles.input} placeholder="Fat (g)" keyboardType="numeric" value={fat} onChangeText={setFat} />
+          <TextInput style={styles.input} placeholder="Sodium (mg)" keyboardType="numeric" value={sodiumMg} onChangeText={setSodiumMg} />
+          <TouchableOpacity style={styles.saveButton} onPress={handleSave} disabled={saving}>
+            <Text style={styles.saveButtonText}>{saving ? 'Saving...' : 'Log Meal'}</Text>
           </TouchableOpacity>
-        ))}
+        </ScrollView>
       </View>
-      <TextInput style={styles.input} placeholder="Meal name" value={name} onChangeText={setName} />
-      <TextInput style={styles.input} placeholder="Calories" keyboardType="numeric" value={calories} onChangeText={setCalories} />
-      <TextInput style={styles.input} placeholder="Protein (g)" keyboardType="numeric" value={protein} onChangeText={setProtein} />
-      <TextInput style={styles.input} placeholder="Carbs (g)" keyboardType="numeric" value={carbs} onChangeText={setCarbs} />
-      <TextInput style={styles.input} placeholder="Fat (g)" keyboardType="numeric" value={fat} onChangeText={setFat} />
-      <TextInput style={styles.input} placeholder="Sodium (mg)" keyboardType="numeric" value={sodiumMg} onChangeText={setSodiumMg} />
-      <TouchableOpacity style={styles.saveButton} onPress={handleSave} disabled={saving}>
-        <Text style={styles.saveButtonText}>{saving ? 'Saving...' : 'Log Meal'}</Text>
-      </TouchableOpacity>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
+  keyboardLayer: { maxHeight: '88%' },
   container: { padding: 16, backgroundColor: '#0f172a', borderTopLeftRadius: 20, borderTopRightRadius: 20 },
+  content: { paddingBottom: 4 },
   error: { color: '#ef4444', marginBottom: 8 },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
   chip: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14, borderWidth: 1, borderColor: '#334155' },

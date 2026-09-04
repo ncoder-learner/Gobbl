@@ -11,7 +11,7 @@ import {
   StatusBar,
   Dimensions,
   ActivityIndicator,
-  Alert,
+  Linking,
 } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -20,13 +20,14 @@ import {
   loadNotifPrefs,
   getPermissionStatus,
   syncStreakRiskNotification,
-  sendUserNotification,
 } from '../lib/notifications';
-import { useFirstVisit } from '../lib/firstVisit';
 import { fetchSkipDayKeys } from '../lib/skips';
 import { localDateKey } from '../lib/dateKey';
+import { useAppForeground } from '../lib/useAppForeground';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const PAGE_GUTTER = SCREEN_WIDTH < 380 ? 16 : 24;
+const MEAL_CARD_WIDTH = SCREEN_WIDTH < 380 ? 140 : 150;
 
 // ─── Theme ───────────────────────────────────────────────────────────────────
 const C = {
@@ -38,10 +39,6 @@ const C = {
   greenDim: '#0a2820',
   greenBorder: '#1a3a34',
   greenText: '#4a8a7a',
-  purple: '#8855cc',
-  purpleDim: '#1a0d1a',
-  purpleBorder: '#3a2a4a',
-  purpleText: '#ddb8ff',
   white: '#ffffff',
   gray1: '#888888',
   gray2: '#666666',
@@ -167,16 +164,25 @@ function MealCard({ meal }) {
 }
 
 // One-time nudge to enable notifications, shown after the user has at least one meal.
-function NotifNudge({ onEnable, onDismiss }) {
+function NotifNudge({ onEnable, onDismiss, isBlocked = false }) {
   return (
     <View style={styles.notifNudge}>
+      <View style={styles.notifNudgeIconWrap}>
+        <Ionicons name="notifications-outline" size={18} color={C.orange} />
+      </View>
       <View style={styles.notifNudgeLeft}>
-        <Text style={styles.notifNudgeTitle}>Get meal reminders</Text>
-        <Text style={styles.notifNudgeSub}>Never miss a day — keep your streak going.</Text>
+        <Text style={styles.notifNudgeTitle}>
+          {isBlocked ? 'Turn on notifications' : 'Get meal reminders'}
+        </Text>
+        <Text style={styles.notifNudgeSub}>
+          {isBlocked
+            ? 'Stay on top of reminders and streak nudges.'
+            : 'Never miss a day — keep your streak going.'}
+        </Text>
       </View>
       <View style={styles.notifNudgeBtns}>
         <TouchableOpacity style={styles.notifNudgeEnable} onPress={onEnable} activeOpacity={0.8}>
-          <Text style={styles.notifNudgeEnableText}>Enable</Text>
+          <Text style={styles.notifNudgeEnableText}>{isBlocked ? 'Settings' : 'Enable'}</Text>
         </TouchableOpacity>
         <TouchableOpacity onPress={onDismiss} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
           <Text style={styles.notifNudgeDismiss}>✕</Text>
@@ -196,7 +202,7 @@ function StreakBanner({ streak, loggedToday, last7Days }) {
     <View style={styles.streakBanner}>
       <View style={styles.streakLeft}>
         {alive
-          ? <Text style={styles.streakFlame}>🔥</Text>
+          ? <Ionicons name="flame-outline" size={22} color={C.orange} style={styles.streakFlame} />
           : <Ionicons name="moon-outline" size={22} color={C.gray3} style={{ width: 28 }} />
         }
         <View>
@@ -350,31 +356,12 @@ export default function HomeScreen() {
   const [sponsored, setSponsored] = useState(MOCK_SPONSORED);
   const [showAd, setShowAd] = useState(true);
 
-  // Notification nudge (shown once after the user has ≥1 meal and hasn't set up notifs)
-  const [notifNudgeVisible, dismissNotifNudge] = useFirstVisit('@fw_notif_nudge_v1');
+  // Notification nudge should keep surfacing until the user enables
+  // notifications or explicitly disables the reminder entirely.
   const [notifPermStatus, setNotifPermStatus] = useState('undetermined');
-  const [debugSending, setDebugSending] = useState(false);
+  const [notifNudgeHidden, setNotifNudgeHidden] = useState(false);
 
   const monthName = MONTH_NAMES[new Date().getMonth()];
-
-  async function handleDebugTestNotification() {
-    if (debugSending) return;
-    setDebugSending(true);
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        Alert.alert('Not signed in', 'Sign in first to send a test notification.');
-        return;
-      }
-      await sendUserNotification(user.id, '🧪 Test push', 'This is a debug notification from the app.');
-      Alert.alert('Test notification sent', 'Check your device for the notification.');
-    } catch (err) {
-      console.warn('[HomeScreen] debug notification failed:', err?.message ?? err);
-      Alert.alert('Notification test failed', 'This may be because the device is not registered or notifications are blocked.');
-    } finally {
-      setDebugSending(false);
-    }
-  }
 
   const loadData = useCallback(async () => {
     setError(null);
@@ -517,9 +504,12 @@ export default function HomeScreen() {
   // Refresh every time this tab comes into focus so a freshly-logged meal shows up.
   useFocusEffect(
     useCallback(() => {
+      setNotifNudgeHidden(false);
       loadData();
     }, [loadData])
   );
+
+  useAppForeground(loadData);
 
   const greeting = (() => {
     const h = new Date().getHours();
@@ -545,19 +535,6 @@ export default function HomeScreen() {
           </Text>
         </View>
 
-        {__DEV__ && (
-          <TouchableOpacity
-            style={styles.debugTestButton}
-            activeOpacity={0.85}
-            onPress={handleDebugTestNotification}
-            disabled={debugSending}
-          >
-            <Text style={styles.debugTestButtonText}>
-              {debugSending ? 'Sending…' : 'Send test notification'}
-            </Text>
-          </TouchableOpacity>
-        )}
-
         {error && (
           <View style={styles.loadErrorBanner}>
             <Text style={styles.loadErrorText}>{error}</Text>
@@ -570,13 +547,15 @@ export default function HomeScreen() {
         {/* Streak */}
         <StreakBanner streak={streak} loggedToday={loggedToday} last7Days={last7Days} />
 
-        {/* Notification nudge — one-time, shown once user has meals and hasn't enabled notifs */}
-        {notifNudgeVisible &&
-          notifPermStatus === 'undetermined' &&
+        {/* Notification nudge — keep surfacing while notifications are off so
+            users are repeatedly prompted to enable them. */}
+        {!notifNudgeHidden &&
+          (notifPermStatus === 'undetermined' || notifPermStatus === 'denied') &&
           (streak > 0 || mealsThisMonth > 0) && (
           <NotifNudge
-            onEnable={() => navigation.navigate('Account')}
-            onDismiss={dismissNotifNudge}
+            isBlocked={notifPermStatus === 'denied'}
+            onEnable={() => notifPermStatus === 'denied' ? Linking.openSettings() : navigation.navigate('Account')}
+            onDismiss={() => setNotifNudgeHidden(true)}
           />
         )}
 
@@ -682,7 +661,7 @@ const styles = StyleSheet.create({
   scrollContent: { paddingBottom: 40 },
 
   // Header
-  header: { paddingHorizontal: 24, paddingTop: 8 },
+  header: { paddingHorizontal: PAGE_GUTTER, paddingTop: 8 },
   greeting: { fontSize: 13, color: C.gray1, marginBottom: 2 },
   title: { fontFamily: 'Syne_800ExtraBold', fontSize: 28, color: C.white, letterSpacing: -0.5, lineHeight: 34 },
   titleAccent: { color: C.orange },
@@ -701,7 +680,7 @@ const styles = StyleSheet.create({
 
   loadErrorBanner: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    marginHorizontal: 24, marginTop: 12, padding: 12,
+    marginHorizontal: PAGE_GUTTER, marginTop: 12, padding: 12,
     borderRadius: 12, backgroundColor: 'rgba(229,72,77,0.12)',
     borderWidth: 1, borderColor: 'rgba(229,72,77,0.3)',
   },
@@ -710,7 +689,7 @@ const styles = StyleSheet.create({
 
   // Streak
   streakBanner: {
-    marginHorizontal: 24,
+    marginHorizontal: PAGE_GUTTER,
     marginTop: 16,
     backgroundColor: C.surface,
     borderWidth: 0.5,
@@ -742,7 +721,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 24,
+    paddingHorizontal: PAGE_GUTTER,
     marginTop: 24,
     marginBottom: 12,
   },
@@ -750,10 +729,10 @@ const styles = StyleSheet.create({
   sectionAction: { fontSize: 13, color: C.orange, fontWeight: '500' },
 
   // Meal cards
-  mealsLoadingBox: { paddingHorizontal: 24, paddingVertical: 20, alignItems: 'flex-start' },
-  mealsScrollPadding: { paddingHorizontal: 24 },
-  mealCard: { width: 150, backgroundColor: C.surface, borderWidth: 0.5, borderColor: C.border, borderRadius: 16, overflow: 'hidden' },
-  bizMealCard: { width: 160, borderColor: '#2a3a2a' },
+  mealsLoadingBox: { paddingHorizontal: PAGE_GUTTER, paddingVertical: 20, alignItems: 'flex-start' },
+  mealsScrollPadding: { paddingHorizontal: PAGE_GUTTER },
+  mealCard: { width: MEAL_CARD_WIDTH, backgroundColor: C.surface, borderWidth: 0.5, borderColor: C.border, borderRadius: 16, overflow: 'hidden' },
+  bizMealCard: { width: MEAL_CARD_WIDTH + 10, borderColor: '#2a3a2a' },
   mealImgBox: { width: '100%', height: 100, alignItems: 'center', justifyContent: 'center', position: 'relative' },
   mealEmoji: { fontSize: 40 },
   bizBadge: { position: 'absolute', top: 8, left: 8, backgroundColor: '#0a2a0a', borderWidth: 0.5, borderColor: '#1a4a1a', borderRadius: 6, paddingHorizontal: 7, paddingVertical: 3 },
@@ -768,7 +747,7 @@ const styles = StyleSheet.create({
 
   // Today empty state
   todayEmpty: {
-    paddingHorizontal: 24,
+    paddingHorizontal: PAGE_GUTTER,
     paddingVertical: 16,
     flexDirection: 'row',
     alignItems: 'center',
@@ -777,7 +756,7 @@ const styles = StyleSheet.create({
   todayEmptyText: { fontSize: 14, color: C.gray2 },
 
   // Log CTA
-  logBtn: { marginHorizontal: 24, marginTop: 20, backgroundColor: C.orange, borderRadius: 16, padding: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  logBtn: { marginHorizontal: PAGE_GUTTER, marginTop: 20, backgroundColor: C.orange, borderRadius: 16, padding: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   logLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   logIcon: { width: 40, height: 40, backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   logLabel: { fontFamily: 'Syne_700Bold', fontSize: 16, color: C.white },
@@ -785,7 +764,7 @@ const styles = StyleSheet.create({
   logArrow: { fontSize: 20, color: 'rgba(255,255,255,0.7)' },
 
   // Sponsored ad
-  adBanner: { marginHorizontal: 24, marginTop: 20, backgroundColor: '#111', borderWidth: 0.5, borderColor: C.border, borderRadius: 16, overflow: 'hidden' },
+  adBanner: { marginHorizontal: PAGE_GUTTER, marginTop: 20, backgroundColor: '#111', borderWidth: 0.5, borderColor: C.border, borderRadius: 16, overflow: 'hidden' },
   adHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 14, paddingBottom: 8 },
   adBizRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   adLogo: { width: 28, height: 28, borderRadius: 8, backgroundColor: '#1a2a1a', alignItems: 'center', justifyContent: 'center' },
@@ -802,42 +781,57 @@ const styles = StyleSheet.create({
   adDismiss: { fontSize: 13, color: C.gray4 },
 
   // Stats
-  statsRow: { flexDirection: 'row', gap: 10, paddingHorizontal: 24, marginTop: 20 },
+  statsRow: { flexDirection: 'row', gap: 8, paddingHorizontal: PAGE_GUTTER, marginTop: 20 },
   statCard: { flex: 1, backgroundColor: C.surface, borderWidth: 0.5, borderColor: C.border, borderRadius: 14, padding: 14 },
   statNum: { fontFamily: 'Syne_800ExtraBold', fontSize: 22, color: C.white, lineHeight: 24 },
   statLabel: { fontSize: 11, color: C.gray3, marginTop: 3 },
 
   // Wrapped teaser
-  wrappedTeaser: { marginHorizontal: 24, marginTop: 20, backgroundColor: C.purpleDim, borderWidth: 0.5, borderColor: C.purpleBorder, borderRadius: 16, padding: 16, flexDirection: 'row', alignItems: 'center', gap: 14 },
-  wrappedArt: { width: 52, height: 52, borderRadius: 12, backgroundColor: '#2a1a3a', alignItems: 'center', justifyContent: 'center' },
+  wrappedTeaser: { marginHorizontal: PAGE_GUTTER, marginTop: 20, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 8, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  wrappedArt: { width: 52, height: 52, borderRadius: 8, backgroundColor: C.inputBg, alignItems: 'center', justifyContent: 'center' },
   wrappedText: { flex: 1 },
-  wrappedLabel: { fontSize: 10, color: C.purple, fontWeight: '500', letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 3 },
-  wrappedTitle: { fontFamily: 'Syne_700Bold', fontSize: 15, color: C.purpleText, lineHeight: 20 },
-  wrappedSub: { fontSize: 12, color: '#6644aa', marginTop: 2 },
+  wrappedLabel: { fontSize: 10, color: C.orange, fontWeight: '700', letterSpacing: 0.8, textTransform: 'uppercase', marginBottom: 3 },
+  wrappedTitle: { fontFamily: 'Syne_700Bold', fontSize: 15, color: C.white, lineHeight: 20 },
+  wrappedSub: { fontSize: 12, color: C.gray2, marginTop: 2 },
 
   // Notification nudge
   notifNudge: {
     marginHorizontal: 24,
     marginTop: 14,
-    backgroundColor: '#0d1a0d',
-    borderWidth: 0.5,
-    borderColor: '#1a3a1a',
-    borderRadius: 14,
+    backgroundColor: 'rgba(17, 26, 18, 0.95)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 107, 61, 0.22)',
+    borderRadius: 16,
     padding: 14,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+    shadowColor: '#FF6B3D',
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 4,
+  },
+  notifNudgeIconWrap: {
+    width: 30,
+    height: 30,
+    borderRadius: 10,
+    backgroundColor: 'rgba(255, 107, 61, 0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   notifNudgeLeft: { flex: 1 },
-  notifNudgeTitle: { fontSize: 13, fontWeight: '600', color: C.white, marginBottom: 2 },
-  notifNudgeSub: { fontSize: 12, color: C.gray2 },
-  notifNudgeBtns: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  notifNudgeTitle: { fontSize: 13, fontWeight: '700', color: C.white, marginBottom: 2 },
+  notifNudgeSub: { fontSize: 12, color: C.gray2, lineHeight: 17 },
+  notifNudgeBtns: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   notifNudgeEnable: {
     backgroundColor: C.orange,
-    borderRadius: 8,
+    borderRadius: 10,
     paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingVertical: 7,
+    minWidth: 70,
+    alignItems: 'center',
   },
-  notifNudgeEnableText: { fontSize: 12, fontWeight: '600', color: C.white },
+  notifNudgeEnableText: { fontSize: 12, fontWeight: '700', color: C.white },
   notifNudgeDismiss: { fontSize: 14, color: C.gray3 },
 });
