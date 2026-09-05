@@ -1024,8 +1024,8 @@ export default function DayBoardScreen() {
           .from('friendships')
           .select(`
             requester_id, addressee_id,
-            requester:profiles!friendships_requester_id_fkey(id, username, first_name, display_name, avatar_url),
-            addressee:profiles!friendships_addressee_id_fkey(id, username, first_name, display_name, avatar_url)
+            requester:profiles!friendships_requester_id_fkey(id, username, first_name, display_name, avatar_url, last_seen_at),
+            addressee:profiles!friendships_addressee_id_fkey(id, username, first_name, display_name, avatar_url, last_seen_at)
           `)
           .or(`requester_id.eq.${user.id},addressee_id.eq.${user.id}`)
           .eq('status', 'accepted');
@@ -1127,7 +1127,34 @@ export default function DayBoardScreen() {
     }
   }, []);
 
-  useFocusEffect(useCallback(() => { load(); }, [load]));
+  useFocusEffect(useCallback(() => {
+    load();
+
+    // Beat every 60 s: update own last_seen_at + refresh friends' statuses
+    const heartbeat = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      // Update own presence
+      supabase.from('profiles').update({ last_seen_at: new Date().toISOString() }).eq('id', user.id).then(() => {}).catch(() => {});
+      // Re-fetch friends' last_seen_at only (cheap — no posts reload)
+      try {
+        const { data: rels } = await supabase
+          .from('friendships')
+          .select(`
+            requester_id, addressee_id,
+            requester:profiles!friendships_requester_id_fkey(id, username, first_name, display_name, avatar_url, last_seen_at),
+            addressee:profiles!friendships_addressee_id_fkey(id, username, first_name, display_name, avatar_url, last_seen_at)
+          `)
+          .or(`requester_id.eq.${user.id},addressee_id.eq.${user.id}`)
+          .eq('status', 'accepted');
+        const fList = (rels || []).map(r => (r.requester_id === user.id ? r.addressee : r.requester)).filter(Boolean);
+        setAllFriends(fList);
+      } catch (_) {}
+    };
+
+    const interval = setInterval(heartbeat, 60_000);
+    return () => clearInterval(interval);
+  }, [load]));
   useAppForeground(load);
 
   function tilesForTag(tag) {

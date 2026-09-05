@@ -97,12 +97,6 @@ function PersonPage({ person, data, likeInfo, commentCount, onLike, onSubmitComm
           pointerEvents="none"
         />
 
-        {/* Top Slot Badge */}
-        <View style={styles.topSlotPill}>
-          <Text style={styles.topSlotPillText}>
-            {TAG_META[person.tag]?.emoji || '🍽️'} {TAG_META[person.tag]?.label || 'Meal'}
-          </Text>
-        </View>
 
         <View style={styles.posterRow}>
           <Avatar
@@ -189,6 +183,7 @@ export default function SlotViewerScreen() {
   const route = useRoute();
   const { tag, people = [], initialIndex = 0 } = route.params || {};
   const { width: viewportWidth, height: viewportHeight } = useWindowDimensions();
+  const [containerHeight, setContainerHeight] = useState(viewportHeight);
   const meta = TAG_META[tag] || { emoji: '📍', label: tag };
 
   const [activeIndex, setActiveIndex] = useState(initialIndex);
@@ -317,12 +312,11 @@ export default function SlotViewerScreen() {
         data={people}
         keyExtractor={p => p.mealId}
         pagingEnabled
-        snapToInterval={viewportHeight}
         decelerationRate="fast"
-        removeClippedSubviews
         showsVerticalScrollIndicator={false}
         initialScrollIndex={initialIndex}
-        getItemLayout={(_, i) => ({ length: viewportHeight, offset: viewportHeight * i, index: i })}
+        onLayout={e => setContainerHeight(e.nativeEvent.layout.height)}
+        getItemLayout={(_, i) => ({ length: containerHeight, offset: containerHeight * i, index: i })}
         onMomentumScrollEnd={onOuterMomentumEnd}
         renderItem={({ item, index }) => (
           <PersonPage
@@ -338,7 +332,7 @@ export default function SlotViewerScreen() {
             onDismissLikeTooltip={dismissLikeTooltip}
             isActive={index === activeIndex}
             viewportWidth={viewportWidth}
-            viewportHeight={viewportHeight}
+            viewportHeight={containerHeight}
           />
         )}
       />
@@ -435,12 +429,14 @@ const styles = StyleSheet.create({
   bottomOverlay: {
     position: 'absolute', left: 0, right: 0, bottom: 0,
     paddingHorizontal: 16, paddingTop: 40, paddingBottom: 18,
+    zIndex: 10,
   },
   posterRow: { flexDirection: 'row', alignItems: 'center', gap: 9, marginBottom: 6 },
   posterAvatar: { borderWidth: 1, borderColor: C.border },
   posterInitial: { color: C.white },
   posterUsername: { fontSize: 15, fontWeight: '700', color: C.white, flex: 1 },
   scoreBadge: { borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3 },
+  scoreBadgeText: { fontSize: 12, fontWeight: '800', color: '#fff' },
   topSlotPill: { position: 'absolute', top: 54, left: 16, backgroundColor: 'rgba(0,0,0,0.55)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: C.pill || 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)', zIndex: 10 },
   topSlotPillText: { color: C.white, fontSize: 11, fontWeight: '700' },
   vibeTierLabel: { color: C.gold, fontSize: 10, fontWeight: '800', letterSpacing: 0.5, marginTop: 1 },
