@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import {
   View, Text, Image, ScrollView, TouchableOpacity, StyleSheet,
-  StatusBar, ActivityIndicator, Modal, Pressable, Dimensions, Animated, Alert,
+  StatusBar, ActivityIndicator, Modal, Pressable, Dimensions, Animated, Alert, useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -65,6 +65,34 @@ function formatDistance(mi) {
   if (mi < 0.1) return '<0.1 mi';
   return `${mi.toFixed(1)} mi`;
 }
+
+function getFoodVibeTier(score) {
+  const n = typeof score === 'number' ? score : Number(score);
+  if (isNaN(n) || n === 0) return { label: 'SHARED TODAY 🍽️', color: C.white, bg: 'rgba(255, 255, 255, 0.15)', border: 'rgba(255, 255, 255, 0.25)' };
+  if (n >= 9.0) return { label: 'GOD TIER 👑', color: C.gold, bg: 'rgba(255, 215, 0, 0.22)', border: '#ffd700' };
+  if (n >= 8.0) return { label: 'MUST EAT 🔥', color: '#ff6b00', bg: 'rgba(255, 107, 0, 0.22)', border: '#ff6b00' };
+  if (n >= 6.5) return { label: 'SOLID BANGER 👍', color: C.green, bg: 'rgba(48, 209, 88, 0.22)', border: '#30d158' };
+  if (n >= 5.0) return { label: 'DECENT EATS 🍽️', color: C.gray2, bg: 'rgba(255, 255, 255, 0.15)', border: C.gray3 };
+  return { label: 'MID / SKIP 😅', color: '#e5484d', bg: 'rgba(229, 72, 77, 0.22)', border: '#e5484d' };
+}
+
+function isOnline(lastSeenAt) {
+  if (!lastSeenAt) return false;
+  const diffMs = Date.now() - new Date(lastSeenAt).getTime();
+  return diffMs < 5 * 60 * 1000;
+}
+
+function formatLastSeen(lastSeenAt) {
+  if (!lastSeenAt) return 'Offline';
+  const diffMin = Math.floor((Date.now() - new Date(lastSeenAt).getTime()) / 60000);
+  if (diffMin < 5) return 'Active now';
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHours = Math.floor(diffMin / 60);
+  if (diffHours < 24) return `${diffHours}h ago`;
+  return 'Offline';
+}
+
+
 
 // ─── Streak (ported from FeedScreen.jsx's PersonalStrip logic) ────────────────
 // extraDayKeys are days resolved by a skip (not a logged meal) — a day
@@ -463,12 +491,63 @@ function initials(profile) {
   return source.slice(0, 2).toUpperCase();
 }
 
-function FriendStoryStrip({ people, currentUserId, hasOwnStory, onPress }) {
+function NudgeModal({ person, onDismiss }) {
+  const [sent, setSent] = useState(false);
+  if (!person) return null;
+
+  const friendName = person.username || person.first_name || 'friend';
+
+  const handleSend = () => {
+    setSent(true);
+    setTimeout(() => {
+      onDismiss();
+      setSent(false);
+    }, 1400);
+  };
+
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onDismiss}>
+      <Pressable style={styles.nudgeOverlay} onPress={onDismiss}>
+        <Pressable style={styles.nudgeCard} onPress={e => e.stopPropagation()}>
+          <View style={styles.nudgeIconRing}>
+            <Ionicons name={sent ? "checkmark-circle" : "notifications"} size={36} color={sent ? C.green : C.orange} />
+          </View>
+
+          {!sent ? (
+            <>
+              <Text style={styles.nudgeTitle}>Nudge @{friendName} 🔔</Text>
+              <Text style={styles.nudgeSub}>
+                @{friendName} hasn't logged a meal yet today. Send a quick reminder to post their food vibe!
+              </Text>
+
+              <View style={styles.nudgeActionRow}>
+                <TouchableOpacity style={styles.nudgeCancelBtn} onPress={onDismiss}>
+                  <Text style={styles.nudgeCancelText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.nudgeSendBtn} onPress={handleSend}>
+                  <Text style={styles.nudgeSendText}>Send Nudge 🚀</Text>
+                </TouchableOpacity>
+              </View>
+            </>
+          ) : (
+            <View style={{ alignItems: 'center', paddingVertical: 12 }}>
+              <Text style={styles.nudgeTitle}>Nudge Sent! 🎉</Text>
+              <Text style={styles.nudgeSub}>We notified @{friendName} to share their meal today.</Text>
+            </View>
+          )}
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+function FriendStoryStrip({ people, currentUserId, hasOwnStory, onPress, onNudge }) {
+  const activeCount = people.filter(p => p.hasPostedToday).length;
   return (
     <View style={styles.storySection}>
       <View style={styles.storyHeader}>
         <Text style={styles.storyTitle}>Friend circles today</Text>
-        <Text style={styles.storyMeta}>{people.length} eating</Text>
+        <Text style={styles.storyMeta}>{activeCount}/{people.length} posted</Text>
       </View>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.storyRow}>
         <TouchableOpacity style={styles.storyItem} onPress={() => onPress({ id: currentUserId })} activeOpacity={0.8}>
@@ -477,41 +556,400 @@ function FriendStoryStrip({ people, currentUserId, hasOwnStory, onPress }) {
             <View style={styles.storyPlus}><Ionicons name="add" size={11} color={C.bg} /></View>
           </View>
           <Text style={styles.storyName} numberOfLines={1}>{hasOwnStory ? 'Your story' : 'Add meal'}</Text>
+          <Text style={styles.storySubText} numberOfLines={1}>Today</Text>
         </TouchableOpacity>
-        {people.map((person) => (
-          <TouchableOpacity key={person.id} style={styles.storyItem} onPress={() => onPress(person)} activeOpacity={0.8}>
-            <View style={[styles.storyRing, person.id === currentUserId && styles.storyRingMine]}>
-              {person.avatar_url ? <Image source={{ uri: person.avatar_url }} style={styles.storyAvatar} /> : <View style={styles.storyAvatarFallback}><Text style={styles.storyInitials}>{initials(person)}</Text></View>}
-              {person.id !== currentUserId && <View style={styles.onlineDot} />}
-            </View>
-            <Text style={styles.storyName} numberOfLines={1}>{person.username || person.first_name || 'friend'}</Text>
-          </TouchableOpacity>
-        ))}
+        {people.map((person) => {
+          const posted = person.hasPostedToday;
+          const online = isOnline(person.last_seen_at);
+          return (
+            <TouchableOpacity
+              key={person.id}
+              style={styles.storyItem}
+              onPress={() => (posted ? onPress(person) : onNudge(person))}
+              activeOpacity={0.8}
+            >
+              <View style={[styles.storyRing, posted ? styles.storyRingActive : styles.storyRingInactive]}>
+                {person.avatar_url ? (
+                  <Image source={{ uri: person.avatar_url }} style={styles.storyAvatar} />
+                ) : (
+                  <View style={styles.storyAvatarFallback}>
+                    <Text style={styles.storyInitials}>{initials(person)}</Text>
+                  </View>
+                )}
+                <View style={[styles.statusDotBadge, online ? styles.statusDotOnline : styles.statusDotOffline]} />
+              </View>
+              <Text style={styles.storyName} numberOfLines={1}>
+                {person.username || person.first_name || 'friend'}
+              </Text>
+              <Text style={[styles.storySubText, online && { color: C.green }]} numberOfLines={1}>
+                {online ? 'Active now' : formatLastSeen(person.last_seen_at)}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
       </ScrollView>
     </View>
   );
 }
 
-function MealStorySheet({ tile, onClose, onOpenDetails }) {
-  const [selectedReaction, setSelectedReaction] = useState(null);
-  if (!tile) return null;
-  const profile = tile.poster;
-  const meal = tile.meal;
+function FloatingParticle({ particle, onComplete }) {
+  const anim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(anim, {
+      toValue: 1,
+      duration: 1200,
+      useNativeDriver: true,
+    }).start(() => onComplete(particle.id));
+  }, []);
+
+  const translateY = anim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, -180],
+  });
+  const opacity = anim.interpolate({
+    inputRange: [0, 0.7, 1],
+    outputRange: [1, 0.8, 0],
+  });
+  const scale = anim.interpolate({
+    inputRange: [0, 0.2, 1],
+    outputRange: [0.6, 1.3, 1],
+  });
+
+  return (
+    <Animated.Text
+      style={[
+        styles.floatingParticle,
+        {
+          left: particle.x,
+          transform: [{ translateY }, { scale }],
+          opacity,
+        },
+      ]}
+    >
+      {particle.emoji}
+    </Animated.Text>
+  );
+}
+
+function FriendStoryViewer({ sequence, onClose, currentUserId }) {
+  const { width: viewportWidth, height: viewportHeight } = useWindowDimensions();
+  const [currentIndex, setCurrentIndex] = useState(sequence?.initialIndex || 0);
+  const [isPaused, setIsPaused] = useState(false);
+  const [particles, setParticles] = useState([]);
+  const [reactions, setReactions] = useState([]);
+  const [loadingReactions, setLoadingReactions] = useState(false);
+  const progressAnim = useRef(new Animated.Value(0)).current;
+  const pressStartTime = useRef(0);
+
+  const items = sequence?.items || sequence?.people || [];
+  const activeItem = items[currentIndex];
+
+  const resetAndStartTimer = useCallback(() => {
+    progressAnim.setValue(0);
+    Animated.timing(progressAnim, {
+      toValue: 1,
+      duration: 5000,
+      useNativeDriver: false,
+    }).start(({ finished }) => {
+      if (finished) {
+        if (currentIndex < items.length - 1) {
+          setCurrentIndex(prev => prev + 1);
+        } else {
+          onClose();
+        }
+      }
+    });
+  }, [currentIndex, items.length, onClose, progressAnim]);
+
+  useEffect(() => {
+    if (!sequence || items.length === 0) return;
+    if (!isPaused) {
+      resetAndStartTimer();
+    } else {
+      progressAnim.stopAnimation();
+    }
+    return () => progressAnim.stopAnimation();
+  }, [currentIndex, isPaused, sequence, items.length, resetAndStartTimer]);
+
+  const meal = activeItem?.meal || {};
+  const poster = activeItem?.poster || {};
+  const tag = activeItem?.tag || 'snack';
+  const isMine = activeItem?.isMine || poster.id === currentUserId;
+
+  // Fetch reactions when creator views their own story & trigger opening emoji burst!
+  useEffect(() => {
+    if (!isMine || !meal?.id) return;
+    let mounted = true;
+    setLoadingReactions(true);
+
+    const fetchReactions = async () => {
+      try {
+        let { data, error } = await supabase
+          .from('post_likes')
+          .select('user_id, emoji, created_at, profiles(id, username, avatar_url, first_name)')
+          .eq('meal_id', meal.id);
+
+        if (error && error.message?.includes('emoji')) {
+          const fallback = await supabase
+            .from('post_likes')
+            .select('user_id, created_at, profiles(id, username, avatar_url, first_name)')
+            .eq('meal_id', meal.id);
+          data = (fallback.data || []).map(r => ({ ...r, emoji: '🔥' }));
+        }
+
+        if (mounted && data) {
+          setReactions(data);
+          data.forEach((r, idx) => {
+            setTimeout(() => {
+              if (mounted) {
+                const burstX = Math.random() * (viewportWidth - 80) + 40;
+                triggerParticle(r.emoji || '🔥', burstX);
+              }
+            }, idx * 220);
+          });
+        }
+      } catch (e) {
+        // Silent fallback
+      } finally {
+        if (mounted) setLoadingReactions(false);
+      }
+    };
+
+    fetchReactions();
+    return () => { mounted = false; };
+  }, [isMine, meal?.id, viewportWidth]);
+
+  if (!sequence || !activeItem) return null;
+
+  const tagMeta = TAG_META[tag] || { emoji: '🍽️', label: tag };
+  const vibe = getFoodVibeTier(meal.score);
+
+  const handleNext = () => {
+    if (currentIndex < items.length - 1) {
+      setCurrentIndex(prev => prev + 1);
+    } else {
+      onClose();
+    }
+  };
+
+  const handlePrev = () => {
+    if (currentIndex > 0) {
+      setCurrentIndex(prev => prev - 1);
+    } else {
+      setCurrentIndex(0);
+    }
+  };
+
+  const handlePressIn = () => {
+    pressStartTime.current = Date.now();
+    setIsPaused(true);
+  };
+
+  const handlePressOut = (e) => {
+    const duration = Date.now() - pressStartTime.current;
+    setIsPaused(false);
+    if (duration < 250) {
+      const touchX = e.nativeEvent.pageX;
+      if (touchX < viewportWidth * 0.35) {
+        handlePrev();
+      } else {
+        handleNext();
+      }
+    }
+  };
+
+  const triggerParticle = (emoji, xPos) => {
+    const newParticle = {
+      id: `${Date.now()}-${Math.random()}`,
+      emoji,
+      x: xPos || viewportWidth / 2 - 15,
+    };
+    setParticles(prev => [...prev.slice(-10), newParticle]);
+  };
+
+  const triggerReaction = async (emoji, xPos) => {
+    triggerParticle(emoji, xPos);
+
+    if (currentUserId && activeItem?.postId && meal?.id) {
+      try {
+        const { error } = await supabase.from('post_likes').upsert({
+          post_id: activeItem.postId,
+          meal_id: meal.id,
+          user_id: currentUserId,
+          emoji,
+        });
+        if (error && error.message?.includes('emoji')) {
+          await supabase.from('post_likes').upsert({
+            post_id: activeItem.postId,
+            meal_id: meal.id,
+            user_id: currentUserId,
+          });
+        }
+      } catch (e) {
+        // Silent catch for smooth UX
+      }
+    }
+  };
+
+  const removeParticle = (id) => {
+    setParticles(prev => prev.filter(p => p.id !== id));
+  };
+
   return (
     <Modal visible transparent animationType="fade" statusBarTranslucent onRequestClose={onClose}>
-      <View style={styles.storyModalBackdrop}>
-        <View style={styles.storySheet}>
-          {meal.photo_url ? <Image source={{ uri: meal.photo_url }} style={styles.storyImage} resizeMode="cover" /> : <View style={[styles.storyImage, styles.storyImageFallback]}><Ionicons name="restaurant-outline" size={68} color={C.gray2} /></View>}
-          <LinearGradient colors={['rgba(0,0,0,0.1)', 'rgba(0,0,0,0.9)']} style={StyleSheet.absoluteFill} pointerEvents="none" />
-          <TouchableOpacity style={styles.storyClose} onPress={onClose} hitSlop={10}><Ionicons name="close" size={22} color={C.white} /></TouchableOpacity>
-          <View style={styles.storyScore}><Text style={styles.storyScoreText}>{formatScore(meal.score)} ★</Text></View>
-          <View style={styles.storyContent}>
-            <View style={styles.storyCreatorRow}><View style={styles.storyCreatorAvatar}><Text style={styles.storyCreatorInitials}>{initials(profile)}</Text></View><Text style={styles.storyHandle}>@{profile?.username || 'friend'}</Text></View>
-            <Text style={styles.storyMealName}>{meal.name}</Text>
-            <Text style={styles.storyLocation}>{meal.places?.name || (tile.isMine ? 'Your meal' : 'Shared with friends')}</Text>
-            <View style={styles.storyReactions}>{[['flame-outline', 'Fire'], ['heart-outline', 'Love'], ['hand-left-outline', 'Chef'], ['ribbon-outline', 'Top']].map(([icon, label]) => <TouchableOpacity key={icon} accessibilityLabel={label} style={[styles.reactionButton, selectedReaction === icon && styles.reactionButtonSelected]} onPress={() => setSelectedReaction(current => current === icon ? null : icon)}><Ionicons name={icon} size={20} color={C.white} /></TouchableOpacity>)}</View>
-            <TouchableOpacity style={styles.storyDetailsButton} onPress={onOpenDetails} activeOpacity={0.85}><Text style={styles.storyDetailsText}>Open meal details</Text><Ionicons name="arrow-forward" size={16} color={C.bg} /></TouchableOpacity>
-          </View>
+      <View style={styles.friendStoryBackdrop}>
+        <View style={{ width: viewportWidth, height: viewportHeight, position: 'relative' }}>
+          {meal.photo_url ? (
+            <Image source={{ uri: meal.photo_url }} style={StyleSheet.absoluteFill} resizeMode="cover" />
+          ) : (
+            <StripedPlaceholder style={StyleSheet.absoluteFill}>
+              <View style={styles.friendStoryFallback}>
+                <Ionicons name="restaurant-outline" size={72} color={C.gray2} />
+              </View>
+            </StripedPlaceholder>
+          )}
+
+          <LinearGradient
+            colors={['rgba(0,0,0,0.7)', 'transparent', 'rgba(0,0,0,0.85)']}
+            locations={[0, 0.4, 1]}
+            style={StyleSheet.absoluteFill}
+            pointerEvents="none"
+          />
+
+          {/* Left tap zone for previous slide */}
+          <Pressable
+            style={{ position: 'absolute', top: 70, left: 0, width: '35%', bottom: 180, zIndex: 5 }}
+            onPress={handlePrev}
+            onPressIn={handlePressIn}
+            onPressOut={handlePressOut}
+          />
+
+          {/* Right tap zone for next slide */}
+          <Pressable
+            style={{ position: 'absolute', top: 70, right: 0, width: '65%', bottom: 180, zIndex: 5 }}
+            onPress={handleNext}
+            onPressIn={handlePressIn}
+            onPressOut={handlePressOut}
+          />
+
+          {particles.map(p => (
+            <FloatingParticle key={p.id} particle={p} onComplete={removeParticle} />
+          ))}
+
+          {!isPaused && (
+            <>
+              <View style={styles.friendStoryProgressRow}>
+                {items.map((_, i) => {
+                  let flexWidth = progressAnim.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: ['0%', '100%'],
+                  });
+                  return (
+                    <View key={i} style={styles.friendStoryProgressTrack}>
+                      {i < currentIndex && <View style={[styles.friendStoryProgressFill, { width: '100%' }]} />}
+                      {i === currentIndex && (
+                        <Animated.View style={[styles.friendStoryProgressFill, { width: flexWidth }]} />
+                      )}
+                      {i > currentIndex && <View style={[styles.friendStoryProgressFill, { width: '0%' }]} />}
+                    </View>
+                  );
+                })}
+              </View>
+
+              <View style={[styles.friendStoryHeader, { zIndex: 20 }]}>
+                <View style={styles.friendStoryAvatar}>
+                  {poster.avatar_url ? (
+                    <Image source={{ uri: poster.avatar_url }} style={styles.friendStoryAvatarImg} />
+                  ) : (
+                    <Text style={styles.friendStoryAvatarText}>{initials(poster)}</Text>
+                  )}
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.friendStoryHandle}>@{poster.username || 'friend'}</Text>
+                  <Text style={styles.friendStoryTagLabel}>
+                    {isOnline(poster.last_seen_at) ? '🟢 Active now' : `⚪ ${formatLastSeen(poster.last_seen_at)}`} • {tagMeta.emoji} {tagMeta.label}
+                  </Text>
+                </View>
+                <Text style={styles.friendStoryCount}>{currentIndex + 1}/{items.length}</Text>
+                <TouchableOpacity onPress={onClose} hitSlop={12} style={styles.friendStoryCloseBtn}>
+                  <Ionicons name="close" size={22} color={C.white} />
+                </TouchableOpacity>
+              </View>
+
+              <View style={[styles.friendStoryCaption, { zIndex: 20 }]}>
+                <View style={[styles.friendStoryVibeBadge, { backgroundColor: vibe.bg, borderColor: vibe.border }]}>
+                  <Text style={[styles.friendStoryVibeText, { color: vibe.color }]}>{vibe.label}</Text>
+                  <Text style={styles.friendStoryScoreText}>{formatScore(meal.score)} ★</Text>
+                </View>
+
+                <Text style={styles.friendStoryMeal}>{meal.name || 'Unnamed Dish'}</Text>
+                {meal.places?.name && (
+                  <View style={styles.friendStoryVenueRow}>
+                    <Ionicons name="location-sharp" size={14} color={C.orange} />
+                    <Text style={styles.friendStoryVenueText} numberOfLines={1}>{meal.places.name}</Text>
+                  </View>
+                )}
+
+                {isMine ? (
+                  <View style={styles.friendStoryCreatorTray}>
+                    <View style={styles.friendStoryCreatorTrayHeader}>
+                      <Ionicons name="eye-outline" size={16} color={C.white} />
+                      <Text style={styles.friendStoryCreatorTrayTitle}>
+                        {reactions.length > 0 ? `${reactions.length} Friend${reactions.length > 1 ? 's' : ''} Reacted` : 'Story Activity'}
+                      </Text>
+                    </View>
+
+                    {reactions.length > 0 ? (
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.friendStoryReactorsRow}>
+                        {reactions.map((r, i) => (
+                          <View key={i} style={styles.friendStoryReactorPill}>
+                            <View style={styles.friendStoryReactorAvatar}>
+                              {r.profiles?.avatar_url ? (
+                                <Image source={{ uri: r.profiles.avatar_url }} style={styles.friendStoryAvatarImg} />
+                              ) : (
+                                <Text style={styles.friendStoryReactorInitials}>{initials(r.profiles || {})}</Text>
+                              )}
+                              <View style={styles.friendStoryReactorBadge}>
+                                <Text style={{ fontSize: 10 }}>{r.emoji || '🔥'}</Text>
+                              </View>
+                            </View>
+                            <Text style={styles.friendStoryReactorName} numberOfLines={1}>
+                              @{r.profiles?.username || 'friend'}
+                            </Text>
+                          </View>
+                        ))}
+                      </ScrollView>
+                    ) : (
+                      <Text style={styles.friendStoryNoReactionsText}>
+                        {loadingReactions ? 'Loading activity...' : 'No reactions yet today • Shared with friends'}
+                      </Text>
+                    )}
+                  </View>
+                ) : (
+                  <View style={styles.friendStoryReactionsRow}>
+                    {['🔥', '🤤', '🧑‍🍳', '👑', '💸'].map((emoji) => (
+                      <TouchableOpacity
+                        key={emoji}
+                        activeOpacity={0.7}
+                        style={styles.friendStoryReactionBtn}
+                        onPress={(e) => triggerReaction(emoji, e.nativeEvent.pageX)}
+                      >
+                        <Text style={{ fontSize: 22 }}>{emoji}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )}
+              </View>
+            </>
+          )}
+
+          {isPaused && (
+            <View style={styles.friendStoryPausedBadge}>
+              <Ionicons name="pause" size={14} color={C.white} />
+              <Text style={styles.friendStoryPausedText}>PAUSED</Text>
+            </View>
+          )}
         </View>
       </View>
     </Modal>
@@ -544,7 +982,9 @@ export default function DayBoardScreen() {
   const [pickerMeals, setPickerMeals]     = useState([]);
   const [pickerLoading, setPickerLoading] = useState(false);
   const [shareTarget, setShareTarget]     = useState(null); // meal to share
-  const [selectedStory, setSelectedStory] = useState(null);
+  const [storySequence, setStorySequence] = useState(null);
+  const [allFriends, setAllFriends]       = useState([]);
+  const [nudgePerson, setNudgePerson]     = useState(null);
 
   // First-visit teaching tooltips — each fires once, ever, on whichever
   // section first qualifies (see firstEmptyYouTag/firstDuelTag below), not
@@ -571,11 +1011,29 @@ export default function DayBoardScreen() {
         return;
       }
       setCurrentUserId(user.id);
+      supabase.from('profiles').update({ last_seen_at: new Date().toISOString() }).eq('id', user.id).then(() => {}).catch(() => {});
 
       const now = new Date();
       const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
       const dayEnd   = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).toISOString();
       const todayKey = localDateKey(now);
+
+      // Fetch accepted friends list safely
+      try {
+        const { data: rels } = await supabase
+          .from('friendships')
+          .select(`
+            requester_id, addressee_id,
+            requester:profiles!friendships_requester_id_fkey(id, username, first_name, display_name, avatar_url),
+            addressee:profiles!friendships_addressee_id_fkey(id, username, first_name, display_name, avatar_url)
+          `)
+          .or(`requester_id.eq.${user.id},addressee_id.eq.${user.id}`)
+          .eq('status', 'accepted');
+        const fList = (rels || []).map(r => (r.requester_id === user.id ? r.addressee : r.requester)).filter(Boolean);
+        setAllFriends(fList);
+      } catch (e) {
+        setAllFriends([]);
+      }
 
       // RLS (see_own_and_friends_posts) already scopes this to the caller's
       // own posts plus accepted friends' — no extra filtering needed here.
@@ -708,7 +1166,7 @@ export default function DayBoardScreen() {
   // isn't votable.
   const todayKey = localDateKey(new Date());
   const duelUnlockedByTag = Object.fromEntries(
-    MEAL_TAGS.map(tag => [tag, isDuelUnlocked(todayKey, tag) && tilesByTag[tag].length >= 2])
+    MEAL_TAGS.map(tag => [tag, isDuelUnlocked(todayKey, tag) && tilesByTag[tag].filter(tile => !tile.isMine).length >= 2])
   );
 
   const friendsEatingCount = new Set(
@@ -719,11 +1177,31 @@ export default function DayBoardScreen() {
   ).size;
 
   const totalMealsToday = MEAL_TAGS.reduce((sum, tag) => sum + tilesByTag[tag].length, 0);
-  const storyPeople = Object.values(
-    Object.fromEntries(
-      MEAL_TAGS.flatMap(tag => tilesByTag[tag]).map(tile => [tile.poster?.id, tile.poster]).filter(([id, profile]) => id && profile && id !== currentUserId)
-    )
+
+  const postersMap = Object.fromEntries(
+    MEAL_TAGS.flatMap(tag => tilesByTag[tag]).map(tile => [tile.poster?.id, tile.poster]).filter(([id, profile]) => id && profile && id !== currentUserId)
   );
+
+  const tilesByFriendId = {};
+  MEAL_TAGS.flatMap(tag => tilesByTag[tag]).forEach(tile => {
+    if (tile.poster?.id) {
+      if (!tilesByFriendId[tile.poster.id]) tilesByFriendId[tile.poster.id] = [];
+      tilesByFriendId[tile.poster.id].push(tile);
+    }
+  });
+
+  const mergedFriendsMap = {};
+  for (const f of allFriends || []) {
+    if (f.id && f.id !== currentUserId) mergedFriendsMap[f.id] = f;
+  }
+  for (const [id, p] of Object.entries(postersMap)) {
+    mergedFriendsMap[id] = { ...(mergedFriendsMap[id] || {}), ...p };
+  }
+
+  const storyPeople = Object.values(mergedFriendsMap).map(person => ({
+    ...person,
+    hasPostedToday: Boolean(tilesByFriendId[person.id]?.length > 0),
+  }));
   const hasOwnStory = MEAL_TAGS.some(tag => tilesByTag[tag].some(tile => tile.isMine));
 
   // Which single section shows the "+ you" / duel tooltip — never more than
@@ -771,32 +1249,31 @@ export default function DayBoardScreen() {
   const dateLabel = now => now.toLocaleDateString([], { weekday: 'long' });
 
   function handlePressTile(tag, orderedTiles, index) {
-    setSelectedStory({ tile: orderedTiles[index], tag, people: orderedTiles, index });
+    navigation.navigate('SlotViewer', { tag, people: orderedTiles, initialIndex: index });
   }
 
   function handlePressStoryPerson(person) {
-    const tile = person?.id === currentUserId
-      ? MEAL_TAGS.flatMap(tag => tilesByTag[tag]).find(candidate => candidate.isMine)
-      : MEAL_TAGS.flatMap(tag => tilesByTag[tag]).find(candidate => candidate.poster?.id === person?.id);
-    if (!tile) {
+    if (person?.id === currentUserId && !hasOwnStory) {
       navigation.navigate('LogMeal');
       return;
     }
-    const tag = MEAL_TAGS.find(candidateTag => tilesByTag[candidateTag].some(candidate => candidate.mealId === tile.mealId));
-    if (tag) {
-      const people = tilesByTag[tag];
-      setSelectedStory({ tile, tag, people, index: people.findIndex(candidate => candidate.mealId === tile.mealId) });
+    const allTiles = MEAL_TAGS.flatMap(tag => tilesByTag[tag]);
+    const targetUserId = person?.id;
+    const personTiles = allTiles.filter(t => (targetUserId === currentUserId ? t.isMine : t.poster?.id === targetUserId));
+
+    if (personTiles.length === 0) {
+      if (person?.id === currentUserId) navigation.navigate('LogMeal');
+      return;
     }
+
+    setStorySequence({
+      items: personTiles,
+      initialIndex: 0,
+    });
   }
 
-  function handleOpenStoryDetails() {
-    if (!selectedStory) return;
-    setSelectedStory(null);
-    navigation.navigate('SlotViewer', {
-      tag: selectedStory.tag,
-      people: selectedStory.people,
-      initialIndex: selectedStory.index,
-    });
+  function handleNudgeFriend(person) {
+    setNudgePerson(person);
   }
 
   // Opens the log/skip action sheet — the primary tap target on an empty
@@ -976,11 +1453,8 @@ export default function DayBoardScreen() {
         onSkip={handleActionSkip}
       />
 
-      <MealStorySheet
-        tile={selectedStory?.tile}
-        onClose={() => setSelectedStory(null)}
-        onOpenDetails={handleOpenStoryDetails}
-      />
+      <NudgeModal person={nudgePerson} onDismiss={() => setNudgePerson(null)} />
+      <FriendStoryViewer sequence={storySequence} onClose={() => setStorySequence(null)} currentUserId={currentUserId} />
 
       <View style={styles.navBar}>
         <View style={styles.navBrand}>
@@ -1042,7 +1516,13 @@ export default function DayBoardScreen() {
           </View>
 
           {storyPeople.length > 0 && (
-            <FriendStoryStrip people={storyPeople} currentUserId={currentUserId} hasOwnStory={hasOwnStory} onPress={handlePressStoryPerson} />
+            <FriendStoryStrip
+              people={storyPeople}
+              currentUserId={currentUserId}
+              hasOwnStory={hasOwnStory}
+              onPress={handlePressStoryPerson}
+              onNudge={handleNudgeFriend}
+            />
           )}
 
           {error ? <Text style={styles.errorText}>{error}</Text> : null}
@@ -1223,27 +1703,41 @@ const styles = StyleSheet.create({
   },
   actionSheetCancelText: { fontSize: 15, color: C.gray1, fontWeight: '500' },
 
-  storyModalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.82)', justifyContent: 'center', paddingHorizontal: 12 },
-  storySheet: { height: '86%', borderRadius: 8, overflow: 'hidden', backgroundColor: C.surface, position: 'relative' },
-  storyImage: { ...StyleSheet.absoluteFillObject },
-  storyImageFallback: { backgroundColor: '#242424', alignItems: 'center', justifyContent: 'center' },
-  storyFallbackEmoji: { fontSize: 76 },
-  storyClose: { position: 'absolute', top: 16, left: 16, width: 38, height: 38, borderRadius: 19, backgroundColor: 'rgba(0,0,0,0.45)', alignItems: 'center', justifyContent: 'center', zIndex: 2 },
-  storyScore: { position: 'absolute', top: 18, right: 16, backgroundColor: 'rgba(0,0,0,0.58)', borderRadius: C.pill, paddingHorizontal: 12, paddingVertical: 7 },
-  storyScoreText: { color: C.gold, fontSize: 14, fontWeight: '800' },
-  storyContent: { position: 'absolute', left: 18, right: 18, bottom: 20 },
-  storyCreatorRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
-  storyCreatorAvatar: { width: 28, height: 28, borderRadius: 14, backgroundColor: C.orange, alignItems: 'center', justifyContent: 'center' },
-  storyCreatorInitials: { color: C.bg, fontSize: 10, fontWeight: '900' },
-  storyHandle: { color: C.white, fontSize: 13, fontWeight: '700' },
-  storyMealName: { color: C.white, fontFamily: C.serif, fontSize: 30, lineHeight: 34 },
-  storyLocation: { color: 'rgba(255,255,255,0.7)', fontSize: 13, marginTop: 5 },
-  storyReactions: { flexDirection: 'row', gap: 9, marginTop: 16 },
-  reactionButton: { width: 42, height: 42, borderRadius: 21, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center' },
-  reactionButtonSelected: { backgroundColor: C.orange, transform: [{ scale: 1.08 }] },
-  reactionText: { fontSize: 20 },
-  storyDetailsButton: { marginTop: 16, backgroundColor: C.orange, borderRadius: C.pill, paddingVertical: 13, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
-  storyDetailsText: { color: C.bg, fontSize: 14, fontWeight: '800' },
+  friendStoryBackdrop: { flex: 1, backgroundColor: '#000000' },
+  friendStoryFallback: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', backgroundColor: '#18181b' },
+  friendStoryProgressRow: { position: 'absolute', top: 16, left: 12, right: 12, flexDirection: 'row', gap: 4, zIndex: 10 },
+  friendStoryProgressTrack: { flex: 1, height: 3, backgroundColor: 'rgba(255,255,255,0.3)', borderRadius: 2, overflow: 'hidden' },
+  friendStoryProgressFill: { height: '100%', backgroundColor: C.white, borderRadius: 2 },
+  friendStoryHeader: { position: 'absolute', top: 32, left: 16, right: 16, flexDirection: 'row', alignItems: 'center', gap: 10, zIndex: 10 },
+  friendStoryAvatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: C.orange, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
+  friendStoryAvatarImg: { width: 36, height: 36, borderRadius: 18 },
+  friendStoryAvatarText: { color: C.bg, fontSize: 13, fontWeight: '900' },
+  friendStoryHandle: { color: C.white, fontSize: 14, fontWeight: '700' },
+  friendStoryTagLabel: { color: 'rgba(255,255,255,0.75)', fontSize: 11, fontWeight: '600', marginTop: 1 },
+  friendStoryCount: { color: 'rgba(255,255,255,0.7)', fontSize: 12, fontWeight: '600', marginRight: 4 },
+  friendStoryCloseBtn: { width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(0,0,0,0.4)', alignItems: 'center', justifyContent: 'center' },
+  friendStoryCaption: { position: 'absolute', left: 16, right: 16, bottom: 32, zIndex: 10 },
+  friendStoryVibeBadge: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20, borderWidth: 1, marginBottom: 10 },
+  friendStoryVibeText: { fontSize: 11, fontWeight: '900', letterSpacing: 0.5 },
+  friendStoryScoreText: { color: C.white, fontSize: 12, fontWeight: '800' },
+  friendStoryMeal: { color: C.white, fontFamily: C.serif, fontSize: 32, lineHeight: 36, textShadowColor: 'rgba(0,0,0,0.5)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4 },
+  friendStoryVenueRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 },
+  friendStoryVenueText: { color: 'rgba(255,255,255,0.85)', fontSize: 13, fontWeight: '600' },
+  friendStoryReactionsRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 18, backgroundColor: 'rgba(0,0,0,0.45)', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 25, borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)' },
+  friendStoryReactionBtn: { padding: 4 },
+  friendStoryPausedBadge: { position: 'absolute', top: 80, alignSelf: 'center', flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(0,0,0,0.6)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12 },
+  friendStoryPausedText: { color: C.white, fontSize: 11, fontWeight: '800', letterSpacing: 1 },
+  floatingParticle: { position: 'absolute', bottom: 100, fontSize: 36, zIndex: 20 },
+  friendStoryCreatorTray: { marginTop: 14, backgroundColor: 'rgba(0,0,0,0.55)', borderRadius: 20, padding: 12, borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)' },
+  friendStoryCreatorTrayHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
+  friendStoryCreatorTrayTitle: { color: C.white, fontSize: 12, fontWeight: '700', letterSpacing: 0.3 },
+  friendStoryReactorsRow: { flexDirection: 'row', gap: 12 },
+  friendStoryReactorPill: { alignItems: 'center', width: 56 },
+  friendStoryReactorAvatar: { width: 38, height: 38, borderRadius: 19, backgroundColor: C.orange, alignItems: 'center', justifyContent: 'center', position: 'relative' },
+  friendStoryReactorInitials: { color: C.bg, fontSize: 11, fontWeight: '900' },
+  friendStoryReactorBadge: { position: 'absolute', bottom: -2, right: -2, width: 18, height: 18, borderRadius: 9, backgroundColor: C.surface, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: C.bg },
+  friendStoryReactorName: { color: 'rgba(255,255,255,0.85)', fontSize: 11, fontWeight: '600', marginTop: 4, textAlign: 'center' },
+  friendStoryNoReactionsText: { color: 'rgba(255,255,255,0.6)', fontSize: 12, fontStyle: 'italic' },
 
   dateHeader: {
     fontFamily: C.serif, fontSize: DATE_HEADER_SIZE, color: C.white,
@@ -1260,13 +1754,30 @@ const styles = StyleSheet.create({
   storyMeta: { color: C.gray3, fontSize: 12 },
   storyRow: { paddingHorizontal: BOARD_GUTTER, gap: 14 },
   storyItem: { width: 58, alignItems: 'center' },
-  storyRing: { width: 54, height: 54, borderRadius: 27, padding: 2, backgroundColor: C.green, marginBottom: 6 },
+  storyRing: { width: 54, height: 54, borderRadius: 27, padding: 2, backgroundColor: C.surface, marginBottom: 6 },
+  storyRingActive: { backgroundColor: C.orange },
+  storyRingInactive: { backgroundColor: 'rgba(255,255,255,0.18)' },
   storyRingMine: { backgroundColor: C.orange },
   storyAvatar: { width: 50, height: 50, borderRadius: 25 },
   storyAvatarFallback: { flex: 1, borderRadius: 25, backgroundColor: C.surface, alignItems: 'center', justifyContent: 'center' },
   storyInitials: { color: C.white, fontSize: 14, fontWeight: '800' },
   storyPlus: { position: 'absolute', right: -1, bottom: -1, width: 18, height: 18, borderRadius: 9, backgroundColor: C.orange, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: C.bg },
   onlineDot: { position: 'absolute', right: -1, bottom: -1, width: 12, height: 12, borderRadius: 6, backgroundColor: C.green, borderWidth: 2, borderColor: C.bg },
+  statusDotBadge: { position: 'absolute', right: -1, bottom: -1, width: 13, height: 13, borderRadius: 7, borderWidth: 2, borderColor: C.bg },
+  statusDotOnline: { backgroundColor: C.green },
+  statusDotOffline: { backgroundColor: C.gray2 },
+  storySubText: { color: C.gray2, fontSize: 9, maxWidth: 62, textAlign: 'center', marginTop: 1 },
+
+  nudgeOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.72)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 20 },
+  nudgeCard: { width: '100%', maxWidth: 340, backgroundColor: C.surface, borderRadius: 24, padding: 24, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)' },
+  nudgeIconRing: { width: 68, height: 68, borderRadius: 34, backgroundColor: 'rgba(251,114,56,0.15)', alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
+  nudgeTitle: { color: C.white, fontSize: 20, fontWeight: '800', textAlign: 'center', marginBottom: 8 },
+  nudgeSub: { color: C.gray1, fontSize: 13, textAlign: 'center', lineHeight: 18, marginBottom: 20 },
+  nudgeActionRow: { flexDirection: 'row', gap: 12, width: '100%' },
+  nudgeCancelBtn: { flex: 1, paddingVertical: 14, borderRadius: C.pill, backgroundColor: 'rgba(255,255,255,0.08)', alignItems: 'center' },
+  nudgeCancelText: { color: C.gray1, fontSize: 14, fontWeight: '700' },
+  nudgeSendBtn: { flex: 1.5, paddingVertical: 14, borderRadius: C.pill, backgroundColor: C.orange, alignItems: 'center' },
+  nudgeSendText: { color: C.bg, fontSize: 14, fontWeight: '800' },
   storyName: { color: C.gray1, fontSize: 10, maxWidth: 62, textAlign: 'center' },
   sectionEmoji: { fontSize: 16 },
   errorText: { fontSize: 13, color: '#ff6b6b', paddingHorizontal: BOARD_GUTTER, marginBottom: 12 },

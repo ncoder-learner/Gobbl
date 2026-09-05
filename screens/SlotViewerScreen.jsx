@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import {
   View, Text, Image, FlatList, TouchableOpacity, TextInput, StyleSheet,
-  StatusBar, Dimensions, KeyboardAvoidingView, Platform, ActivityIndicator, Alert,
+  StatusBar, KeyboardAvoidingView, Platform, ActivityIndicator, Alert, useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -17,8 +17,6 @@ import { TourTarget } from '../lib/tourContext';
 import { THEME as C } from '../lib/theme';
 import StripedPlaceholder from '../components/StripedPlaceholder';
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
-
 function scoreToneColor(score) {
   const n = Number(score);
   if (n < 3) return '#e5484d';
@@ -32,8 +30,18 @@ function formatScore(score) {
   return isNaN(n) ? '—' : n.toFixed(1);
 }
 
+function getVibeLabel(score) {
+  const n = Number(score);
+  if (isNaN(n) || n === 0) return 'SHARED TODAY 🍽️';
+  if (n >= 9.0) return 'GOD TIER 👑';
+  if (n >= 8.0) return 'MUST EAT 🔥';
+  if (n >= 6.5) return 'SOLID BANGER 👍';
+  if (n >= 5.0) return 'DECENT EATS 🍽️';
+  return 'MID / SKIP 😅';
+}
+
 // ─── One person's page — a vertical photo pager with fixed overlay chrome ──
-function PersonPage({ person, data, likeInfo, commentCount, onLike, onSubmitComment, onOpenComments, onPhotoIndexChange, showLikeTooltip, onDismissLikeTooltip, isActive }) {
+function PersonPage({ person, data, likeInfo, commentCount, onLike, onSubmitComment, onOpenComments, onPhotoIndexChange, showLikeTooltip, onDismissLikeTooltip, isActive, viewportWidth, viewportHeight }) {
   const { meal, poster } = person;
   const [commentText, setCommentText] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -57,15 +65,15 @@ function PersonPage({ person, data, likeInfo, commentCount, onLike, onSubmitComm
   }
 
   return (
-    <View style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT }}>
+    <View style={{ width: viewportWidth, height: viewportHeight }}>
       <FlatList
         data={photos}
         keyExtractor={(p, i) => String(p.id ?? i)}
         renderItem={({ item }) => (
-          item.url ? (
-            <Image source={{ uri: item.url }} style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT }} resizeMode="cover" />
+            item.url ? (
+            <Image source={{ uri: item.url }} style={{ width: viewportWidth, height: viewportHeight }} resizeMode="cover" />
           ) : (
-            <StripedPlaceholder style={{ width: SCREEN_WIDTH, height: SCREEN_HEIGHT }}>
+            <StripedPlaceholder style={{ width: viewportWidth, height: viewportHeight }}>
               <View style={styles.photoFallback}>
                 <Text style={styles.photoFallbackEmoji}>{meal.emoji || '🍽️'}</Text>
               </View>
@@ -75,8 +83,8 @@ function PersonPage({ person, data, likeInfo, commentCount, onLike, onSubmitComm
         horizontal
         pagingEnabled
         showsHorizontalScrollIndicator={false}
-        onMomentumScrollEnd={e => onPhotoIndexChange(Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH))}
-        getItemLayout={(_, i) => ({ length: SCREEN_WIDTH, offset: SCREEN_WIDTH * i, index: i })}
+        onMomentumScrollEnd={e => onPhotoIndexChange(Math.round(e.nativeEvent.contentOffset.x / viewportWidth))}
+        getItemLayout={(_, i) => ({ length: viewportWidth, offset: viewportWidth * i, index: i })}
       />
 
       <KeyboardAvoidingView
@@ -89,6 +97,13 @@ function PersonPage({ person, data, likeInfo, commentCount, onLike, onSubmitComm
           pointerEvents="none"
         />
 
+        {/* Top Slot Badge */}
+        <View style={styles.topSlotPill}>
+          <Text style={styles.topSlotPillText}>
+            {TAG_META[person.tag]?.emoji || '🍽️'} {TAG_META[person.tag]?.label || 'Meal'}
+          </Text>
+        </View>
+
         <View style={styles.posterRow}>
           <Avatar
             uri={poster?.avatar_url}
@@ -96,19 +111,27 @@ function PersonPage({ person, data, likeInfo, commentCount, onLike, onSubmitComm
             lastName={poster?.last_name}
             displayName={poster?.display_name}
             username={poster?.username}
-            size={30}
+            size={32}
             style={styles.posterAvatar}
             textStyle={styles.posterInitial}
           />
-          <Text style={styles.posterUsername}>@{poster?.username ?? 'unknown'}</Text>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.posterUsername}>@{poster?.username ?? 'unknown'}</Text>
+            <Text style={styles.vibeTierLabel}>{getVibeLabel(score)}</Text>
+          </View>
           {score != null && (
             <View style={[styles.scoreBadge, { backgroundColor: color }]}>
-              <Text style={styles.scoreBadgeText}>{formatScore(score)}</Text>
+              <Text style={styles.scoreBadgeText}>{formatScore(score)} ★</Text>
             </View>
           )}
         </View>
         <Text style={styles.mealName} numberOfLines={1}>{meal.name}</Text>
-        {placeName ? <Text style={styles.placeName} numberOfLines={1}>📍 {placeName}</Text> : null}
+        {placeName ? (
+          <View style={styles.venuePill}>
+            <Ionicons name="location-sharp" size={13} color={C.orange} />
+            <Text style={styles.placeName} numberOfLines={1}>{placeName}</Text>
+          </View>
+        ) : null}
 
         <View style={styles.engageRow}>
           {isActive ? (
@@ -165,6 +188,7 @@ export default function SlotViewerScreen() {
   const navigation = useNavigation();
   const route = useRoute();
   const { tag, people = [], initialIndex = 0 } = route.params || {};
+  const { width: viewportWidth, height: viewportHeight } = useWindowDimensions();
   const meta = TAG_META[tag] || { emoji: '📍', label: tag };
 
   const [activeIndex, setActiveIndex] = useState(initialIndex);
@@ -262,7 +286,7 @@ export default function SlotViewerScreen() {
   }
 
   function onOuterMomentumEnd(e) {
-    const idx = Math.round(e.nativeEvent.contentOffset.y / SCREEN_HEIGHT);
+    const idx = Math.round(e.nativeEvent.contentOffset.y / viewportHeight);
     setActiveIndex(idx);
   }
 
@@ -293,9 +317,12 @@ export default function SlotViewerScreen() {
         data={people}
         keyExtractor={p => p.mealId}
         pagingEnabled
+        snapToInterval={viewportHeight}
+        decelerationRate="fast"
+        removeClippedSubviews
         showsVerticalScrollIndicator={false}
         initialScrollIndex={initialIndex}
-        getItemLayout={(_, i) => ({ length: SCREEN_HEIGHT, offset: SCREEN_HEIGHT * i, index: i })}
+        getItemLayout={(_, i) => ({ length: viewportHeight, offset: viewportHeight * i, index: i })}
         onMomentumScrollEnd={onOuterMomentumEnd}
         renderItem={({ item, index }) => (
           <PersonPage
@@ -310,6 +337,8 @@ export default function SlotViewerScreen() {
             showLikeTooltip={likeTooltipVisible && index === activeIndex}
             onDismissLikeTooltip={dismissLikeTooltip}
             isActive={index === activeIndex}
+            viewportWidth={viewportWidth}
+            viewportHeight={viewportHeight}
           />
         )}
       />
@@ -412,9 +441,12 @@ const styles = StyleSheet.create({
   posterInitial: { color: C.white },
   posterUsername: { fontSize: 15, fontWeight: '700', color: C.white, flex: 1 },
   scoreBadge: { borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3 },
-  scoreBadgeText: { fontSize: 12, fontWeight: '800', color: '#fff' },
+  topSlotPill: { position: 'absolute', top: 54, left: 16, backgroundColor: 'rgba(0,0,0,0.55)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: C.pill || 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)', zIndex: 10 },
+  topSlotPillText: { color: C.white, fontSize: 11, fontWeight: '700' },
+  vibeTierLabel: { color: C.gold, fontSize: 10, fontWeight: '800', letterSpacing: 0.5, marginTop: 1 },
+  venuePill: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 8 },
   mealName: { fontFamily: C.serif, fontSize: 22, color: C.white, marginBottom: 2 },
-  placeName: { fontSize: 12, color: 'rgba(255,255,255,0.75)', marginBottom: 10 },
+  placeName: { fontSize: 12, color: 'rgba(255,255,255,0.85)' },
 
   engageRow: { flexDirection: 'row', alignItems: 'center', gap: 20, marginTop: 8, marginBottom: 12 },
   engageBtn: { flexDirection: 'row', alignItems: 'center', gap: 6 },
