@@ -1,12 +1,12 @@
 import { useRef, useState, useEffect } from 'react';
-import { View, Text, ActivityIndicator, TouchableOpacity, Linking as NativeLinking } from 'react-native';
+import { View, Text, ActivityIndicator, TouchableOpacity, Linking as NativeLinking, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Linking from 'expo-linking';
 import { Ionicons } from '@expo/vector-icons';
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useFonts, InstrumentSerif_400Regular, InstrumentSerif_400Regular_Italic } from '@expo-google-fonts/instrument-serif';
 import { supabase } from './lib/supabase';
@@ -100,13 +100,31 @@ const NAV_THEME = {
 // ─── Bottom tab navigator ─────────────────────────────────────────────────────
 
 function TabNavigator() {
+  const insets = useSafeAreaInsets();
+  const bottomInset = insets.bottom;
+  const isAndroid = Platform.OS === 'android';
+
+  // Ensure clearance above Android system navigation bar / gesture pill / iOS home indicator
+  const bottomPadding = bottomInset > 0 ? bottomInset + 4 : (isAndroid ? 12 : 8);
+  const tabHeight = 56 + bottomPadding;
+
   return (
     <Tab.Navigator
       screenOptions={{
         headerShown: false,
-        tabBarStyle: { backgroundColor: C.bg, borderTopColor: C.glassBorder },
+        tabBarStyle: {
+          backgroundColor: '#0a0a0a',
+          borderTopColor: '#1e1e20',
+          borderTopWidth: 1,
+          height: tabHeight,
+          paddingBottom: bottomPadding,
+          paddingTop: 8,
+          elevation: 8,
+        },
         tabBarActiveTintColor: C.orange,
         tabBarInactiveTintColor: C.gray2,
+        tabBarLabelStyle: { fontSize: 11, fontWeight: '600', marginTop: -2 },
+        tabBarItemStyle: { paddingVertical: 2 },
         sceneContainerStyle: { backgroundColor: C.bg },
       }}
     >
@@ -115,7 +133,7 @@ function TabNavigator() {
         component={DayBoardScreen}
         options={{
           tabBarLabel: 'Feed',
-          tabBarIcon: ({ color, size }) => <Ionicons name="people-outline" size={size} color={color} />,
+          tabBarIcon: ({ color, size }) => <Ionicons name="people-outline" size={size - 1} color={color} />,
         }}
       />
       <Tab.Screen
@@ -123,15 +141,7 @@ function TabNavigator() {
         component={DiscoverScreen}
         options={{
           tabBarLabel: 'Discover',
-          tabBarIcon: ({ color, size }) => <Ionicons name="compass-outline" size={size} color={color} />,
-        }}
-      />
-      <Tab.Screen
-        name="Health"
-        component={DiaryScreen}
-        options={{
-          tabBarLabel: 'Health',
-          tabBarIcon: ({ color, size }) => <Ionicons name="heart-outline" size={size} color={color} />,
+          tabBarIcon: ({ color, size }) => <Ionicons name="compass-outline" size={size - 1} color={color} />,
         }}
       />
       <Tab.Screen
@@ -139,29 +149,23 @@ function TabNavigator() {
         component={LogMealScreen}
         options={{
           tabBarLabel: 'Log',
-          tabBarIcon: ({ color, size }) => <Ionicons name="camera-outline" size={size} color={color} />,
+          tabBarIcon: ({ color, size }) => <Ionicons name="camera-outline" size={size + 1} color={color} />,
         }}
       />
-      {/* Merges History, Tier List, and Recaps behind a segmented control —
-          three sorts of the same meal data, not three separate concerns.
-          The original screens stay registered below (Root.Navigator) so
-          by-name navigation to them — e.g. LogMealScreen's
-          navigate('TierList', { newMealId }) — still resolves; it now
-          presents as a full-screen push instead of a tab switch. */}
+      <Tab.Screen
+        name="Health"
+        component={DiaryScreen}
+        options={{
+          tabBarLabel: 'Health',
+          tabBarIcon: ({ color, size }) => <Ionicons name="heart-outline" size={size - 1} color={color} />,
+        }}
+      />
       <Tab.Screen
         name="Yours"
         component={YoursScreen}
         options={{
-          tabBarLabel: 'Yours',
-          tabBarIcon: ({ color, size }) => <Ionicons name="albums-outline" size={size} color={color} />,
-        }}
-      />
-      <Tab.Screen
-        name="Profile"
-        component={MyProfileScreen}
-        options={{
           tabBarLabel: 'Profile',
-          tabBarIcon: ({ color, size }) => <Ionicons name="person-outline" size={size} color={color} />,
+          tabBarIcon: ({ color, size }) => <Ionicons name="person-circle-outline" size={size} color={color} />,
         }}
       />
     </Tab.Navigator>
