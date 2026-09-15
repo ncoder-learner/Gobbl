@@ -15,15 +15,18 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { localDateKey } from '../lib/dateKey';
 import { computeWeeklyInsights } from '../lib/nutritionEngine';
+import { getHealthGuidance } from '../lib/healthGuidance';
 import DietSetupScreen, { GOAL_OPTIONS, RESTRICTION_OPTIONS } from './DietSetupScreen';
 import MealLogModal from '../components/MealLogModal';
 import { THEME as C } from '../lib/theme';
 import { useAppForeground } from '../lib/useAppForeground';
 
 export default function DiaryScreen() {
+  const navigation = useNavigation();
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const compact = width < 380;
@@ -195,8 +198,9 @@ export default function DiaryScreen() {
     );
   };
 
-  // If no diet setup exists yet, display setup wizard directly first!
-  if (!loading && !preferences) {
+  // A row is not a completed plan. This prevents defaults left by an earlier
+  // failed setup from bypassing the user's first diet selection.
+  if (!loading && (!preferences || !preferences.plan_completed_at)) {
     return (
       <DietSetupScreen
         userId={userId}
@@ -230,6 +234,11 @@ export default function DiaryScreen() {
   const carbsProgress = Math.min(1, totals.carbs / (targetCarbs || 1));
   const fatProgress = Math.min(1, totals.fat / (targetFat || 1));
   const waterProgress = Math.min(1, waterMl / (targetWaterMl || 1));
+  const calorieScore = totals.calories === 0 ? 0 : Math.max(0, 100 - Math.round(Math.abs(totals.calories - targetCal) / targetCal * 100));
+  const macroScore = Math.round((proteinProgress + carbsProgress + fatProgress) / 3 * 100);
+  const healthScore = totals.calories === 0
+    ? 0
+    : Math.round(calorieScore * 0.45 + macroScore * 0.4 + Math.min(100, waterProgress * 100) * 0.15);
 
   // Meal breakdown calories
   const mealBreakdown = todayMeals.reduce((acc, m) => {
@@ -240,6 +249,7 @@ export default function DiaryScreen() {
 
   // Goal & Badges info
   const currentGoalObj = GOAL_OPTIONS.find((g) => g.id === preferences?.primary_goal);
+  const guidance = getHealthGuidance(preferences?.primary_goal);
   const activeRestrictions = (preferences?.dietary_restrictions || preferences?.inclusions || []).map((rId) => {
     return RESTRICTION_OPTIONS.find((r) => r.id === rId) || { label: rId, icon: 'shield-outline' };
   });
@@ -310,6 +320,28 @@ export default function DiaryScreen() {
             <Text style={styles.badgeTextWater}>{targetWaterL}L Target</Text>
           </View>
         </ScrollView>
+
+        <View style={styles.dailyPulse}>
+          <View style={[styles.calorieRing, remainingCal < 0 && styles.calorieRingOver]}>
+            <View style={styles.calorieRingInner}>
+              <Text style={styles.ringNumber}>{totals.calories}</Text>
+              <Text style={styles.ringLabel}>OF {targetCal} KCAL</Text>
+            </View>
+          </View>
+          <View style={styles.pulseCopy}>
+            <Text style={styles.cardEyebrow}>TODAY'S PULSE</Text>
+            <Text style={styles.pulseTitle}>
+              {totals.calories === 0 ? 'Start your day strong' : remainingCal >= 0 ? `${remainingCal} kcal remaining` : `${Math.abs(remainingCal)} kcal over target`}
+            </Text>
+            <Text style={styles.pulseBody}>
+              {totals.calories === 0 ? 'Log a meal or post it to the Feed to start your nutrition picture.' : 'A transparent daily balance of energy, macros, and hydration.'}
+            </Text>
+          </View>
+          <View style={styles.scoreOrb}>
+            <Text style={styles.scoreOrbValue}>{healthScore}</Text>
+            <Text style={styles.scoreOrbLabel}>HEALTH{`\n`}SCORE</Text>
+          </View>
+        </View>
 
         {/* TOP SUMMARY CARD: CALORIE BUDGET & WATER */}
         <View style={styles.dashboardCard}>
@@ -525,6 +557,38 @@ export default function DiaryScreen() {
               />
             </View>
           </View>
+        </View>
+
+        <View style={styles.guidanceCard}>
+          <View style={styles.guidanceHeader}>
+            <View>
+              <Text style={styles.cardEyebrow}>YOUR NEXT MOVE</Text>
+              <Text style={styles.guidanceTitle}>Plan support for today</Text>
+            </View>
+            <Ionicons name="sparkles-outline" size={20} color={C.gold} />
+          </View>
+          <View style={styles.guidanceRow}>
+            <View style={[styles.guidanceIcon, { backgroundColor: '#1c3023' }]}>
+              <Ionicons name="barbell-outline" size={18} color="#30d158" />
+            </View>
+            <View style={styles.guidanceCopy}>
+              <Text style={styles.guidanceLabel}>PROGRESSIVE WORKOUT</Text>
+              <Text style={styles.guidanceText}>{guidance.workout}</Text>
+            </View>
+          </View>
+          <View style={styles.guidanceRow}>
+            <View style={[styles.guidanceIcon, { backgroundColor: '#302015' }]}>
+              <Ionicons name="restaurant-outline" size={18} color={C.orange} />
+            </View>
+            <View style={styles.guidanceCopy}>
+              <Text style={styles.guidanceLabel}>MEAL IDEA</Text>
+              <Text style={styles.guidanceText}>{guidance.meal}</Text>
+            </View>
+          </View>
+          <TouchableOpacity style={styles.feedBridge} onPress={() => navigation.navigate('Feed')} activeOpacity={0.8}>
+            <Ionicons name="people-outline" size={16} color={C.bg} />
+            <Text style={styles.feedBridgeText}>Open Feed: {guidance.feed}</Text>
+          </TouchableOpacity>
         </View>
 
         {/* QUICK LOG ACTION BUTTON */}
@@ -811,6 +875,26 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
+  dailyPulse: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: '#24130d', borderWidth: 1, borderColor: '#5a2b18',
+    borderRadius: 30, padding: 16, marginBottom: 14,
+  },
+  calorieRing: {
+    width: 92, height: 92, borderRadius: 46, borderWidth: 8,
+    borderColor: '#3d2419', borderTopColor: C.orange, borderRightColor: C.orange,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  calorieRingOver: { borderTopColor: '#ef4444', borderRightColor: '#ef4444' },
+  calorieRingInner: { alignItems: 'center', justifyContent: 'center' },
+  ringNumber: { color: C.white, fontFamily: C.serif, fontSize: 25, lineHeight: 28 },
+  ringLabel: { color: C.gray1, fontSize: 8, fontWeight: '800', letterSpacing: 0.5 },
+  pulseCopy: { flex: 1 },
+  pulseTitle: { color: C.white, fontSize: 16, fontWeight: '800', marginBottom: 4 },
+  pulseBody: { color: C.gray1, fontSize: 11, lineHeight: 15 },
+  scoreOrb: { width: 52, height: 52, borderRadius: 26, backgroundColor: '#163325', alignItems: 'center', justifyContent: 'center' },
+  scoreOrbValue: { color: '#30d158', fontSize: 19, fontWeight: '900', lineHeight: 20 },
+  scoreOrbLabel: { color: '#79dca1', fontSize: 7, lineHeight: 8, textAlign: 'center', fontWeight: '800', letterSpacing: 0.4 },
   dashboardCard: {
     backgroundColor: '#141416',
     borderColor: '#242428',
@@ -1062,6 +1146,16 @@ const styles = StyleSheet.create({
     padding: 16,
     marginBottom: 20,
   },
+  guidanceCard: { backgroundColor: '#121d19', borderWidth: 1, borderColor: '#294337', borderRadius: 28, padding: 18, marginBottom: 14, gap: 14 },
+  guidanceHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  guidanceTitle: { color: C.white, fontFamily: C.serif, fontSize: 23 },
+  guidanceRow: { flexDirection: 'row', gap: 11, alignItems: 'flex-start' },
+  guidanceIcon: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
+  guidanceCopy: { flex: 1 },
+  guidanceLabel: { color: C.gold, fontSize: 10, fontWeight: '900', letterSpacing: 0.8, marginBottom: 3 },
+  guidanceText: { color: C.gray1, fontSize: 12, lineHeight: 17 },
+  feedBridge: { flexDirection: 'row', gap: 8, alignItems: 'center', backgroundColor: C.gold, borderRadius: 999, paddingVertical: 11, paddingHorizontal: 14 },
+  feedBridgeText: { color: C.bg, fontSize: 11, fontWeight: '800', flex: 1 },
   quickLogLeft: {
     flexDirection: 'row',
     alignItems: 'center',

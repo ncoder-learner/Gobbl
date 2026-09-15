@@ -217,6 +217,7 @@ export default function DietSetupScreen({ userId, onSaved, onClose }) {
         dietary_restrictions: selectedRestrictions,
         inclusions: selectedRestrictions,
         disclaimer_accepted_at: nowIso,
+        plan_completed_at: nowIso,
         updated_at: nowIso,
       };
 
@@ -237,6 +238,7 @@ export default function DietSetupScreen({ userId, onSaved, onClose }) {
           water_liters: numWater,
           sodium_mg_limit: numSodium,
           dietary_restrictions: selectedRestrictions,
+          plan_completed_at: nowIso,
           updated_at: nowIso,
         };
         const { error: fallbackError } = await supabase

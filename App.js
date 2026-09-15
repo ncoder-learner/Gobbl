@@ -137,11 +137,11 @@ function TabNavigator() {
         }}
       />
       <Tab.Screen
-        name="Discover"
-        component={DiscoverScreen}
+        name="Health"
+        component={DiaryScreen}
         options={{
-          tabBarLabel: 'Discover',
-          tabBarIcon: ({ color, size }) => <Ionicons name="compass-outline" size={size - 1} color={color} />,
+          tabBarLabel: 'Health',
+          tabBarIcon: ({ color, size }) => <Ionicons name="heart-outline" size={size - 1} color={color} />,
         }}
       />
       <Tab.Screen
@@ -153,11 +153,11 @@ function TabNavigator() {
         }}
       />
       <Tab.Screen
-        name="Health"
-        component={DiaryScreen}
+        name="Discover"
+        component={DiscoverScreen}
         options={{
-          tabBarLabel: 'Health',
-          tabBarIcon: ({ color, size }) => <Ionicons name="heart-outline" size={size - 1} color={color} />,
+          tabBarLabel: 'Discover',
+          tabBarIcon: ({ color, size }) => <Ionicons name="compass-outline" size={size - 1} color={color} />,
         }}
       />
       <Tab.Screen

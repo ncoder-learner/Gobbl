@@ -991,6 +991,7 @@ export default function DayBoardScreen() {
   const [pendingRequests, setPendingRequests] = useState(0);
   const [streak, setStreak] = useState(0);
   const [loggedToday, setLoggedToday] = useState(false);
+  const [dietFocus, setDietFocus] = useState(null);
   const [dayOffset, setDayOffset] = useState(0);
   const [likeCounts, setLikeCounts] = useState({});    // mealId -> count
   const [commentCounts, setCommentCounts] = useState({}); // mealId -> count
@@ -1033,6 +1034,9 @@ export default function DayBoardScreen() {
         return;
       }
       setCurrentUserId(user.id);
+      supabase.from('user_diet_preferences').select('primary_goal, plan_completed_at').eq('user_id', user.id).maybeSingle()
+        .then(({ data }) => setDietFocus(data?.plan_completed_at ? data.primary_goal : null))
+        .catch(() => setDietFocus(null));
       supabase.from('profiles').update({ last_seen_at: new Date().toISOString() }).eq('id', user.id).then(() => {}).catch(() => {});
 
       const targetDate = new Date();
@@ -1519,6 +1523,9 @@ export default function DayBoardScreen() {
           <TouchableOpacity style={styles.iconChip} onPress={startTour} hitSlop={8}>
             <Ionicons name="help-outline" size={16} color={C.white} />
           </TouchableOpacity>
+          <TouchableOpacity style={styles.iconChip} onPress={() => navigation.navigate('TierList')} hitSlop={8}>
+            <Ionicons name="trophy-outline" size={16} color={C.gold} />
+          </TouchableOpacity>
           <TourTarget id="board.map" action={() => navigation.navigate('Map')}>
             <TouchableOpacity style={styles.iconChip} onPress={() => navigation.navigate('Map')} hitSlop={8}>
               <Ionicons name="map-outline" size={15} color={C.white} />
@@ -1626,6 +1633,17 @@ export default function DayBoardScreen() {
               onNudge={handleNudgeFriend}
             />
           )}
+
+          <TouchableOpacity style={styles.storyPromptCard} onPress={handleCompose} activeOpacity={0.85}>
+            <View style={styles.storyPromptIcon}>
+              <Ionicons name={loggedToday ? 'checkmark' : 'camera-outline'} size={18} color={C.bg} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.storyPromptEyebrow}>TODAY'S TABLE PROMPT</Text>
+              <Text style={styles.storyPromptTitle}>{dietFocus === 'muscle_gain' ? 'Show your recovery fuel to the crew.' : dietFocus === 'weight_loss' ? 'Share a satisfying lean-day plate.' : loggedToday ? 'You shared today. Add the next course?' : 'What is one meal worth sharing today?'}</Text>
+            </View>
+            <Ionicons name="arrow-forward" size={18} color={C.gold} />
+          </TouchableOpacity>
 
           {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
@@ -1908,6 +1926,10 @@ const styles = StyleSheet.create({
   statusDotOnline: { backgroundColor: C.green },
   statusDotOffline: { backgroundColor: C.gray2 },
   storySubText: { color: C.gray2, fontSize: 9, maxWidth: 62, textAlign: 'center', marginTop: 1 },
+  storyPromptCard: { flexDirection: 'row', alignItems: 'center', gap: 12, marginHorizontal: BOARD_GUTTER, marginBottom: 22, padding: 14, backgroundColor: '#1e1711', borderWidth: 1, borderColor: '#4c3420', borderRadius: 24 },
+  storyPromptIcon: { width: 38, height: 38, borderRadius: 19, backgroundColor: C.gold, alignItems: 'center', justifyContent: 'center' },
+  storyPromptEyebrow: { color: C.gold, fontSize: 9, fontWeight: '900', letterSpacing: 1 },
+  storyPromptTitle: { color: C.white, fontSize: 13, lineHeight: 18, fontWeight: '700', marginTop: 2 },
 
   nudgeOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.72)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 20 },
   nudgeCard: { width: '100%', maxWidth: 340, backgroundColor: C.surface, borderRadius: 24, padding: 24, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)' },
