@@ -20,7 +20,7 @@ import { supabase } from '../lib/supabase';
 import { localDateKey } from '../lib/dateKey';
 import { computeWeeklyInsights } from '../lib/nutritionEngine';
 import { getHealthGuidance } from '../lib/healthGuidance';
-import DietSetupScreen, { GOAL_OPTIONS, RESTRICTION_OPTIONS } from './DietSetupScreen';
+import DietSetupScreen, { GOAL_OPTIONS, RESTRICTION_OPTIONS, SPORT_OPTIONS } from './DietSetupScreen';
 import MealLogModal from '../components/MealLogModal';
 import { THEME as C } from '../lib/theme';
 import { useAppForeground } from '../lib/useAppForeground';
@@ -249,7 +249,8 @@ export default function DiaryScreen() {
 
   // Goal & Badges info
   const currentGoalObj = GOAL_OPTIONS.find((g) => g.id === preferences?.primary_goal);
-  const guidance = getHealthGuidance(preferences?.primary_goal);
+  const selectedSport = SPORT_OPTIONS.find((sport) => sport.id === preferences?.sport);
+  const guidance = getHealthGuidance(preferences?.primary_goal, preferences?.sport);
   const activeRestrictions = (preferences?.dietary_restrictions || preferences?.inclusions || []).map((rId) => {
     return RESTRICTION_OPTIONS.find((r) => r.id === rId) || { label: rId, icon: 'shield-outline' };
   });
@@ -305,6 +306,13 @@ export default function DiaryScreen() {
             <View style={styles.badgeItemGoal}>
               <Ionicons name={currentGoalObj.icon} size={14} color={C.orange} />
               <Text style={styles.badgeTextGoal}>{currentGoalObj.label}</Text>
+            </View>
+          )}
+
+          {selectedSport && (
+            <View style={styles.badgeItemGoal}>
+              <Ionicons name={selectedSport.icon} size={14} color={C.gold} />
+              <Text style={styles.badgeTextGoal}>{selectedSport.label}</Text>
             </View>
           )}
 

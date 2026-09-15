@@ -30,6 +30,13 @@ export const GOAL_OPTIONS = [
     defaults: { calories: 2600, protein: 160, carbs: 300, fat: 80, water: 3.5, sodium: 2400 },
   },
   {
+    id: 'sport_performance',
+    label: 'Sport Performance',
+    icon: 'trophy-outline',
+    subtitle: 'Training-day fuel and recovery targets built around your sport',
+    defaults: { calories: 2700, protein: 150, carbs: 340, fat: 80, water: 4.0, sodium: 2500 },
+  },
+  {
     id: 'weight_loss',
     label: 'Lean / Deficit',
     icon: 'trending-down-outline',
@@ -59,6 +66,15 @@ export const GOAL_OPTIONS = [
   },
 ];
 
+export const SPORT_OPTIONS = [
+  { id: 'football', label: 'Football', icon: 'football-outline', defaults: { calories: 2900, protein: 165, carbs: 380, fat: 85, water: 4.0, sodium: 2600 } },
+  { id: 'basketball', label: 'Basketball', icon: 'basketball-outline', defaults: { calories: 2800, protein: 155, carbs: 365, fat: 80, water: 4.0, sodium: 2500 } },
+  { id: 'running', label: 'Running', icon: 'walk-outline', defaults: { calories: 2700, protein: 135, carbs: 400, fat: 70, water: 4.0, sodium: 2500 } },
+  { id: 'swimming', label: 'Swimming', icon: 'water-outline', defaults: { calories: 2800, protein: 150, carbs: 375, fat: 75, water: 4.0, sodium: 2500 } },
+  { id: 'bodybuilding', label: 'Strength', icon: 'barbell-outline', defaults: { calories: 2800, protein: 175, carbs: 325, fat: 85, water: 3.8, sodium: 2500 } },
+  { id: 'other_sport', label: 'Other sport', icon: 'fitness-outline', defaults: { calories: 2700, protein: 150, carbs: 340, fat: 80, water: 4.0, sodium: 2500 } },
+];
+
 export const RESTRICTION_OPTIONS = [
   { id: 'gluten_free', label: 'Gluten-Free', icon: 'shield-checkmark-outline' },
   { id: 'dairy_free', label: 'Dairy-Free', icon: 'water-outline' },
@@ -77,6 +93,7 @@ export default function DietSetupScreen({ userId, onSaved, onClose }) {
   const [resolvedUserId, setResolvedUserId] = useState(userId || null);
   const [step, setStep] = useState(1); // 1: Goal, 2: Restrictions, 3: Daily Target Presets
   const [selectedGoal, setSelectedGoal] = useState('maintenance');
+  const [selectedSport, setSelectedSport] = useState(null);
   const [selectedRestrictions, setSelectedRestrictions] = useState([]);
   const [calories, setCalories] = useState('2200');
   const [protein, setProtein] = useState('120');
@@ -118,6 +135,7 @@ export default function DietSetupScreen({ userId, onSaved, onClose }) {
 
         if (data && isMounted) {
           setSelectedGoal(data.primary_goal || 'maintenance');
+          setSelectedSport(data.sport || null);
           setSelectedRestrictions(data.dietary_restrictions || data.inclusions || []);
           setCalories(String(data.calories || data.target_calories || 2200));
           setProtein(String(data.protein_grams || data.target_protein_g || 120));
@@ -146,6 +164,30 @@ export default function DietSetupScreen({ userId, onSaved, onClose }) {
       setWater(String(goalObj.defaults.water));
       setSodium(String(goalObj.defaults.sodium));
     }
+  };
+
+  const applyTargets = (defaults) => {
+    setCalories(String(defaults.calories));
+    setProtein(String(defaults.protein));
+    setCarbs(String(defaults.carbs));
+    setFat(String(defaults.fat));
+    setWater(String(defaults.water));
+    setSodium(String(defaults.sodium));
+  };
+
+  const handleSelectSport = (sportId) => {
+    setSelectedSport(sportId);
+    const sport = SPORT_OPTIONS.find((item) => item.id === sportId);
+    if (sport?.defaults) applyTargets(sport.defaults);
+  };
+
+  const handleNextFromGoal = () => {
+    if (selectedGoal === 'sport_performance' && !selectedSport) {
+      setErrorMsg('Choose your sport so we can set the right training-day targets.');
+      return;
+    }
+    setErrorMsg(null);
+    setStep(2);
   };
 
   const toggleRestriction = (restId) => {
@@ -184,6 +226,12 @@ export default function DietSetupScreen({ userId, onSaved, onClose }) {
         uid = user?.id || null;
       }
 
+      if (selectedGoal === 'sport_performance' && !selectedSport) {
+        setErrorMsg('Choose your sport before saving a Sport Performance plan.');
+        setSaving(false);
+        return;
+      }
+
       if (!uid) {
         setErrorMsg('Please sign in to save your diet preferences.');
         setSaving(false);
@@ -205,6 +253,7 @@ export default function DietSetupScreen({ userId, onSaved, onClose }) {
         // general/default plan bucket until the product exposes locations.
         spot: 'general',
         primary_goal: selectedGoal,
+        sport: selectedGoal === 'sport_performance' ? selectedSport : null,
         calories: numCal,
         target_calories: numCal,
         protein_grams: numProtein,
@@ -231,6 +280,7 @@ export default function DietSetupScreen({ userId, onSaved, onClose }) {
           user_id: uid,
           spot: 'general',
           primary_goal: selectedGoal,
+          sport: selectedGoal === 'sport_performance' ? selectedSport : null,
           calories: numCal,
           protein_grams: numProtein,
           carbs_grams: numCarbs,
@@ -362,9 +412,37 @@ export default function DietSetupScreen({ userId, onSaved, onClose }) {
               })}
             </View>
 
+            {selectedGoal === 'sport_performance' && (
+              <View style={styles.sportPicker}>
+                <View style={styles.sportPickerHeader}>
+                  <View>
+                    <Text style={styles.sportPickerTitle}>Which sport do you train for?</Text>
+                    <Text style={styles.sportPickerSub}>We will start you with sport-specific fuel and hydration targets.</Text>
+                  </View>
+                  <Ionicons name="trophy-outline" size={20} color={C.gold} />
+                </View>
+                <View style={styles.sportGrid}>
+                  {SPORT_OPTIONS.map((sport) => {
+                    const active = selectedSport === sport.id;
+                    return (
+                      <TouchableOpacity
+                        key={sport.id}
+                        style={[styles.sportChip, active && styles.sportChipActive]}
+                        onPress={() => handleSelectSport(sport.id)}
+                        activeOpacity={0.8}
+                      >
+                        <Ionicons name={sport.icon} size={16} color={active ? C.bg : C.gold} />
+                        <Text style={[styles.sportChipText, active && styles.sportChipTextActive]}>{sport.label}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+            )}
+
             <TouchableOpacity
               style={styles.actionButton}
-              onPress={() => setStep(2)}
+              onPress={handleNextFromGoal}
               activeOpacity={0.85}
             >
               <Text style={styles.actionButtonText}>Next: Allergens & Diet →</Text>
@@ -739,6 +817,18 @@ const styles = StyleSheet.create({
     gap: 12,
     marginBottom: 26,
   },
+  sportPicker: {
+    backgroundColor: '#1d1711', borderWidth: 1, borderColor: '#4b351f',
+    borderRadius: 24, padding: 16, marginTop: -10, marginBottom: 22,
+  },
+  sportPickerHeader: { flexDirection: 'row', justifyContent: 'space-between', gap: 12, marginBottom: 13 },
+  sportPickerTitle: { color: C.white, fontSize: 16, fontWeight: '800' },
+  sportPickerSub: { color: C.gray1, fontSize: 11, lineHeight: 16, marginTop: 3, maxWidth: 260 },
+  sportGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  sportChip: { flexDirection: 'row', alignItems: 'center', gap: 6, borderRadius: 999, paddingHorizontal: 11, paddingVertical: 9, borderWidth: 1, borderColor: '#60472a', backgroundColor: '#271e15' },
+  sportChipActive: { backgroundColor: C.gold, borderColor: C.gold },
+  sportChipText: { color: C.gold, fontSize: 12, fontWeight: '700' },
+  sportChipTextActive: { color: C.bg },
   goalCard: {
     flexDirection: 'row',
     alignItems: 'center',
