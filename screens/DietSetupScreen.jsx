@@ -201,6 +201,9 @@ export default function DietSetupScreen({ userId, onSaved, onClose }) {
       // Send both current schema and legacy schema columns to ensure 100% save success
       const payload = {
         user_id: uid,
+        // `spot` is required by the deployed table. It represents the
+        // general/default plan bucket until the product exposes locations.
+        spot: 'general',
         primary_goal: selectedGoal,
         calories: numCal,
         target_calories: numCal,
@@ -225,6 +228,7 @@ export default function DietSetupScreen({ userId, onSaved, onClose }) {
         // If some column didn't exist in older migration, try with standard subset
         const fallbackPayload = {
           user_id: uid,
+          spot: 'general',
           primary_goal: selectedGoal,
           calories: numCal,
           protein_grams: numProtein,
