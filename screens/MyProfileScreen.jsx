@@ -459,14 +459,14 @@ const styles = StyleSheet.create({
   },
   statCard: {
     flex: 1, alignItems: 'center', paddingVertical: 14,
-    backgroundColor: C.glassBg, borderRadius: 16,
+    backgroundColor: C.glassBg, borderRadius: 24,
     borderWidth: 1, borderColor: 'rgba(245,245,247,0.08)',
   },
   statValue: { fontFamily: C.serif, fontSize: 24, color: C.white, lineHeight: 26 },
   statLabel: { fontSize: 10, color: 'rgba(245,245,247,0.45)', marginTop: 4 },
 
   winsCard: {
-    backgroundColor: C.glassBg, borderRadius: 16,
+    backgroundColor: C.glassBg, borderRadius: 24,
     paddingVertical: 16, paddingHorizontal: 16,
     marginBottom: 24, width: '100%',
     borderWidth: 1, borderColor: C.glassBorder,

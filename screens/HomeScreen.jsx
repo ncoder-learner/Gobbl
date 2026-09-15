@@ -694,7 +694,7 @@ const styles = StyleSheet.create({
     backgroundColor: C.surface,
     borderWidth: 0.5,
     borderColor: C.border,
-    borderRadius: 16,
+    borderRadius: 30,
     padding: 14,
     flexDirection: 'row',
     alignItems: 'center',
