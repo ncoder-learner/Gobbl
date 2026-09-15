@@ -253,7 +253,7 @@ export default function DietSetupScreen({ userId, onSaved, onClose }) {
         // general/default plan bucket until the product exposes locations.
         spot: 'general',
         primary_goal: selectedGoal,
-        sport: selectedGoal === 'sport_performance' ? selectedSport : null,
+        sport: selectedGoal === 'sport_performance' ? selectedSport : 'casual_fitness',
         calories: numCal,
         target_calories: numCal,
         protein_grams: numProtein,
@@ -280,7 +280,7 @@ export default function DietSetupScreen({ userId, onSaved, onClose }) {
           user_id: uid,
           spot: 'general',
           primary_goal: selectedGoal,
-          sport: selectedGoal === 'sport_performance' ? selectedSport : null,
+          sport: selectedGoal === 'sport_performance' ? selectedSport : 'casual_fitness',
           calories: numCal,
           protein_grams: numProtein,
           carbs_grams: numCarbs,
