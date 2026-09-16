@@ -86,8 +86,11 @@ export const RESTRICTION_OPTIONS = [
   { id: 'none', label: 'No Restrictions', icon: 'checkmark-circle-outline' },
 ];
 
+export const PRIMARY_GOAL_IDS = GOAL_OPTIONS.map((g) => g.id);
+
 export default function DietSetupScreen({ userId, onSaved, onClose }) {
   const { width } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const compact = width < 380;
 
   const [resolvedUserId, setResolvedUserId] = useState(userId || null);
@@ -99,7 +102,6 @@ export default function DietSetupScreen({ userId, onSaved, onClose }) {
   const [protein, setProtein] = useState('120');
   const [carbs, setCarbs] = useState('250');
   const [fat, setFat] = useState('70');
-  const [water, setWater] = useState('3.0');
   const [sodium, setSodium] = useState('2300');
 
   const [initialLoading, setInitialLoading] = useState(true);
@@ -141,7 +143,6 @@ export default function DietSetupScreen({ userId, onSaved, onClose }) {
           setProtein(String(data.protein_grams || data.target_protein_g || 120));
           setCarbs(String(data.carbs_grams || 250));
           setFat(String(data.fat_grams || 70));
-          setWater(String(data.water_liters || 3.0));
           setSodium(String(data.sodium_mg_limit || data.target_sodium_mg || 2300));
         }
       } catch (err) {
@@ -161,7 +162,6 @@ export default function DietSetupScreen({ userId, onSaved, onClose }) {
       setProtein(String(goalObj.defaults.protein));
       setCarbs(String(goalObj.defaults.carbs));
       setFat(String(goalObj.defaults.fat));
-      setWater(String(goalObj.defaults.water));
       setSodium(String(goalObj.defaults.sodium));
     }
   };
@@ -171,7 +171,6 @@ export default function DietSetupScreen({ userId, onSaved, onClose }) {
     setProtein(String(defaults.protein));
     setCarbs(String(defaults.carbs));
     setFat(String(defaults.fat));
-    setWater(String(defaults.water));
     setSodium(String(defaults.sodium));
   };
 
@@ -242,9 +241,11 @@ export default function DietSetupScreen({ userId, onSaved, onClose }) {
       const numProtein = Math.max(20, Number(protein) || 120);
       const numCarbs = Math.max(0, Number(carbs) || 200);
       const numFat = Math.max(10, Number(fat) || 60);
-      const numWater = Math.max(0.5, Number(water) || 3.0);
       const numSodium = Math.max(500, Number(sodium) || 2300);
       const nowIso = new Date().toISOString();
+      const primaryGoal = PRIMARY_GOAL_IDS.includes(selectedGoal) ? selectedGoal : 'no_restriction';
+      const goalDefaults = GOAL_OPTIONS.find((g) => g.id === primaryGoal)?.defaults;
+      const numWater = Math.max(0.5, Number(goalDefaults?.water) || 3.0);
 
       // Send both current schema and legacy schema columns to ensure 100% save success
       const payload = {
@@ -252,7 +253,7 @@ export default function DietSetupScreen({ userId, onSaved, onClose }) {
         // `spot` is required by the deployed table. It represents the
         // general/default plan bucket until the product exposes locations.
         spot: 'general',
-        primary_goal: selectedGoal,
+        primary_goal: primaryGoal,
         sport: selectedGoal === 'sport_performance' ? selectedSport : 'casual_fitness',
         calories: numCal,
         target_calories: numCal,
@@ -279,7 +280,7 @@ export default function DietSetupScreen({ userId, onSaved, onClose }) {
         const fallbackPayload = {
           user_id: uid,
           spot: 'general',
-          primary_goal: selectedGoal,
+          primary_goal: primaryGoal,
           sport: selectedGoal === 'sport_performance' ? selectedSport : 'casual_fitness',
           calories: numCal,
           protein_grams: numProtein,
@@ -322,7 +323,7 @@ export default function DietSetupScreen({ userId, onSaved, onClose }) {
   return (
     <View style={styles.container}>
       {/* Top Bar with Step Indicators */}
-      <View style={styles.topBar}>
+      <View style={[styles.topBar, { paddingTop: Math.max(insets.top, 12) }]}>
         <TouchableOpacity
           style={styles.navIconBtn}
           onPress={() => (step > 1 ? setStep(step - 1) : onClose?.())}
@@ -643,48 +644,6 @@ export default function DietSetupScreen({ userId, onSaved, onClose }) {
               </View>
             </View>
 
-            {/* Hydration Goal */}
-            <View style={styles.targetCard}>
-              <View style={styles.targetHeader}>
-                <View style={[styles.targetIconWrap, { backgroundColor: '#0e2b3d' }]}>
-                  <Ionicons name="water-outline" size={20} color="#38bdf8" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.targetTitle}>Hydration Target</Text>
-                  <Text style={styles.targetHint}>Recommended daily fluid intake</Text>
-                </View>
-                <View style={styles.targetValueWrap}>
-                  <TextInput
-                    style={styles.targetInput}
-                    keyboardType="numeric"
-                    value={water}
-                    onChangeText={setWater}
-                  />
-                  <Text style={styles.targetUnit}>L</Text>
-                </View>
-              </View>
-              <View style={styles.stepperRow}>
-                <TouchableOpacity
-                  style={styles.stepperBtn}
-                  onPress={() => adjustValue(setWater, water, -0.25, 1.0, 0.1)}
-                >
-                  <Text style={styles.stepperBtnText}>-0.25L</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.stepperBtn}
-                  onPress={() => adjustValue(setWater, water, +0.25, 1.0, 0.1)}
-                >
-                  <Text style={styles.stepperBtnText}>+0.25L</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.stepperBtn}
-                  onPress={() => adjustValue(setWater, water, +0.5, 1.0, 0.1)}
-                >
-                  <Text style={styles.stepperBtnText}>+0.5L</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-
             <TouchableOpacity
               style={[styles.actionButton, saving && styles.actionButtonDisabled]}
               onPress={handleSave}
@@ -772,7 +731,7 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: 20,
     paddingTop: 20,
-    paddingBottom: 48,
+    paddingBottom: 48 + 12,
   },
   errorBanner: {
     flexDirection: 'row',

@@ -190,7 +190,7 @@ function WinsCard({ wins, history }) {
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
-export default function MyProfileScreen() {
+export default function MyProfileScreen({ embedded = false }) {
   const navigation = useNavigation();
 
   const [profile, setProfile]       = useState(null);
@@ -352,7 +352,7 @@ export default function MyProfileScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.safe} edges={['top']}>
+      <SafeAreaView style={styles.safe} edges={embedded ? [] : ['top']}>
         <StatusBar barStyle="light-content" backgroundColor={C.bg} />
         <View style={styles.loadingBox}>
           <ActivityIndicator color={C.orange} />

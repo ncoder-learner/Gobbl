@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -10,83 +10,72 @@ import {
   ScrollView,
   RefreshControl,
   Alert,
-  Animated,
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
 import { supabase } from '../lib/supabase';
 import { localDateKey } from '../lib/dateKey';
-import { computeWeeklyInsights } from '../lib/nutritionEngine';
+import { computeWeeklyInsights, computeDayStatus } from '../lib/nutritionEngine';
 import { getHealthGuidance } from '../lib/healthGuidance';
 import DietSetupScreen, { GOAL_OPTIONS, RESTRICTION_OPTIONS, SPORT_OPTIONS } from './DietSetupScreen';
 import MealLogModal from '../components/MealLogModal';
+import ProgressRing from '../components/ProgressRing';
 import { THEME as C } from '../lib/theme';
 import { useAppForeground } from '../lib/useAppForeground';
 
+
+const compact = false;
+
+function formatTime(iso) {
+  if (!iso) return '';
+  try {
+    return new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  } catch {
+    return '';
+  }
+}
+
+function MacroRow({ label, value, target, color }) {
+  const progress = Math.min(1, (Number(value) || 0) / Math.max(1, Number(target) || 1));
+  return (
+    <View style={styles.macroBlock}>
+      <View style={styles.macroBlockHeader}>
+        <View style={styles.macroLabelLeft}>
+          <View style={[styles.macroColorDot, { backgroundColor: color }]} />
+          <Text style={styles.macroTitle}>{label}</Text>
+        </View>
+        <Text style={styles.macroNumbers}>
+          <Text style={{ color: C.white, fontWeight: '700' }}>{Math.round(value || 0)}</Text>
+          <Text style={{ color: C.gray2 }}> / {target}g</Text>
+        </Text>
+      </View>
+      <View style={styles.macroBarBg}>
+        <View
+          style={[
+            styles.macroBarFill,
+            { width: `${Math.round(progress * 100)}%`, backgroundColor: color },
+          ]}
+        />
+      </View>
+    </View>
+  );
+}
+
 export default function DiaryScreen() {
-  const navigation = useNavigation();
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const compact = width < 380;
+  const pagePad = compact ? 16 : 20;
 
   const [userId, setUserId] = useState(null);
   const [preferences, setPreferences] = useState(null);
   const [todayMeals, setTodayMeals] = useState([]);
-  const [weekMeals, setWeekMeals] = useState([]);
-  const [waterMl, setWaterMl] = useState(0);
   const [insights, setInsights] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState(null);
   const [setupOpen, setSetupOpen] = useState(false);
   const [logOpen, setLogOpen] = useState(false);
-
-  // Animated water wave pulse
-  const waterScaleAnim = useRef(new Animated.Value(1)).current;
-
-  const getWaterStorageKey = (uid, dateKey) => `@gobbl_water_${uid}_${dateKey}`;
-
-  const loadWater = useCallback(async (uid, dateKey) => {
-    if (!uid) return;
-    try {
-      const stored = await AsyncStorage.getItem(getWaterStorageKey(uid, dateKey));
-      if (stored !== null) {
-        setWaterMl(Number(stored) || 0);
-      } else {
-        setWaterMl(0);
-      }
-    } catch (_) {}
-  }, []);
-
-  const saveWater = async (newVal) => {
-    const clamped = Math.max(0, newVal);
-    setWaterMl(clamped);
-    if (userId) {
-      const today = localDateKey(new Date());
-      try {
-        await AsyncStorage.setItem(getWaterStorageKey(userId, today), String(clamped));
-      } catch (_) {}
-    }
-  };
-
-  const addWater = (deltaMl) => {
-    Animated.sequence([
-      Animated.timing(waterScaleAnim, {
-        toValue: 1.08,
-        duration: 120,
-        useNativeDriver: true,
-      }),
-      Animated.timing(waterScaleAnim, {
-        toValue: 1.0,
-        duration: 150,
-        useNativeDriver: true,
-      }),
-    ]).start();
-
-    saveWater(waterMl + deltaMl);
-  };
 
   const load = useCallback(async () => {
     setError(null);
@@ -100,24 +89,23 @@ export default function DiaryScreen() {
       const today = localDateKey(new Date());
       const sevenDaysAgo = new Date();
       sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
-
-      await loadWater(user.id, today);
+      const weekStart = localDateKey(sevenDaysAgo);
 
       const [prefsResult, todayResult, weekResult, cameraMealsResult] = await Promise.all([
         supabase.from('user_diet_preferences').select('*').eq('user_id', user.id).maybeSingle(),
         supabase.from('diet_meal_logs').select('*').eq('user_id', user.id).eq('date_key', today).order('logged_at', { ascending: false }),
-        supabase.from('diet_meal_logs').select('*').eq('user_id', user.id).gte('logged_at', sevenDaysAgo.toISOString()),
+        supabase.from('diet_meal_logs').select('*').eq('user_id', user.id).gte('date_key', weekStart),
         supabase.from('meals').select('id, name, created_at, calories, protein_g, carbs_g, fat_g, sodium_mg, tag').eq('user_id', user.id).gte('created_at', sevenDaysAgo.toISOString()).order('created_at', { ascending: false }),
       ]);
 
       const prefs = prefsResult.data;
-      const dietTodays = (todayResult.data || []).map(m => ({ ...m, source: 'manual' }));
+      const dietTodays = (todayResult.data || []).map((m) => ({ ...m, source: 'manual' }));
       const dietWeek = weekResult.data || [];
       const cameraMeals = cameraMealsResult.data || [];
 
       const cameraToday = cameraMeals
-        .filter(meal => localDateKey(new Date(meal.created_at)) === today)
-        .map(meal => ({
+        .filter((meal) => localDateKey(new Date(meal.created_at)) === today)
+        .map((meal) => ({
           ...meal,
           source: 'camera',
           meal_type: meal.tag || 'lunch',
@@ -129,7 +117,7 @@ export default function DiaryScreen() {
           sodium_mg: meal.sodium_mg || 0,
         }));
 
-      const cameraWeek = cameraMeals.map(meal => ({
+      const cameraWeek = cameraMeals.map((meal) => ({
         ...meal,
         date_key: localDateKey(new Date(meal.created_at)),
         calories: meal.calories || 0,
@@ -146,14 +134,13 @@ export default function DiaryScreen() {
 
       setPreferences(prefs || null);
       setTodayMeals(todays);
-      setWeekMeals(week);
       setInsights(prefs ? computeWeeklyInsights(week, prefs) : null);
     } catch (err) {
       console.log('Error loading health data:', err);
     } finally {
       setLoading(false);
     }
-  }, [loadWater]);
+  }, []);
 
   useEffect(() => {
     load();
@@ -198,8 +185,6 @@ export default function DiaryScreen() {
     );
   };
 
-  // A row is not a completed plan. This prevents defaults left by an earlier
-  // failed setup from bypassing the user's first diet selection.
   if (!loading && (!preferences || !preferences.plan_completed_at)) {
     return (
       <DietSetupScreen
@@ -224,36 +209,41 @@ export default function DiaryScreen() {
   const targetProtein = preferences?.protein_grams || preferences?.target_protein_g || 120;
   const targetCarbs = preferences?.carbs_grams || 250;
   const targetFat = preferences?.fat_grams || 70;
-  const targetWaterL = preferences?.water_liters || 3.0;
-  const targetWaterMl = Math.round(targetWaterL * 1000);
 
-  const calProgress = Math.min(1, totals.calories / (targetCal || 1));
+  const calProgress = totals.calories / Math.max(1, targetCal);
   const remainingCal = targetCal - totals.calories;
+  const dayStatus = computeDayStatus(totals, {
+    calories: targetCal,
+    protein: targetProtein,
+  });
 
-  const proteinProgress = Math.min(1, totals.protein / (targetProtein || 1));
-  const carbsProgress = Math.min(1, totals.carbs / (targetCarbs || 1));
-  const fatProgress = Math.min(1, totals.fat / (targetFat || 1));
-  const waterProgress = Math.min(1, waterMl / (targetWaterMl || 1));
-  const calorieScore = totals.calories === 0 ? 0 : Math.max(0, 100 - Math.round(Math.abs(totals.calories - targetCal) / targetCal * 100));
-  const macroScore = Math.round((proteinProgress + carbsProgress + fatProgress) / 3 * 100);
-  const healthScore = totals.calories === 0
-    ? 0
-    : Math.round(calorieScore * 0.45 + macroScore * 0.4 + Math.min(100, waterProgress * 100) * 0.15);
-
-  // Meal breakdown calories
   const mealBreakdown = todayMeals.reduce((acc, m) => {
     const type = m.meal_type || 'snack';
     acc[type] = (acc[type] || 0) + Number(m.calories || 0);
     return acc;
   }, {});
 
-  // Goal & Badges info
   const currentGoalObj = GOAL_OPTIONS.find((g) => g.id === preferences?.primary_goal);
   const selectedSport = SPORT_OPTIONS.find((sport) => sport.id === preferences?.sport);
   const guidance = getHealthGuidance(preferences?.primary_goal, preferences?.sport);
-  const activeRestrictions = (preferences?.dietary_restrictions || preferences?.inclusions || []).map((rId) => {
-    return RESTRICTION_OPTIONS.find((r) => r.id === rId) || { label: rId, icon: 'shield-outline' };
-  });
+  const activeRestrictions = (preferences?.dietary_restrictions || preferences?.inclusions || [])
+    .filter((rId) => rId && rId !== 'none')
+    .map((rId) => RESTRICTION_OPTIONS.find((r) => r.id === rId) || { label: rId, icon: 'shield-outline' });
+
+  const lastMeal = todayMeals[0];
+  const ringSize = compact ? 104 : 118;
+  const statusTone = {
+    idle: { bg: '#1a1a1e', border: '#2a2a2e', text: C.gray1 },
+    good: { bg: '#142017', border: '#24452a', text: '#30d158' },
+    low: { bg: '#24180d', border: '#4d3314', text: C.gold },
+    over: { bg: '#2a1212', border: '#5a1a1a', text: '#f87171' },
+  }[dayStatus.tone] || { bg: '#1a1a1e', border: '#2a2a2e', text: C.gray1 };
+
+  const weekMax = Math.max(
+    targetCal,
+    ...(insights?.days || []).map((d) => d.calories),
+    1
+  );
 
   if (loading) {
     return (
@@ -265,11 +255,12 @@ export default function DiaryScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Top Header */}
-      <View style={[styles.headerRow, { paddingTop: Math.max(insets.top + 8, 18) }, compact && styles.headerRowCompact]}>
-        <View>
+      <View style={[styles.headerRow, { paddingTop: Math.max(insets.top + 6, 14), paddingHorizontal: pagePad }, compact && styles.headerRowCompact]}>
+        <View style={{ flex: 1, paddingRight: 12 }}>
           <Text style={[styles.title, compact && styles.titleCompact]}>Health</Text>
-          <Text style={styles.subtitle}>Daily Nutrition & Metabolism</Text>
+          <Text style={styles.subtitle} numberOfLines={1}>
+            {currentGoalObj?.label || 'Your daily log'}
+          </Text>
         </View>
 
         <TouchableOpacity
@@ -278,13 +269,13 @@ export default function DiaryScreen() {
           activeOpacity={0.75}
         >
           <Ionicons name="options-outline" size={15} color={C.gold} />
-          <Text style={styles.editButtonText}>Edit Plan</Text>
+          <Text style={styles.editButtonText}>Plan</Text>
         </TouchableOpacity>
       </View>
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { paddingHorizontal: pagePad, paddingBottom: 28 + insets.bottom }]}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor={C.orange} />
         }
@@ -296,7 +287,6 @@ export default function DiaryScreen() {
           </View>
         )}
 
-        {/* ACTIVE BADGES STRIP */}
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
@@ -308,298 +298,157 @@ export default function DiaryScreen() {
               <Text style={styles.badgeTextGoal}>{currentGoalObj.label}</Text>
             </View>
           )}
-
           {selectedSport && (
             <View style={styles.badgeItemGoal}>
               <Ionicons name={selectedSport.icon} size={14} color={C.gold} />
               <Text style={styles.badgeTextGoal}>{selectedSport.label}</Text>
             </View>
           )}
-
           {activeRestrictions.map((r, idx) => (
-            <View key={idx} style={styles.badgeItem}>
+            <View key={`${r.label}-${idx}`} style={styles.badgeItem}>
               <Ionicons name={r.icon || 'shield-checkmark-outline'} size={13} color="#30d158" />
               <Text style={styles.badgeText}>{r.label}</Text>
             </View>
           ))}
-
-          <View style={styles.badgeItemWater}>
-            <Ionicons name="water-outline" size={13} color="#38bdf8" />
-            <Text style={styles.badgeTextWater}>{targetWaterL}L Target</Text>
-          </View>
         </ScrollView>
 
-        <View style={styles.dailyPulse}>
-          <View style={[styles.calorieRing, remainingCal < 0 && styles.calorieRingOver]}>
-            <View style={styles.calorieRingInner}>
-              <Text style={styles.ringNumber}>{totals.calories}</Text>
-              <Text style={styles.ringLabel}>OF {targetCal} KCAL</Text>
-            </View>
-          </View>
-          <View style={styles.pulseCopy}>
-            <Text style={styles.cardEyebrow}>TODAY'S PULSE</Text>
-            <Text style={styles.pulseTitle}>
-              {totals.calories === 0 ? 'Start your day strong' : remainingCal >= 0 ? `${remainingCal} kcal remaining` : `${Math.abs(remainingCal)} kcal over target`}
-            </Text>
-            <Text style={styles.pulseBody}>
-              {totals.calories === 0 ? 'Log a meal or post it to the Feed to start your nutrition picture.' : 'A transparent daily balance of energy, macros, and hydration.'}
-            </Text>
-          </View>
-          <View style={styles.scoreOrb}>
-            <Text style={styles.scoreOrbValue}>{healthScore}</Text>
-            <Text style={styles.scoreOrbLabel}>HEALTH{`\n`}SCORE</Text>
-          </View>
-        </View>
-
-        {/* TOP SUMMARY CARD: CALORIE BUDGET & WATER */}
-        <View style={styles.dashboardCard}>
-          <View style={styles.cardHeaderRow}>
-            <View>
-              <Text style={styles.cardEyebrow}>ENERGY BUDGET</Text>
-              <Text style={styles.cardMainHeading}>Daily Caloric Balance</Text>
-            </View>
-            <View
-              style={[
-                styles.remainingPill,
-                remainingCal < 0 && styles.remainingPillOver,
-              ]}
+        <View style={styles.heroCard}>
+          <View style={styles.heroTop}>
+            <ProgressRing
+              progress={calProgress}
+              size={ringSize}
+              color={C.orange}
+              overColor="#ef4444"
+              trackColor="#2a211c"
             >
-              <Ionicons
-                name={remainingCal >= 0 ? 'flame-outline' : 'alert-circle-outline'}
-                size={13}
-                color={remainingCal >= 0 ? C.orange : '#f87171'}
-              />
-              <Text
-                style={[
-                  styles.remainingPillText,
-                  remainingCal < 0 && styles.remainingPillTextOver,
-                ]}
-              >
-                {remainingCal >= 0 ? `${remainingCal} kcal left` : `${Math.abs(remainingCal)} kcal over`}
+              <Text style={[styles.ringNumber, compact && { fontSize: 24 }]}>{Math.round(totals.calories)}</Text>
+              <Text style={styles.ringLabel}>kcal</Text>
+            </ProgressRing>
+
+            <View style={styles.heroCopy}>
+              <Text style={styles.cardEyebrow}>TODAY</Text>
+              <Text style={styles.heroTitle}>
+                {totals.calories === 0
+                  ? 'Nothing logged yet'
+                  : remainingCal >= 0
+                    ? `${remainingCal} left`
+                    : `${Math.abs(remainingCal)} over`}
               </Text>
+              <Text style={styles.heroTarget}>of {targetCal} kcal</Text>
+              <View style={[styles.statusPill, { backgroundColor: statusTone.bg, borderColor: statusTone.border }]}>
+                <Text style={[styles.statusPillText, { color: statusTone.text }]}>
+                  {dayStatus.label}
+                  {dayStatus.score != null ? ` · ${dayStatus.score}` : ''}
+                </Text>
+              </View>
+              <Text style={styles.heroDetail}>{dayStatus.detail}</Text>
+              {lastMeal ? (
+                <Text style={styles.lastMealLine} numberOfLines={1}>
+                  Last: {lastMeal.name} · {formatTime(lastMeal.logged_at || lastMeal.created_at)}
+                </Text>
+              ) : null}
             </View>
           </View>
 
-          {/* Calorie Stats */}
-          <View style={styles.calRow}>
-            <Text style={styles.calConsumed}>{totals.calories}</Text>
-            <Text style={styles.calDivider}>/</Text>
-            <Text style={styles.calTarget}>{targetCal} kcal</Text>
-            <Text style={styles.calPercent}>{Math.round(calProgress * 100)}%</Text>
-          </View>
-
-          {/* Glowing Calorie Bar */}
           <View style={styles.progressBarBg}>
             <View
               style={[
                 styles.progressBarFill,
                 {
-                  width: `${Math.min(100, Math.round(calProgress * 100))}%`,
+                  width: `${Math.min(100, Math.round(Math.max(0, calProgress) * 100))}%`,
                   backgroundColor: remainingCal < 0 ? '#ef4444' : C.orange,
                 },
               ]}
             />
           </View>
 
-          {/* Meal-by-Meal Distribution Chips */}
           <View style={styles.mealDistRow}>
-            <View style={styles.mealDistChip}>
-              <Text style={styles.mealDistLabel}>Breakfast</Text>
-              <Text style={styles.mealDistVal}>{mealBreakdown.breakfast || 0} kcal</Text>
-            </View>
-            <View style={styles.mealDistChip}>
-              <Text style={styles.mealDistLabel}>Lunch</Text>
-              <Text style={styles.mealDistVal}>{mealBreakdown.lunch || 0} kcal</Text>
-            </View>
-            <View style={styles.mealDistChip}>
-              <Text style={styles.mealDistLabel}>Dinner</Text>
-              <Text style={styles.mealDistVal}>{mealBreakdown.dinner || 0} kcal</Text>
-            </View>
-            <View style={styles.mealDistChip}>
-              <Text style={styles.mealDistLabel}>Snacks</Text>
-              <Text style={styles.mealDistVal}>{(mealBreakdown.snack || 0) + (mealBreakdown.pre_workout || 0) + (mealBreakdown.post_workout || 0)} kcal</Text>
-            </View>
-          </View>
-
-          {/* HYDRATION SECTION */}
-          <View style={styles.hydrationDivider} />
-          <View style={styles.hydrationHeaderRow}>
-            <View style={styles.hydrationTitleLeft}>
-              <Ionicons name="water-outline" size={18} color="#38bdf8" />
-              <Text style={styles.hydrationTitle}>Hydration Tracker</Text>
-            </View>
-            <Text style={styles.hydrationNumbers}>
-              {(waterMl / 1000).toFixed(2)} / {targetWaterL} L ({Math.round(waterProgress * 100)}%)
-            </Text>
-          </View>
-
-          {/* Water Progress Bar */}
-          <View style={styles.waterProgressBarBg}>
-            <View
-              style={[
-                styles.waterProgressBarFill,
-                { width: `${Math.min(100, Math.round(waterProgress * 100))}%` },
-              ]}
-            />
-          </View>
-
-          {/* Quick Water Action Buttons */}
-          <View style={styles.waterActionRow}>
-            <Animated.View style={{ transform: [{ scale: waterScaleAnim }], flex: 1 }}>
-              <TouchableOpacity
-                style={styles.waterAddBtn}
-                onPress={() => addWater(250)}
-                activeOpacity={0.75}
-              >
-                <Ionicons name="add" size={16} color="#000" />
-                <Text style={styles.waterAddBtnText}>+250 ml</Text>
-              </TouchableOpacity>
-            </Animated.View>
-
-            <TouchableOpacity
-              style={styles.waterQuickBtn}
-              onPress={() => addWater(500)}
-              activeOpacity={0.75}
-            >
-              <Text style={styles.waterQuickBtnText}>+500 ml</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.waterQuickBtn}
-              onPress={() => addWater(1000)}
-              activeOpacity={0.75}
-            >
-              <Text style={styles.waterQuickBtnText}>+1.0 L</Text>
-            </TouchableOpacity>
-
-            {waterMl > 0 && (
-              <TouchableOpacity
-                style={styles.waterMinusBtn}
-                onPress={() => saveWater(waterMl - 250)}
-                activeOpacity={0.75}
-              >
-                <Ionicons name="remove" size={16} color={C.gray2} />
-              </TouchableOpacity>
-            )}
+            {[
+              ['Breakfast', mealBreakdown.breakfast || 0],
+              ['Lunch', mealBreakdown.lunch || 0],
+              ['Dinner', mealBreakdown.dinner || 0],
+              ['Snacks', (mealBreakdown.snack || 0) + (mealBreakdown.pre_workout || 0) + (mealBreakdown.post_workout || 0)],
+            ].map(([label, val]) => (
+              <View key={label} style={styles.mealDistChip}>
+                <Text style={styles.mealDistLabel}>{label}</Text>
+                <Text style={styles.mealDistVal}>{val}</Text>
+              </View>
+            ))}
           </View>
         </View>
 
-        {/* MACRO DISTRIBUTION BARS */}
         <View style={styles.macrosCard}>
-          <Text style={styles.cardEyebrow}>MACRONUTRIENT TARGETS</Text>
-
-          {/* Protein */}
-          <View style={styles.macroBlock}>
-            <View style={styles.macroBlockHeader}>
-              <View style={styles.macroLabelLeft}>
-                <View style={[styles.macroColorDot, { backgroundColor: '#30d158' }]} />
-                <Text style={styles.macroTitle}>Protein</Text>
-              </View>
-              <Text style={styles.macroNumbers}>
-                <Text style={{ color: C.white, fontWeight: '700' }}>{Math.round(totals.protein)}</Text>
-                <Text style={{ color: C.gray2 }}> / {targetProtein}g</Text>
-                <Text style={[styles.macroPercent, { color: '#30d158' }]}> ({Math.round(proteinProgress * 100)}%)</Text>
-              </Text>
-            </View>
-            <View style={styles.macroBarBg}>
-              <View
-                style={[
-                  styles.macroBarFill,
-                  {
-                    width: `${Math.min(100, Math.round(proteinProgress * 100))}%`,
-                    backgroundColor: '#30d158',
-                  },
-                ]}
-              />
-            </View>
-          </View>
-
-          {/* Carbs */}
-          <View style={styles.macroBlock}>
-            <View style={styles.macroBlockHeader}>
-              <View style={styles.macroLabelLeft}>
-                <View style={[styles.macroColorDot, { backgroundColor: '#f5a524' }]} />
-                <Text style={styles.macroTitle}>Carbohydrates</Text>
-              </View>
-              <Text style={styles.macroNumbers}>
-                <Text style={{ color: C.white, fontWeight: '700' }}>{Math.round(totals.carbs)}</Text>
-                <Text style={{ color: C.gray2 }}> / {targetCarbs}g</Text>
-                <Text style={[styles.macroPercent, { color: '#f5a524' }]}> ({Math.round(carbsProgress * 100)}%)</Text>
-              </Text>
-            </View>
-            <View style={styles.macroBarBg}>
-              <View
-                style={[
-                  styles.macroBarFill,
-                  {
-                    width: `${Math.min(100, Math.round(carbsProgress * 100))}%`,
-                    backgroundColor: '#f5a524',
-                  },
-                ]}
-              />
-            </View>
-          </View>
-
-          {/* Fat */}
-          <View style={styles.macroBlock}>
-            <View style={styles.macroBlockHeader}>
-              <View style={styles.macroLabelLeft}>
-                <View style={[styles.macroColorDot, { backgroundColor: '#ff6321' }]} />
-                <Text style={styles.macroTitle}>Fats</Text>
-              </View>
-              <Text style={styles.macroNumbers}>
-                <Text style={{ color: C.white, fontWeight: '700' }}>{Math.round(totals.fat)}</Text>
-                <Text style={{ color: C.gray2 }}> / {targetFat}g</Text>
-                <Text style={[styles.macroPercent, { color: '#ff6321' }]}> ({Math.round(fatProgress * 100)}%)</Text>
-              </Text>
-            </View>
-            <View style={styles.macroBarBg}>
-              <View
-                style={[
-                  styles.macroBarFill,
-                  {
-                    width: `${Math.min(100, Math.round(fatProgress * 100))}%`,
-                    backgroundColor: '#ff6321',
-                  },
-                ]}
-              />
-            </View>
-          </View>
+          <Text style={styles.cardEyebrow}>MACROS</Text>
+          <MacroRow label="Protein" value={totals.protein} target={targetProtein} color="#30d158" />
+          <MacroRow label="Carbs" value={totals.carbs} target={targetCarbs} color="#f5a524" />
+          <MacroRow label="Fat" value={totals.fat} target={targetFat} color="#ff6321" />
         </View>
 
-        <View style={styles.guidanceCard}>
-          <View style={styles.guidanceHeader}>
-            <View>
-              <Text style={styles.cardEyebrow}>YOUR NEXT MOVE</Text>
-              <Text style={styles.guidanceTitle}>Plan support for today</Text>
+        {insights && (
+          <View style={styles.weekCard}>
+            <View style={styles.weekHeader}>
+              <View>
+                <Text style={styles.cardEyebrow}>THIS WEEK</Text>
+                <Text style={styles.weekTitle}>
+                  {insights.daysLoggedCount}/7 days logged
+                </Text>
+              </View>
+              <Text style={styles.weekAvg}>
+                {insights.daysLoggedCount ? `${insights.avgDailyCalories} avg kcal` : 'No days yet'}
+              </Text>
             </View>
-            <Ionicons name="sparkles-outline" size={20} color={C.gold} />
-          </View>
-          <View style={styles.guidanceRow}>
-            <View style={[styles.guidanceIcon, { backgroundColor: '#1c3023' }]}>
-              <Ionicons name="barbell-outline" size={18} color="#30d158" />
-            </View>
-            <View style={styles.guidanceCopy}>
-              <Text style={styles.guidanceLabel}>PROGRESSIVE WORKOUT</Text>
-              <Text style={styles.guidanceText}>{guidance.workout}</Text>
-            </View>
-          </View>
-          <View style={styles.guidanceRow}>
-            <View style={[styles.guidanceIcon, { backgroundColor: '#302015' }]}>
-              <Ionicons name="restaurant-outline" size={18} color={C.orange} />
-            </View>
-            <View style={styles.guidanceCopy}>
-              <Text style={styles.guidanceLabel}>MEAL IDEA</Text>
-              <Text style={styles.guidanceText}>{guidance.meal}</Text>
-            </View>
-          </View>
-          <TouchableOpacity style={styles.feedBridge} onPress={() => navigation.navigate('Feed')} activeOpacity={0.8}>
-            <Ionicons name="people-outline" size={16} color={C.bg} />
-            <Text style={styles.feedBridgeText}>Open Feed: {guidance.feed}</Text>
-          </TouchableOpacity>
-        </View>
 
-        {/* QUICK LOG ACTION BUTTON */}
+            <View style={styles.weekBars}>
+              {insights.days.map((day) => {
+                const h = Math.max(4, Math.round((day.calories / weekMax) * 72));
+                const over = day.calories > targetCal;
+                return (
+                  <View key={day.key} style={styles.weekCol}>
+                    <Text style={styles.weekCal}>{day.calories ? Math.round(day.calories / 100) / 10 : ''}</Text>
+                    <View style={styles.weekTrack}>
+                      <View
+                        style={[
+                          styles.weekFill,
+                          {
+                            height: day.calories ? h : 4,
+                            backgroundColor: day.calories
+                              ? (over ? '#ef4444' : day.isToday ? C.orange : '#8a5a3a')
+                              : '#2a2a2e',
+                          },
+                        ]}
+                      />
+                    </View>
+                    <Text style={[styles.weekDay, day.isToday && styles.weekDayToday]}>{day.label}</Text>
+                  </View>
+                );
+              })}
+            </View>
+
+            <Text style={styles.weekInsight}>{insights.topDeficiencyInsight}</Text>
+            <View style={styles.insightsStatsRow}>
+              <View style={styles.insightsStatBox}>
+                <Text style={styles.insightsStatVal}>{insights.avgDailyCalories || '—'}</Text>
+                <Text style={styles.insightsStatLabel}>Avg kcal</Text>
+              </View>
+              <View style={styles.insightsStatBox}>
+                <Text style={styles.insightsStatVal}>{insights.avgDailyProtein ? `${insights.avgDailyProtein}g` : '—'}</Text>
+                <Text style={styles.insightsStatLabel}>Avg protein</Text>
+              </View>
+              <View style={styles.insightsStatBox}>
+                <Text style={styles.insightsStatVal}>{Math.round(targetProtein - totals.protein)}g</Text>
+                <Text style={styles.insightsStatLabel}>Protein left today</Text>
+              </View>
+            </View>
+          </View>
+        )}
+
+        {guidance?.meal ? (
+          <View style={styles.tipCard}>
+            <Ionicons name="restaurant-outline" size={16} color={C.gold} />
+            <Text style={styles.tipText}>{guidance.meal}</Text>
+          </View>
+        ) : null}
+
         <TouchableOpacity
           style={styles.quickLogBar}
           onPress={() => setLogOpen(true)}
@@ -609,26 +458,25 @@ export default function DiaryScreen() {
             <View style={styles.quickLogIcon}>
               <Ionicons name="add" size={22} color="#000" />
             </View>
-            <View>
-              <Text style={styles.quickLogTitle}>Quick Log Meal or Snack</Text>
-              <Text style={styles.quickLogSub}>Record calories and macros into today&apos;s diary</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.quickLogTitle}>Log a meal</Text>
+              <Text style={styles.quickLogSub}>Calories and macros for today</Text>
             </View>
           </View>
           <Ionicons name="chevron-forward" size={18} color={C.gray2} />
         </TouchableOpacity>
 
-        {/* TODAY'S MEALS LIST */}
         <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionTitle}>Today&apos;s Meals</Text>
-          <Text style={styles.sectionCountBadge}>{todayMeals.length} recorded</Text>
+          <Text style={styles.sectionTitle}>Today</Text>
+          <Text style={styles.sectionCountBadge}>{todayMeals.length} logged</Text>
         </View>
 
         {todayMeals.length === 0 ? (
           <View style={styles.emptyMealsCard}>
-            <Ionicons name="restaurant-outline" size={32} color={C.gray4} />
-            <Text style={styles.emptyMealsTitle}>No meals logged yet today</Text>
+            <Ionicons name="restaurant-outline" size={28} color={C.gray4} />
+            <Text style={styles.emptyMealsTitle}>No meals yet</Text>
             <Text style={styles.emptyMealsSub}>
-              Use Quick Log above or post a meal from the Camera tab to record your nutrition.
+              Quick-log above or post from Camera to fill today’s ring.
             </Text>
           </View>
         ) : (
@@ -656,8 +504,9 @@ export default function DiaryScreen() {
                         <View style={styles.mealMetaRow}>
                           <Text style={styles.mealTypeTag}>{item.meal_type?.replace('_', ' ')}</Text>
                           {item.source === 'camera' && (
-                            <Text style={styles.cameraTag}>Camera Log</Text>
+                            <Text style={styles.cameraTag}>Camera</Text>
                           )}
+                          <Text style={styles.cameraTag}>{formatTime(item.logged_at || item.created_at)}</Text>
                         </View>
                       </View>
                     </View>
@@ -678,49 +527,18 @@ export default function DiaryScreen() {
                     )}
                   </View>
 
-                  {/* Macro Pills */}
                   <View style={styles.mealMacroPills}>
-                    <Text style={styles.mealMacroPill}>Protein: <Text style={{ color: '#30d158' }}>{item.protein || 0}g</Text></Text>
-                    <Text style={styles.mealMacroPill}>Carbs: <Text style={{ color: '#f5a524' }}>{item.carbs || 0}g</Text></Text>
-                    <Text style={styles.mealMacroPill}>Fat: <Text style={{ color: '#ff6321' }}>{item.fat || 0}g</Text></Text>
+                    <Text style={styles.mealMacroPill}>P <Text style={{ color: '#30d158' }}>{item.protein || 0}g</Text></Text>
+                    <Text style={styles.mealMacroPill}>C <Text style={{ color: '#f5a524' }}>{item.carbs || 0}g</Text></Text>
+                    <Text style={styles.mealMacroPill}>F <Text style={{ color: '#ff6321' }}>{item.fat || 0}g</Text></Text>
                   </View>
                 </View>
               );
             })}
           </View>
         )}
-
-        {/* WEEKLY INSIGHTS CARD */}
-        {insights && (
-          <View style={styles.insightsCard}>
-            <View style={styles.cardHeaderRow}>
-              <Text style={styles.cardEyebrow}>7-DAY SUMMARY</Text>
-              <View style={styles.scorePill}>
-                <Text style={styles.scorePillText}>Recovery Score {insights.recoveryScore}/100</Text>
-              </View>
-            </View>
-            <Text style={styles.insightsTitle}>Weekly Nutrition Coach</Text>
-            <Text style={styles.insightsBody}>{insights.topDeficiencyInsight}</Text>
-
-            <View style={styles.insightsStatsRow}>
-              <View style={styles.insightsStatBox}>
-                <Text style={styles.insightsStatVal}>{insights.avgDailyCalories}</Text>
-                <Text style={styles.insightsStatLabel}>Avg Daily kcal</Text>
-              </View>
-              <View style={styles.insightsStatBox}>
-                <Text style={styles.insightsStatVal}>{insights.avgDailyProtein}g</Text>
-                <Text style={styles.insightsStatLabel}>Avg Protein</Text>
-              </View>
-              <View style={styles.insightsStatBox}>
-                <Text style={styles.insightsStatVal}>{insights.daysLoggedCount}/7</Text>
-                <Text style={styles.insightsStatLabel}>Days Tracked</Text>
-              </View>
-            </View>
-          </View>
-        )}
       </ScrollView>
 
-      {/* DIET SETUP / QUIZ MODAL */}
       <Modal
         visible={setupOpen}
         animationType="slide"
@@ -736,7 +554,6 @@ export default function DiaryScreen() {
         />
       </Modal>
 
-      {/* QUICK MEAL LOG MODAL */}
       <Modal
         visible={logOpen}
         transparent
@@ -758,27 +575,22 @@ export default function DiaryScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0a0a0a',
+    backgroundColor: C.bg,
   },
   center: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#0a0a0a',
+    backgroundColor: C.bg,
   },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: 18,
-    paddingBottom: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: '#1a1a1d',
+    paddingBottom: 10,
   },
   headerRowCompact: {
-    paddingHorizontal: 16,
-    paddingTop: 14,
+    paddingBottom: 8,
   },
   title: {
     color: C.white,
@@ -786,11 +598,11 @@ const styles = StyleSheet.create({
     fontSize: 34,
   },
   titleCompact: {
-    fontSize: 30,
+    fontSize: 28,
   },
   subtitle: {
     color: C.gray2,
-    fontSize: 12,
+    fontSize: 13,
     marginTop: 2,
   },
   editButton: {
@@ -810,9 +622,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   scrollContent: {
-    paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 40,
+    paddingTop: 8,
   },
   errorBox: {
     flexDirection: 'row',
@@ -843,7 +653,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#4d2914',
     borderRadius: 999,
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     paddingVertical: 7,
   },
   badgeTextGoal: {
@@ -867,242 +677,103 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
-  badgeItemWater: {
+  heroCard: {
+    backgroundColor: C.surface,
+    borderColor: C.border,
+    borderWidth: 1,
+    borderRadius: 28,
+    padding: 16,
+    marginBottom: 12,
+  },
+  heroTop: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
-    backgroundColor: '#0f202b',
-    borderWidth: 1,
-    borderColor: '#19394f',
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-  },
-  badgeTextWater: {
-    color: '#38bdf8',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  dailyPulse: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    backgroundColor: '#24130d', borderWidth: 1, borderColor: '#5a2b18',
-    borderRadius: 30, padding: 16, marginBottom: 14,
-  },
-  calorieRing: {
-    width: 92, height: 92, borderRadius: 46, borderWidth: 8,
-    borderColor: '#3d2419', borderTopColor: C.orange, borderRightColor: C.orange,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  calorieRingOver: { borderTopColor: '#ef4444', borderRightColor: '#ef4444' },
-  calorieRingInner: { alignItems: 'center', justifyContent: 'center' },
-  ringNumber: { color: C.white, fontFamily: C.serif, fontSize: 25, lineHeight: 28 },
-  ringLabel: { color: C.gray1, fontSize: 8, fontWeight: '800', letterSpacing: 0.5 },
-  pulseCopy: { flex: 1 },
-  pulseTitle: { color: C.white, fontSize: 16, fontWeight: '800', marginBottom: 4 },
-  pulseBody: { color: C.gray1, fontSize: 11, lineHeight: 15 },
-  scoreOrb: { width: 52, height: 52, borderRadius: 26, backgroundColor: '#163325', alignItems: 'center', justifyContent: 'center' },
-  scoreOrbValue: { color: '#30d158', fontSize: 19, fontWeight: '900', lineHeight: 20 },
-  scoreOrbLabel: { color: '#79dca1', fontSize: 7, lineHeight: 8, textAlign: 'center', fontWeight: '800', letterSpacing: 0.4 },
-  dashboardCard: {
-    backgroundColor: '#141416',
-    borderColor: '#242428',
-    borderWidth: 1,
-    borderRadius: 24,
-    padding: 20,
+    gap: 14,
     marginBottom: 14,
   },
-  cardHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 10,
+  heroCopy: { flex: 1, minWidth: 0 },
+  heroTitle: {
+    color: C.white,
+    fontFamily: C.serif,
+    fontSize: 26,
+    lineHeight: 30,
   },
+  heroTarget: {
+    color: C.gray2,
+    fontSize: 13,
+    marginTop: 2,
+    marginBottom: 8,
+  },
+  heroDetail: {
+    color: C.gray1,
+    fontSize: 12,
+    lineHeight: 16,
+    marginTop: 6,
+  },
+  lastMealLine: {
+    color: C.gray3,
+    fontSize: 11,
+    marginTop: 6,
+  },
+  ringNumber: { color: C.white, fontFamily: C.serif, fontSize: 28, lineHeight: 30 },
+  ringLabel: { color: C.gray2, fontSize: 11, fontWeight: '700' },
+  statusPill: {
+    alignSelf: 'flex-start',
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  statusPillText: { fontSize: 11, fontWeight: '800' },
   cardEyebrow: {
     color: C.gold,
     fontSize: 10,
     fontWeight: '800',
     letterSpacing: 1.2,
-    marginBottom: 2,
-  },
-  cardMainHeading: {
-    color: C.white,
-    fontFamily: C.serif,
-    fontSize: 22,
-  },
-  remainingPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    backgroundColor: '#2b1b11',
-    borderWidth: 1,
-    borderColor: '#4d2d18',
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  remainingPillOver: {
-    backgroundColor: 'rgba(239, 68, 68, 0.15)',
-    borderColor: 'rgba(239, 68, 68, 0.35)',
-  },
-  remainingPillText: {
-    color: C.orange,
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  remainingPillTextOver: {
-    color: '#f87171',
-  },
-  calRow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: 6,
-    marginTop: 4,
-    marginBottom: 12,
-  },
-  calConsumed: {
-    color: C.white,
-    fontFamily: C.serif,
-    fontSize: 34,
-    fontWeight: '700',
-  },
-  calDivider: {
-    color: C.gray3,
-    fontSize: 18,
-  },
-  calTarget: {
-    color: C.gray2,
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  calPercent: {
-    color: C.orange,
-    fontSize: 14,
-    fontWeight: '700',
-    marginLeft: 'auto',
+    marginBottom: 4,
   },
   progressBarBg: {
-    height: 10,
-    borderRadius: 5,
+    height: 8,
+    borderRadius: 4,
     backgroundColor: '#222226',
     overflow: 'hidden',
   },
   progressBarFill: {
     height: '100%',
-    borderRadius: 5,
+    borderRadius: 4,
   },
   mealDistRow: {
     flexDirection: 'row',
-    gap: 8,
-    marginTop: 14,
+    gap: 6,
+    marginTop: 12,
   },
   mealDistChip: {
     flex: 1,
     backgroundColor: '#1a1a1e',
-    borderRadius: 12,
+    borderRadius: 14,
     paddingVertical: 8,
+    paddingHorizontal: 4,
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#27272a',
   },
   mealDistLabel: {
     color: C.gray2,
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: '600',
   },
   mealDistVal: {
     color: C.white,
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '700',
     marginTop: 2,
   },
-  hydrationDivider: {
-    height: 1,
-    backgroundColor: '#222226',
-    marginVertical: 16,
-  },
-  hydrationHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 8,
-  },
-  hydrationTitleLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  hydrationTitle: {
-    color: C.white,
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  hydrationNumbers: {
-    color: '#38bdf8',
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  waterProgressBarBg: {
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#0f222e',
-    overflow: 'hidden',
-    marginBottom: 14,
-  },
-  waterProgressBarFill: {
-    height: '100%',
-    borderRadius: 4,
-    backgroundColor: '#38bdf8',
-  },
-  waterActionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  waterAddBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 4,
-    backgroundColor: '#38bdf8',
-    borderRadius: 999,
-    paddingVertical: 10,
-  },
-  waterAddBtnText: {
-    color: '#000',
-    fontWeight: '800',
-    fontSize: 13,
-  },
-  waterQuickBtn: {
-    backgroundColor: '#132836',
-    borderWidth: 1,
-    borderColor: '#20475f',
-    borderRadius: 999,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  waterQuickBtnText: {
-    color: '#38bdf8',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  waterMinusBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: '#1a1a1e',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   macrosCard: {
-    backgroundColor: '#141416',
-    borderColor: '#242428',
+    backgroundColor: C.surface,
+    borderColor: C.border,
     borderWidth: 1,
     borderRadius: 24,
-    padding: 20,
-    marginBottom: 14,
-    gap: 14,
+    padding: 16,
+    marginBottom: 12,
+    gap: 12,
   },
   macroBlock: {
     gap: 6,
@@ -1130,9 +801,6 @@ const styles = StyleSheet.create({
   macroNumbers: {
     fontSize: 13,
   },
-  macroPercent: {
-    fontWeight: '700',
-  },
   macroBarBg: {
     height: 6,
     borderRadius: 3,
@@ -1143,6 +811,117 @@ const styles = StyleSheet.create({
     height: '100%',
     borderRadius: 3,
   },
+  weekCard: {
+    backgroundColor: C.surface,
+    borderWidth: 1,
+    borderColor: C.border,
+    borderRadius: 24,
+    padding: 16,
+    marginBottom: 12,
+  },
+  weekHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+    gap: 8,
+  },
+  weekTitle: {
+    color: C.white,
+    fontFamily: C.serif,
+    fontSize: 22,
+  },
+  weekAvg: {
+    color: C.gray1,
+    fontSize: 12,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  weekBars: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    height: 96,
+    marginBottom: 12,
+  },
+  weekCol: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 6,
+  },
+  weekCal: {
+    color: C.gray3,
+    fontSize: 8,
+    height: 10,
+  },
+  weekTrack: {
+    width: 14,
+    height: 72,
+    borderRadius: 7,
+    backgroundColor: '#1a1a1e',
+    justifyContent: 'flex-end',
+    overflow: 'hidden',
+  },
+  weekFill: {
+    width: '100%',
+    borderRadius: 7,
+  },
+  weekDay: {
+    color: C.gray2,
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  weekDayToday: {
+    color: C.orange,
+    fontWeight: '800',
+  },
+  weekInsight: {
+    color: C.gray1,
+    fontSize: 13,
+    lineHeight: 18,
+    marginBottom: 12,
+  },
+  insightsStatsRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  insightsStatBox: {
+    flex: 1,
+    backgroundColor: '#1a1a1e',
+    borderRadius: 16,
+    paddingVertical: 10,
+    paddingHorizontal: 6,
+    alignItems: 'center',
+  },
+  insightsStatVal: {
+    color: C.white,
+    fontFamily: C.serif,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  insightsStatLabel: {
+    color: C.gray2,
+    fontSize: 9,
+    marginTop: 2,
+    textAlign: 'center',
+  },
+  tipCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    backgroundColor: '#161310',
+    borderWidth: 1,
+    borderColor: '#3a2d22',
+    borderRadius: 18,
+    padding: 12,
+    marginBottom: 12,
+  },
+  tipText: {
+    color: C.gray1,
+    fontSize: 13,
+    lineHeight: 18,
+    flex: 1,
+  },
   quickLogBar: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1150,24 +929,15 @@ const styles = StyleSheet.create({
     backgroundColor: '#1e1610',
     borderWidth: 1,
     borderColor: '#4d2e1b',
-    borderRadius: 20,
-    padding: 16,
-    marginBottom: 20,
+    borderRadius: 22,
+    padding: 14,
+    marginBottom: 18,
   },
-  guidanceCard: { backgroundColor: '#121d19', borderWidth: 1, borderColor: '#294337', borderRadius: 28, padding: 18, marginBottom: 14, gap: 14 },
-  guidanceHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  guidanceTitle: { color: C.white, fontFamily: C.serif, fontSize: 23 },
-  guidanceRow: { flexDirection: 'row', gap: 11, alignItems: 'flex-start' },
-  guidanceIcon: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
-  guidanceCopy: { flex: 1 },
-  guidanceLabel: { color: C.gold, fontSize: 10, fontWeight: '900', letterSpacing: 0.8, marginBottom: 3 },
-  guidanceText: { color: C.gray1, fontSize: 12, lineHeight: 17 },
-  feedBridge: { flexDirection: 'row', gap: 8, alignItems: 'center', backgroundColor: C.gold, borderRadius: 999, paddingVertical: 11, paddingHorizontal: 14 },
-  feedBridgeText: { color: C.bg, fontSize: 11, fontWeight: '800', flex: 1 },
   quickLogLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+    flex: 1,
   },
   quickLogIcon: {
     width: 38,
@@ -1204,11 +974,11 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   emptyMealsCard: {
-    backgroundColor: '#141416',
+    backgroundColor: C.surface,
     borderWidth: 1,
-    borderColor: '#242428',
+    borderColor: C.border,
     borderRadius: 20,
-    padding: 26,
+    padding: 24,
     alignItems: 'center',
     marginBottom: 18,
     gap: 8,
@@ -1229,22 +999,23 @@ const styles = StyleSheet.create({
     marginBottom: 18,
   },
   mealCard: {
-    backgroundColor: '#141416',
+    backgroundColor: C.surface,
     borderWidth: 1,
-    borderColor: '#242428',
+    borderColor: C.border,
     borderRadius: 18,
-    padding: 16,
+    padding: 14,
   },
   mealCardTop: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 8,
   },
   mealCardLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
     flex: 1,
+    minWidth: 0,
   },
   mealIconBadge: {
     width: 34,
@@ -1264,6 +1035,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     marginTop: 3,
+    flexWrap: 'wrap',
   },
   mealTypeTag: {
     color: C.gold,
@@ -1292,7 +1064,7 @@ const styles = StyleSheet.create({
   },
   mealDeleteBtn: {
     padding: 6,
-    marginLeft: 4,
+    marginLeft: 2,
   },
   mealMacroPills: {
     flexDirection: 'row',
@@ -1306,65 +1078,6 @@ const styles = StyleSheet.create({
     color: C.gray2,
     fontSize: 11,
     fontWeight: '600',
-  },
-  insightsCard: {
-    backgroundColor: '#141416',
-    borderWidth: 1,
-    borderColor: '#242428',
-    borderRadius: 24,
-    padding: 20,
-    marginTop: 6,
-    marginBottom: 20,
-  },
-  scorePill: {
-    backgroundColor: '#142418',
-    borderWidth: 1,
-    borderColor: '#24452a',
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-  },
-  scorePillText: {
-    color: '#30d158',
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  insightsTitle: {
-    color: C.white,
-    fontFamily: C.serif,
-    fontSize: 20,
-    marginTop: 6,
-    marginBottom: 6,
-  },
-  insightsBody: {
-    color: C.gray1,
-    fontSize: 13,
-    lineHeight: 19,
-    marginBottom: 14,
-  },
-  insightsStatsRow: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  insightsStatBox: {
-    flex: 1,
-    backgroundColor: '#1a1a1e',
-    borderWidth: 1,
-    borderColor: '#27272a',
-    borderRadius: 16,
-    padding: 12,
-    alignItems: 'center',
-  },
-  insightsStatVal: {
-    color: C.white,
-    fontFamily: C.serif,
-    fontSize: 18,
-    fontWeight: '700',
-  },
-  insightsStatLabel: {
-    color: C.gray2,
-    fontSize: 10,
-    marginTop: 2,
   },
   modalOverlay: {
     flex: 1,

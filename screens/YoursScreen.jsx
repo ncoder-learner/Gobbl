@@ -13,18 +13,19 @@ const SEGMENTS = [
 function YoursSegmentedControl({ value, onChange }) {
   return (
     <View style={styles.segWrap}>
-      {SEGMENTS.map(([key, label]) => (
-        <TouchableOpacity
-          key={key}
-          onPress={() => onChange(key)}
-          activeOpacity={0.8}
-          style={styles.segBtnTouch}
-        >
-          <View style={[styles.segBtn, value === key && styles.segBtnActive]}>
-            <Text style={[styles.segBtnText, value === key && styles.segBtnTextActive]}>{label}</Text>
-          </View>
-        </TouchableOpacity>
-      ))}
+      {SEGMENTS.map(([key, label]) => {
+        const active = value === key;
+        return (
+          <TouchableOpacity
+            key={key}
+            onPress={() => onChange(key)}
+            activeOpacity={0.85}
+            style={[styles.segBtn, active && styles.segBtnActive]}
+          >
+            <Text style={[styles.segBtnText, active && styles.segBtnTextActive]}>{label}</Text>
+          </TouchableOpacity>
+        );
+      })}
     </View>
   );
 }
@@ -36,15 +37,15 @@ export default function YoursScreen() {
     <View style={styles.flex}>
       <SafeAreaView edges={['top']} style={styles.header}>
         <StatusBar barStyle="light-content" backgroundColor={C.bg} />
-        <Text style={styles.headerTitle}>Profile</Text>
+        <Text style={styles.headerTitle}>{active === 'profile' ? 'Profile' : 'History'}</Text>
         <YoursSegmentedControl value={active} onChange={setActive} />
       </SafeAreaView>
 
       <View style={[styles.flex, active !== 'profile' && styles.hidden]}>
-        <MyProfileScreen />
+        <MyProfileScreen embedded />
       </View>
       <View style={[styles.flex, active !== 'history' && styles.hidden]}>
-        <HistoryScreen />
+        <HistoryScreen embedded />
       </View>
     </View>
   );
@@ -61,12 +62,23 @@ const styles = StyleSheet.create({
   },
 
   segWrap: {
-    flexDirection: 'row', backgroundColor: '#141416', overflow: 'hidden',
-    borderRadius: 999, borderWidth: 1, borderColor: '#27272a', padding: 4,
+    flexDirection: 'row',
+    backgroundColor: '#141416',
+    borderRadius: 999,
+    padding: 3,
+    borderWidth: 1,
+    borderColor: '#27272a',
   },
-  segBtnTouch: { flex: 1 },
-  segBtn: { marginHorizontal: 1, paddingVertical: 9, borderRadius: 999, alignItems: 'center' },
-  segBtnActive: { backgroundColor: '#2a170d', borderWidth: 1, borderColor: C.orange },
-  segBtnText: { fontWeight: '600', fontSize: 13, color: 'rgba(245,245,247,0.55)' },
-  segBtnTextActive: { color: C.orange, fontWeight: '800' },
+  segBtn: {
+    flex: 1,
+    paddingVertical: 8,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  segBtnActive: {
+    backgroundColor: C.orange,
+  },
+  segBtnText: { fontWeight: '600', fontSize: 13, color: 'rgba(245,245,247,0.5)' },
+  segBtnTextActive: { color: '#000', fontWeight: '800' },
 });
