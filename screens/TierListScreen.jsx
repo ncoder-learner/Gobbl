@@ -34,7 +34,23 @@ import { useAppForeground } from '../lib/useAppForeground';
 import StripedPlaceholder from '../components/StripedPlaceholder';
 import TierRatingSliderModal from '../components/TierRatingSliderModal';
 
-const RANK_GRAY = '#8a8a8a';
+// ─── Gobbl Sophisticated Dark Palette ──────────────────────────────────────────
+const BRAND = {
+  bg: '#0a0a0a',
+  surface: '#121214',
+  surfaceHover: '#18181b',
+  surfaceCard: '#141416',
+  orange: '#FF6321',
+  gold: '#C5A059',
+  silver: '#E2E8F0',
+  bronze: '#CD7F32',
+  border: 'rgba(255, 255, 255, 0.08)',
+  borderGold: 'rgba(197, 160, 89, 0.55)',
+  borderHover: 'rgba(255, 255, 255, 0.16)',
+  textPrimary: '#FFFFFF',
+  textSecondary: '#A1A1AA',
+  textMuted: '#71717A',
+};
 
 const CURRENT_YEAR = new Date().getFullYear();
 const CURRENT_MONTH = new Date().getMonth();
@@ -48,8 +64,6 @@ function formatScore(score) {
 }
 
 // ─── Distance (Near Me) ────────────────────────────────────────────────────────
-// Straight-line distance, not persisted anywhere — recomputed on each load from
-// the user's live device position and the meal's joined place lat/lng.
 function haversineMiles(lat1, lng1, lat2, lng2) {
   const R = 3958.8; // earth radius, miles
   const toRad = (d) => (d * Math.PI) / 180;
@@ -80,12 +94,9 @@ function tagLabel(tag) {
 }
 
 // ─── Yearly list builder ──────────────────────────────────────────────────────
-// Pinned items sit at their stored rank. Unpinned slots fill with the highest-
-// scoring remaining year meals. Always returns at most 10 rows.
 function buildYearlyList(allYearMeals, pinnedSlots) {
   const idToMeal = Object.fromEntries(allYearMeals.map(m => [m.id, m]));
 
-  // Collect valid pinned entries (meal must still exist in current year's meals)
   const pinnedByRank = {};
   const pinnedIds = new Set();
   for (const [id, rank] of Object.entries(pinnedSlots)) {
@@ -96,7 +107,6 @@ function buildYearlyList(allYearMeals, pinnedSlots) {
     }
   }
 
-  // Unpinned pool: all year meals not pinned, sorted by score desc
   const unpinned = allYearMeals.filter(m => !pinnedIds.has(m.id));
 
   const result = [];
@@ -125,10 +135,6 @@ function DragHandle({ panGesture }) {
 }
 
 // ─── Drag wrapper ─────────────────────────────────────────────────────────────
-// lastReportedYShared throttles onDragMove to roughly once per 6px of travel
-// instead of every native gesture frame — enough to keep the drop indicator
-// and auto-scroll feeling live without flooding the JS thread with runOnJS
-// calls on every pixel of a fast swipe.
 function DraggableRow({ mealId, draggedIdShared, dragTranslateY, lastReportedYShared, onLayout, onDragStart, onDragMove, onDrop, onDragFinalize, style, children, dragEnabled = true }) {
   const panGesture = Gesture.Pan()
     .minDistance(4)
@@ -159,14 +165,14 @@ function DraggableRow({ mealId, draggedIdShared, dragTranslateY, lastReportedYSh
     return {
       transform: [
         { translateY: active ? dragTranslateY.value : 0 },
-        { scale: active ? 1.03 : 1 },
+        { scale: active ? 1.025 : 1 },
       ],
       zIndex: active ? 100 : 1,
       shadowColor: '#000',
-      shadowOpacity: active ? 0.38 : 0,
-      shadowRadius: active ? 22 : 0,
-      shadowOffset: { width: 0, height: active ? 12 : 0 },
-      elevation: active ? 12 : 0,
+      shadowOpacity: active ? 0.6 : 0,
+      shadowRadius: active ? 24 : 0,
+      shadowOffset: { width: 0, height: active ? 14 : 0 },
+      elevation: active ? 14 : 0,
     };
   });
 
@@ -198,7 +204,7 @@ function AnimatedRow({ index, children, style, pressableStyle, isNew, onPress })
   }, []);
 
   function onPressIn() {
-    Animated.spring(pressScale, { toValue: 0.97, useNativeDriver: true, speed: 30, bounciness: 0 }).start();
+    Animated.spring(pressScale, { toValue: 0.98, useNativeDriver: true, speed: 30, bounciness: 0 }).start();
   }
   function onPressOut() {
     Animated.spring(pressScale, { toValue: 1, useNativeDriver: true, speed: 20, bounciness: 6 }).start();
@@ -219,11 +225,7 @@ function AnimatedRow({ index, children, style, pressableStyle, isNew, onPress })
   );
 }
 
-// ─── TopCard — the #1 hero, matching the mockup's single gold hero card
-// (full-bleed photo, "#1 this month" pill, bottom-left serif name/place,
-// bottom-right huge serif gold score). Only ever rendered for rank 1 —
-// ranks 2+ use the plain RankRow list below. ──────────────────────────────────
-// isPinned / onTogglePin are yearly-only; undefined on the monthly list.
+// ─── TopCard (#1 Hero) ────────────────────────────────────────────────────────
 function TopCard({ meal, rank, index, isNew, onLanded, isPinned, onTogglePin, distance, onPress }) {
   const glow = useRef(new Animated.Value(0)).current;
   const badgeIn = useRef(new Animated.Value(0)).current;
@@ -261,8 +263,10 @@ function TopCard({ meal, rank, index, isNew, onLanded, isPinned, onTogglePin, di
       hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
       style={styles.heroBadge}
     >
-      <Ionicons name="star" size={11} color={C.bg} />
-      <Text style={styles.heroBadgeText}>{onTogglePin ? (isPinned ? 'PINNED AT #1' : '#1') : '#1 this month'}</Text>
+      <Text style={styles.heroBadgeStar}>★</Text>
+      <Text style={styles.heroBadgeText}>
+        {onTogglePin ? (isPinned ? 'PINNED AT #1' : '#1') : '#1 this month'}
+      </Text>
     </Pressable>
   );
 
@@ -284,9 +288,10 @@ function TopCard({ meal, rank, index, isNew, onLanded, isPinned, onTogglePin, di
         </StripedPlaceholder>
       )}
 
+      {/* Cinematic Scrim */}
       <LinearGradient
-        colors={['transparent', 'rgba(0,0,0,0.92)']}
-        locations={[0.35, 1]}
+        colors={['transparent', 'rgba(10,10,10,0.45)', 'rgba(10,10,10,0.96)']}
+        locations={[0.2, 0.65, 1.0]}
         style={StyleSheet.absoluteFill}
         pointerEvents="none"
       />
@@ -301,22 +306,37 @@ function TopCard({ meal, rank, index, isNew, onLanded, isPinned, onTogglePin, di
       {badge}
 
       <View style={styles.heroBottomRow}>
-        <View style={{ flex: 1 }}>
+        <View style={{ flex: 1, paddingRight: 8 }}>
           <Text style={styles.heroName} numberOfLines={1}>{meal.name}</Text>
-          {(distance || meal.tag) && (
-            <Text style={styles.heroMeta} numberOfLines={1}>
-              {[tagLabel(meal.tag), distance && `📍 ${distance}`].filter(Boolean).join('  ·  ')}
-            </Text>
+          {(distance || meal.tag || meal.places?.name) && (
+            <View style={styles.heroMetaWrap}>
+              {meal.tag && (
+                <View style={styles.heroMetaChip}>
+                  <Text style={styles.heroMetaChipText}>{tagLabel(meal.tag)}</Text>
+                </View>
+              )}
+              {distance && (
+                <View style={styles.heroMetaChip}>
+                  <Text style={styles.heroMetaChipText}>📍 {distance}</Text>
+                </View>
+              )}
+            </View>
           )}
         </View>
-        <Text style={styles.heroScore}>{formatScore(meal.score)}</Text>
+
+        <View style={styles.heroScoreCol}>
+          <View style={styles.heroScoreBaseline}>
+            <Text style={styles.heroScore}>{formatScore(meal.score)}</Text>
+            <Text style={styles.heroScoreMax}>/10</Text>
+          </View>
+          <Text style={styles.heroScoreLabel}>MASTERPIECE</Text>
+        </View>
       </View>
     </AnimatedRow>
   );
 }
 
-// ─── RankRow ──────────────────────────────────────────────────────────────────
-// isPinned / onTogglePin are yearly-only; undefined on the monthly list.
+// ─── RankRow (Ranks 2+) ───────────────────────────────────────────────────────
 function RankRow({ meal, rank, listIndex, isNew, onLanded, isPinned, onTogglePin, distance, onPress }) {
   const enter = useRef(new Animated.Value(0)).current;
   const glow = useRef(new Animated.Value(0)).current;
@@ -350,12 +370,8 @@ function RankRow({ meal, rank, listIndex, isNew, onLanded, isPinned, onTogglePin
 
   const badgeScale = badgeIn.interpolate({ inputRange: [0, 1], outputRange: [0.7, 1] });
 
-  // Ranks 2-10 borrow the same tier accents as the reveal animation (silver
-  // #2, bronze #3, orange #4-10) so the persistent list keeps some of that
-  // "spice" instead of going flat past the hero card. 11+ stays exactly as
-  // before — plain, no accent, no medal.
   const tier = rank <= 10 ? rankTier(rank) : null;
-  const accentColor = isPinned ? C.orange : tier?.accent;
+  const accentColor = isPinned ? BRAND.orange : tier?.accent;
   const medal = !isPinned && tier?.medal ? tier.medal : null;
 
   const rankArea = onTogglePin ? (
@@ -374,8 +390,8 @@ function RankRow({ meal, rank, listIndex, isNew, onLanded, isPinned, onTogglePin
   return (
     <Animated.View style={[
       styles.rowCard,
-      !isPinned && tier && { borderLeftWidth: 3, borderLeftColor: tier.accent },
-      !isPinned && tier?.special && { backgroundColor: tier.accent + '14' },
+      !isPinned && tier && { borderLeftWidth: 3.5, borderLeftColor: tier.accent },
+      !isPinned && tier?.special && { backgroundColor: tier.accent + '0D' },
       isPinned && styles.rowCardPinned,
       { opacity: enter, transform: [{ translateY: enter.interpolate({ inputRange: [0, 1], outputRange: [isNew ? -20 : 10, 0] }) }] },
     ]}>
@@ -416,14 +432,14 @@ const SLOT_VISIBLE = 5;
 const SLOT_CENTER = 2;
 
 const RANK_TIER = {
-  1: { accent: C.gold, bg: ['#241900', '#000000'], medal: '🥇', title: 'LEGENDARY',  confetti: [C.gold, '#ff9e3d', '#fff', '#ffcc44', '#ffa040'] },
-  2: { accent: '#d8e0ec', bg: ['#181e26', '#000000'], medal: '🥈', title: 'INCREDIBLE', confetti: ['#d8e0ec', '#a0b8cc', '#fff', '#d0ddf0'] },
-  3: { accent: '#e09060', bg: ['#201000', '#000000'], medal: '🥉', title: 'IMPRESSIVE', confetti: ['#e09060', '#ff6b3d', '#fff', '#e8a87a'] },
+  1: { accent: BRAND.gold, bg: ['#1c160c', '#0a0a0a'], medal: '🥇', title: 'LEGENDARY',  confetti: [BRAND.gold, BRAND.orange, '#fff', '#e5b869'] },
+  2: { accent: BRAND.silver, bg: ['#16191f', '#0a0a0a'], medal: '🥈', title: 'INCREDIBLE', confetti: [BRAND.silver, '#94a3b8', '#fff'] },
+  3: { accent: BRAND.bronze, bg: ['#1a120b', '#0a0a0a'], medal: '🥉', title: 'IMPRESSIVE', confetti: [BRAND.bronze, BRAND.orange, '#fff'] },
 };
 function rankTier(rank) {
   if (RANK_TIER[rank]) return { ...RANK_TIER[rank], special: true };
-  if (rank <= 10) return { accent: C.orange, bg: ['#1a0600', '#000000'], medal: null, title: 'TOP 10', confetti: ['#ff6b3d', '#ff9e3d', '#fff'], special: false };
-  return { accent: C.gray1, bg: ['#111', '#000000'], medal: null, title: null, confetti: null, special: false };
+  if (rank <= 10) return { accent: BRAND.orange, bg: ['#140d09', '#0a0a0a'], medal: null, title: 'TOP 10', confetti: [BRAND.orange, BRAND.gold, '#fff'], special: false };
+  return { accent: BRAND.textMuted, bg: ['#111113', '#0a0a0a'], medal: null, title: null, confetti: null, special: false };
 }
 
 const N_PARTICLES = 32;
@@ -527,7 +543,7 @@ function RankReveal({ rank, meal, meals, onComplete }) {
         <View style={styles.slotViewport}>
           <LinearGradient colors={[tier.bg[0], 'transparent']} style={styles.slotFadeTop} pointerEvents="none" />
           <LinearGradient colors={['transparent', tier.bg[0]]} style={styles.slotFadeBottom} pointerEvents="none" />
-          <View style={[styles.slotCenterBand, { borderColor: tier.accent + '60' }]} />
+          <View style={[styles.slotCenterBand, { borderColor: tier.accent + '80' }]} />
           <Animated.View style={{ transform: [{ translateY: slotY }] }}>
             {meals.map((m, i) => (
               <View key={m.id || i} style={styles.slotRow}>
@@ -571,7 +587,7 @@ function SegmentedControl({ value, onChange }) {
           key={key}
           style={[styles.segBtn, value === key && styles.segBtnActive]}
           onPress={() => onChange(key)}
-          activeOpacity={0.8}
+          activeOpacity={0.85}
         >
           <Text style={[styles.segBtnText, value === key && styles.segBtnTextActive]}>{label}</Text>
         </TouchableOpacity>
@@ -594,9 +610,6 @@ function NearMeToggle({ active, hasCoords, onToggle }) {
 }
 
 // ─── Drop indicator ───────────────────────────────────────────────────────────
-// Live "the dragged food lands here" line, shown at dropIndicatorIdx while a
-// drag is in progress so the user sees exactly where it'll go before they
-// even release — rather than finding out only after the rating popup shows.
 function DropIndicator() {
   return (
     <View style={styles.dropIndicatorWrap} pointerEvents="none">
@@ -609,8 +622,8 @@ function DropIndicator() {
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 const SCREEN_H = Dimensions.get('window').height;
-const AUTOSCROLL_EDGE = 110;   // px from the screen's top/bottom edge that triggers auto-scroll
-const AUTOSCROLL_STEP = 14;    // px scrolled per auto-scroll tick
+const AUTOSCROLL_EDGE = 110;
+const AUTOSCROLL_STEP = 14;
 
 export default function TierListScreen() {
   const navigation = useNavigation();
@@ -629,20 +642,14 @@ export default function TierListScreen() {
   const [mode, setMode] = useState('monthly');
 
   // ── Near Me (location) ──
-  // Live device position only — never persisted. Used to compute a live
-  // distance from each meal's place and, when the toggle is on, to re-sort
-  // the visible monthly list by that distance instead of score.
   const [userCoords, setUserCoords] = useState(null);
   const [nearMeOn, setNearMeOn] = useState(false);
 
   // ── Yearly state ──
-  // allYearMeals: full year meal list (score-sorted), needed for rebuilding after pin changes
   const [allYearMeals, setAllYearMeals] = useState([]);
   const allYearMealsRef = useRef([]);
-  // yearlyPinnedSlots: { meal_id: rank } — individual item pins
   const [yearlyPinnedSlots, setYearlyPinnedSlots] = useState({});
   const yearlyPinnedSlotsRef = useRef({});
-  // yearlyMeals: derived display list from buildYearlyList
   const [yearlyMeals, setYearlyMeals] = useState([]);
   const [yearlyLoading, setYearlyLoading] = useState(false);
   const [yearlyError, setYearlyError] = useState(null);
@@ -665,21 +672,9 @@ export default function TierListScreen() {
   const scrollYRef      = useRef(0);
   const mealsRef        = useRef([]);
   const [draggedId, setDraggedId] = useState(null);
-  // Live insertion index while a drag is in progress — drives the drop-
-  // indicator line so the user can see exactly where the item will land
-  // before they even release. null whenever nothing is being dragged.
   const [dropIndicatorIdx, setDropIndicatorIdx] = useState(null);
-  // Auto-scroll while dragging near the top/bottom edge of the screen — a
-  // plain ScrollView (not a FlatList) has no built-in equivalent, and without
-  // it a drag can never reach a far-off slot that isn't already on screen
-  // (scroll is disabled during drag to avoid fighting the pan gesture).
-  const autoScrollDirRef = useRef(0); // -1 up, 0 none, 1 down
+  const autoScrollDirRef = useRef(0);
   const autoScrollIntervalRef = useRef(null);
-  // Holds the pending drop's neighbor bounds while the rating-slider popup is
-  // up; null when no popup is showing. Nothing is reordered or persisted
-  // until the user confirms a value out of this — cancelling just clears it,
-  // leaving `meals` untouched (the dragged row already sprang back to its
-  // original slot per DraggableRow's onFinalize).
   const [ratingPrompt, setRatingPrompt] = useState(null);
 
   function stopAutoScroll() {
@@ -703,13 +698,10 @@ export default function TierListScreen() {
   }
 
   useEffect(() => () => stopAutoScroll(), []);
-
   useEffect(() => { mealsRef.current = meals; }, [meals]);
 
   const headerEnter = useRef(new Animated.Value(0)).current;
 
-  // Request foreground location on mount, mirroring LogMealScreen's pattern.
-  // Non-blocking and non-fatal: if denied, Near Me simply stays unavailable.
   useEffect(() => {
     (async () => {
       try {
@@ -773,7 +765,6 @@ export default function TierListScreen() {
       const yearEnd   = `${CURRENT_YEAR + 1}-01-01T00:00:00.000Z`;
 
       const [{ data: mealsData, error: mealsErr }, { data: tierData, error: tierErr }] = await Promise.all([
-        // Fetch ALL year meals (not limited to 10) so buildYearlyList has the full pool
         supabase.from('meals').select('*').eq('user_id', uid)
           .gte('created_at', yearStart).lt('created_at', yearEnd)
           .order('score', { ascending: false, nullsFirst: false }),
@@ -839,11 +830,6 @@ export default function TierListScreen() {
     }
   }
 
-  // ── Shared insertion-index math ──
-  // Same "compare the dragged row's live center-Y against every other row's
-  // recorded layout" algorithm used by both list modes and by the live
-  // drop-indicator while a drag is still in progress — factored out so all
-  // three call sites agree on exactly where a drop will land.
   function computeInsertionIndex(list, mealId, translationY) {
     const layout = rowLayoutsRef.current[mealId];
     if (!layout || list.length < 2) return null;
@@ -866,12 +852,6 @@ export default function TierListScreen() {
     setDropIndicatorIdx(null);
   }
 
-  // Fires (throttled) on every drag update, while the finger is still down —
-  // drives the live drop-indicator line and auto-scrolls the list when the
-  // drag nears the top/bottom edge of the screen (scrolling is otherwise
-  // disabled during a drag so it doesn't fight the pan gesture, which would
-  // otherwise make it impossible to drag an item further than one screen's
-  // worth of travel — e.g. from the bottom of a long list to the top).
   function handleDragMove(mealId, translationY, absoluteY) {
     const list = mode === 'monthly' ? mealsRef.current : yearlyMealsRef.current;
     const result = computeInsertionIndex(list, mealId, translationY);
@@ -882,9 +862,6 @@ export default function TierListScreen() {
     else setAutoScrollDir(0);
   }
 
-  // Fires on every gesture finalize (drop committed, cancelled, or
-  // interrupted) — always clears drag-in-progress visuals regardless of
-  // which path ended it.
   function handleDragFinalize() {
     setDropIndicatorIdx(null);
     setAutoScrollDir(0);
@@ -897,22 +874,13 @@ export default function TierListScreen() {
     if (!result) return;
     const { insertionIdx, remaining } = result;
 
-    // Dropped back into the same slot it started in — no move, no popup.
     const originalIdx = current.findIndex(m => m.id === mealId);
     if (insertionIdx === originalIdx) return;
 
     const draggedMeal = current[originalIdx];
-    // remaining is score-sorted descending, same as `current` — the row
-    // "above" (better rank) sits at insertionIdx-1, the row "below" at
-    // insertionIdx, in the list as it'll look once the drag commits.
     const upperNeighbor = insertionIdx > 0 ? remaining[insertionIdx - 1] : null;
     const lowerNeighbor = insertionIdx < remaining.length ? remaining[insertionIdx] : null;
 
-    // meal.score can come back from Supabase as a numeric string rather than
-    // a JS number (same reason formatScore() above coerces it) — `+` on two
-    // strings concatenates instead of adding, so this must coerce explicitly
-    // or `min + max` silently produces garbage (e.g. "8.0" + "8.5" = "8.08.5")
-    // and initialValue ends up NaN.
     const min = lowerNeighbor ? Number(lowerNeighbor.score) : 1.0;
     const max = upperNeighbor ? Number(upperNeighbor.score) : 10.0;
     const initialValue = Math.round(((min + max) / 2) * 10) / 10;
@@ -929,7 +897,6 @@ export default function TierListScreen() {
     });
   }
 
-  // ── Confirm/cancel the rating-slider popup ──
   function handleCancelRating() {
     setRatingPrompt(null);
   }
@@ -939,9 +906,6 @@ export default function TierListScreen() {
     if (!prompt) return;
     const { mealId, min, max, insertionIdx } = prompt;
 
-    // Snap to an exact tie with whichever neighbor bound the user dragged to
-    // — floating-point drift from the slider's step math shouldn't leave a
-    // deliberate tie a hair off the neighbor's actual stored score.
     let newScore = rawValue;
     if (Math.abs(newScore - min) < 0.01) newScore = min;
     if (Math.abs(newScore - max) < 0.01) newScore = max;
@@ -950,13 +914,6 @@ export default function TierListScreen() {
     const oldMeals = [...current];
     const draggedMeal = current.find(m => m.id === mealId);
 
-    // Insert at the recorded drop slot directly rather than re-sorting the
-    // whole list by score — sorting can't be trusted to reproduce the exact
-    // position the user dropped into: Array.sort is stable, so a value tied
-    // with a neighbor (the whole point of this feature — landing exactly on
-    // a neighbor's rating to tie with it on purpose) keeps its *original*
-    // relative order instead of the position implied by the drop. The score
-    // just has to be valid within [min, max]; it doesn't drive the ordering.
     const remaining = current.filter(m => m.id !== mealId);
     const updatedMeals = [...remaining];
     updatedMeals.splice(insertionIdx, 0, { ...draggedMeal, score: newScore });
@@ -976,7 +933,6 @@ export default function TierListScreen() {
   }
 
   // ── Yearly drag handler ──
-  // Dragging an item in the yearly list pins it at its new rank position.
   function handleDropYearly(mealId, translationY) {
     const current = yearlyMealsRef.current;
     setDraggedId(null);
@@ -991,7 +947,6 @@ export default function TierListScreen() {
 
     const newRank = insertionIdx + 1;
 
-    // Build new pinned slots: carry over existing pins (except displaced), pin dragged item at new rank
     const newSlots = {};
     for (const [id, r] of Object.entries(yearlyPinnedSlotsRef.current)) {
       if (id !== mealId && r !== newRank) newSlots[id] = r;
@@ -1019,7 +974,6 @@ export default function TierListScreen() {
     if (isPinned) {
       delete newSlots[mealId];
     } else {
-      // Remove any existing pin at this rank to avoid collisions
       for (const [id, r] of Object.entries(newSlots)) {
         if (r === currentRank) delete newSlots[id];
       }
@@ -1076,11 +1030,11 @@ export default function TierListScreen() {
   if (loading) {
     return (
       <SafeAreaView style={styles.safe} edges={['top']}>
-        <StatusBar barStyle="light-content" backgroundColor={C.bg} />
+        <StatusBar barStyle="light-content" backgroundColor={BRAND.bg} />
         <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()} hitSlop={10}>
-          <Ionicons name="chevron-back" size={24} color={C.white} />
+          <Ionicons name="chevron-back" size={22} color={BRAND.textPrimary} />
         </TouchableOpacity>
-        <View style={styles.center}><ActivityIndicator color={C.orange} /></View>
+        <View style={styles.center}><ActivityIndicator color={BRAND.orange} size="large" /></View>
       </SafeAreaView>
     );
   }
@@ -1088,15 +1042,15 @@ export default function TierListScreen() {
   if (error) {
     return (
       <SafeAreaView style={styles.safe} edges={['top']}>
-        <StatusBar barStyle="light-content" backgroundColor={C.bg} />
+        <StatusBar barStyle="light-content" backgroundColor={BRAND.bg} />
         <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()} hitSlop={10}>
-          <Ionicons name="chevron-back" size={24} color={C.white} />
+          <Ionicons name="chevron-back" size={22} color={BRAND.textPrimary} />
         </TouchableOpacity>
         <View style={styles.center}>
-          <Ionicons name="alert-circle-outline" size={44} color={C.gray2} />
+          <Ionicons name="alert-circle-outline" size={44} color={BRAND.textMuted} />
           <Text style={styles.emptyTitle}>Couldn't load tier list</Text>
           <Text style={styles.emptySub}>{error}</Text>
-          <TouchableOpacity style={styles.retryBtn} onPress={load} activeOpacity={0.8}>
+          <TouchableOpacity style={styles.retryBtn} onPress={load} activeOpacity={0.85}>
             <Text style={styles.retryBtnText}>Try again</Text>
           </TouchableOpacity>
         </View>
@@ -1109,7 +1063,7 @@ export default function TierListScreen() {
     if (meals.length === 0) {
       return (
         <View style={styles.inlineCenter}>
-          <Ionicons name="trophy-outline" size={44} color={C.gold} />
+          <Ionicons name="trophy-outline" size={48} color={BRAND.gold} />
           <Text style={styles.emptyTitle}>Nothing logged in {CURRENT_MONTH_LABEL} yet</Text>
           <Text style={styles.emptySub}>Log some meals this month and your rankings will show up here.</Text>
         </View>
@@ -1126,18 +1080,9 @@ export default function TierListScreen() {
         })
       : meals;
 
-    // Live "you'll land here" line while dragging — indicatorSlot counts only
-    // non-dragged rows, since dropIndicatorIdx is an index into `remaining`
-    // (the list minus whatever's currently being dragged), same convention
-    // computeInsertionIndex uses everywhere else.
     const showIndicator = draggedId !== null && dropIndicatorIdx !== null;
     let indicatorSlot = 0;
 
-    // flatMap (not map) so the divider inserted after rank 10 lands as a
-    // direct sibling of the DraggableRows, not nested inside one — nesting
-    // it would change the onLayout coordinate frame DraggableRow reports for
-    // its own row (relative to its immediate parent), which the drag/drop
-    // math in handleDrop depends on being consistent across all rows.
     const rows = displayMeals.flatMap((meal, idx) => {
       const rank = idx + 1;
       const isHero = rank === 1;
@@ -1156,7 +1101,7 @@ export default function TierListScreen() {
           onDrop={handleDrop}
           onDragFinalize={handleDragFinalize}
           dragEnabled={!nearMeOn}
-          style={isHero ? [styles.topDragRow, { marginBottom: 12 }] : styles.rankDragRow}
+          style={isHero ? [styles.topDragRow, { marginBottom: 14 }] : styles.rankDragRow}
         >
           {isHero ? (
             <TopCard meal={meal} rank={rank} index={idx}
@@ -1181,8 +1126,6 @@ export default function TierListScreen() {
       if (!isDraggedRow) indicatorSlot++;
       out.push(row);
 
-      // Marks where "top 10" ends — only appears when the month actually
-      // has more than 10 meals to separate from the ranked ones above.
       if (rank === 10 && displayMeals.length > 10) {
         out.push(
           <View key="tier-divider" style={styles.tierDivider}>
@@ -1204,15 +1147,15 @@ export default function TierListScreen() {
   // ── Yearly content ──
   function renderYearlyContent() {
     if (yearlyLoading) {
-      return <View style={styles.inlineCenter}><ActivityIndicator color={C.orange} /></View>;
+      return <View style={styles.inlineCenter}><ActivityIndicator color={BRAND.orange} size="large" /></View>;
     }
     if (yearlyError) {
       return (
         <View style={styles.inlineCenter}>
-          <Ionicons name="alert-circle-outline" size={44} color={C.gray2} />
+          <Ionicons name="alert-circle-outline" size={44} color={BRAND.textMuted} />
           <Text style={styles.emptyTitle}>Couldn't load {CURRENT_YEAR}</Text>
           <Text style={styles.emptySub}>{yearlyError}</Text>
-          <TouchableOpacity style={styles.retryBtn} onPress={loadYearly} activeOpacity={0.8}>
+          <TouchableOpacity style={styles.retryBtn} onPress={loadYearly} activeOpacity={0.85}>
             <Text style={styles.retryBtnText}>Try again</Text>
           </TouchableOpacity>
         </View>
@@ -1221,7 +1164,7 @@ export default function TierListScreen() {
     if (yearlyMeals.length === 0) {
       return (
         <View style={styles.inlineCenter}>
-          <Ionicons name="calendar-outline" size={44} color={C.gray2} />
+          <Ionicons name="calendar-outline" size={44} color={BRAND.gold} />
           <Text style={styles.emptyTitle}>Nothing logged in {CURRENT_YEAR} yet</Text>
           <Text style={styles.emptySub}>Log meals this year and your top picks will appear here.</Text>
         </View>
@@ -1247,7 +1190,7 @@ export default function TierListScreen() {
           onDragMove={handleDragMove}
           onDrop={handleDropYearly}
           onDragFinalize={handleDragFinalize}
-          style={isHero ? [styles.topDragRow, { marginBottom: 12 }] : styles.rankDragRow}
+          style={isHero ? [styles.topDragRow, { marginBottom: 14 }] : styles.rankDragRow}
         >
           {isHero ? (
             <TopCard meal={meal} rank={rank} index={idx} isNew={false} onLanded={null}
@@ -1280,10 +1223,11 @@ export default function TierListScreen() {
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
-      <StatusBar barStyle="light-content" backgroundColor={C.bg} />
+      <StatusBar barStyle="light-content" backgroundColor={BRAND.bg} />
       <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()} hitSlop={10}>
-        <Ionicons name="chevron-back" size={24} color={C.white} />
+        <Ionicons name="chevron-back" size={20} color={BRAND.textPrimary} />
       </TouchableOpacity>
+
       <ScrollView
         ref={listRef}
         style={styles.list}
@@ -1297,14 +1241,19 @@ export default function TierListScreen() {
           opacity: headerEnter,
           transform: [{ translateY: headerEnter.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }) }],
         }}>
-          <Text style={styles.kicker}>TIER LIST</Text>
-          <Text style={styles.heading}>Your rankings</Text>
+          <View style={styles.headerTitleWrap}>
+            <Text style={styles.kicker}>TIER LIST</Text>
+            <Text style={styles.heading}>Your rankings</Text>
+          </View>
+
           <SegmentedControl value={mode} onChange={switchMode} />
+
           {mode === 'monthly' && meals.length > 0 && (
             <View style={styles.nearMeRow}>
               <NearMeToggle active={nearMeOn} hasCoords={!!userCoords} onToggle={handleToggleNearMe} />
             </View>
           )}
+
           <Text style={styles.subheading}>
             {mode === 'monthly'
               ? nearMeOn
@@ -1355,144 +1304,181 @@ export default function TierListScreen() {
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: C.bg },
+  safe: { flex: 1, backgroundColor: BRAND.bg },
   backBtn: {
     position: 'absolute', top: 12, left: 16, zIndex: 10,
     width: 38, height: 38, borderRadius: 19,
-    backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderWidth: 1, borderColor: BRAND.border,
+    alignItems: 'center', justifyContent: 'center',
   },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
   inlineCenter: { paddingTop: 60, alignItems: 'center', paddingHorizontal: 32 },
   list: { flex: 1, width: '100%', maxWidth: 480, alignSelf: 'center' },
-  listContent: { paddingBottom: 40, paddingTop: 56 },
+  listContent: { paddingBottom: 48, paddingTop: 52 },
 
-  emptyEmoji: { fontSize: 48, marginBottom: 16 },
-  emptyTitle: { fontWeight: '700', fontSize: 20, color: C.white, marginBottom: 8, textAlign: 'center' },
-  emptySub: { fontSize: 14, color: C.gray1, textAlign: 'center', lineHeight: 22, marginBottom: 24 },
-  retryBtn: { backgroundColor: C.orange, borderRadius: 14, paddingHorizontal: 28, paddingVertical: 13 },
-  retryBtnText: { fontSize: 15, fontWeight: '700', color: C.white },
+  emptyTitle: { fontWeight: '700', fontSize: 19, color: BRAND.textPrimary, marginTop: 14, marginBottom: 6, textAlign: 'center' },
+  emptySub: { fontSize: 13, color: BRAND.textSecondary, textAlign: 'center', lineHeight: 20, marginBottom: 20, maxWidth: 300 },
+  retryBtn: { backgroundColor: BRAND.orange, borderRadius: 999, paddingHorizontal: 24, paddingVertical: 11 },
+  retryBtnText: { fontSize: 13, fontWeight: '700', color: BRAND.textPrimary },
 
+  headerTitleWrap: { paddingHorizontal: 20, marginBottom: 14 },
   kicker: {
-    fontWeight: '700', fontSize: 12, letterSpacing: 1.5, color: C.orange,
-    textTransform: 'uppercase', paddingHorizontal: 24, paddingTop: 4, marginBottom: 6,
+    fontWeight: '800', fontSize: 11, letterSpacing: 2, color: BRAND.orange,
+    textTransform: 'uppercase', marginBottom: 4,
   },
   heading: {
-    fontFamily: C.serif, fontSize: 36, color: C.white,
-    paddingHorizontal: 24, marginBottom: 16,
+    fontFamily: C.serif, fontSize: 32, color: BRAND.textPrimary,
+    fontWeight: '700', letterSpacing: -0.5,
   },
-  subheading: { fontSize: 12, color: RANK_GRAY, paddingHorizontal: 24, marginTop: 4, marginBottom: 26 },
+  subheading: { fontSize: 12, color: BRAND.textSecondary, paddingHorizontal: 20, marginTop: 12, marginBottom: 18 },
 
-  // Segmented control
+  // Segmented control (refined pill slider)
   segWrap: {
-    flexDirection: 'row', marginHorizontal: 24, backgroundColor: C.glassBg,
-    borderRadius: C.pill, borderWidth: 1, borderColor: C.glassBorder, padding: 4,
+    flexDirection: 'row', marginHorizontal: 20, backgroundColor: BRAND.surface,
+    borderRadius: 999, borderWidth: 1, borderColor: BRAND.border, padding: 3,
   },
-  segBtn: { flex: 1, paddingVertical: 8, borderRadius: C.pill, alignItems: 'center' },
-  segBtnActive: { backgroundColor: C.orange },
-  segBtnText: { fontWeight: '700', fontSize: 13, color: C.gray2 },
-  segBtnTextActive: { color: C.white },
+  segBtn: { flex: 1, paddingVertical: 7, borderRadius: 999, alignItems: 'center', justifyContent: 'center' },
+  segBtnActive: {
+    backgroundColor: BRAND.orange,
+    shadowColor: BRAND.orange, shadowOpacity: 0.35, shadowRadius: 8, shadowOffset: { width: 0, height: 2 },
+    elevation: 3,
+  },
+  segBtnText: { fontWeight: '600', fontSize: 12, color: BRAND.textSecondary },
+  segBtnTextActive: { color: BRAND.textPrimary, fontWeight: '700' },
 
   // Near Me toggle
-  nearMeRow: { paddingHorizontal: 24, marginTop: 12, flexDirection: 'row' },
+  nearMeRow: { paddingHorizontal: 20, marginTop: 10, flexDirection: 'row' },
   nearMeChip: {
-    flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 7,
-    borderRadius: 10, borderWidth: 1, borderColor: C.border, backgroundColor: C.surface,
+    flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 6,
+    borderRadius: 999, borderWidth: 1, borderColor: BRAND.border, backgroundColor: BRAND.surface,
   },
-  nearMeChipActive: { backgroundColor: C.orange + '20', borderColor: C.orange },
-  nearMeChipDim: { opacity: 0.55 },
-  nearMeChipText: { fontSize: 12, fontWeight: '700', color: C.gray1 },
-  nearMeChipTextActive: { color: C.orange },
+  nearMeChipActive: { backgroundColor: 'rgba(255, 99, 33, 0.15)', borderColor: BRAND.orange },
+  nearMeChipDim: { opacity: 0.45 },
+  nearMeChipText: { fontSize: 11, fontWeight: '600', color: BRAND.textSecondary },
+  nearMeChipTextActive: { color: BRAND.orange, fontWeight: '700' },
 
-  // Drag
-  topDragRow: { marginHorizontal: 24 },
+  // Drag & list layout
+  topDragRow: { marginHorizontal: 20 },
   rankDragRow: { marginHorizontal: 16, marginBottom: 8 },
 
-  // Separates the ranked top 10 from the flat remainder of the month's log.
+  // Tier divider separating Top 10 from meals 11+
   tierDivider: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
-    marginHorizontal: 24, marginTop: 4, marginBottom: 14,
+    marginHorizontal: 20, marginTop: 14, marginBottom: 14,
   },
-  tierDividerLine: { flex: 1, height: 0.5, backgroundColor: C.border },
+  tierDividerLine: { flex: 1, height: 1, backgroundColor: BRAND.border },
   tierDividerText: {
-    fontSize: 10, fontWeight: '800', color: C.gray3,
-    letterSpacing: 1, textTransform: 'uppercase',
+    fontSize: 9, fontWeight: '800', color: BRAND.textMuted,
+    letterSpacing: 2, textTransform: 'uppercase',
   },
+
+  // Live Drop Indicator
   dropIndicatorWrap: {
     flexDirection: 'row', alignItems: 'center',
-    marginHorizontal: 24, marginVertical: 4, height: 3,
+    marginHorizontal: 20, marginVertical: 4, height: 4,
   },
-  dropIndicatorLine: { flex: 1, height: 3, borderRadius: 1.5, backgroundColor: C.orange },
-  dropIndicatorDot: { width: 7, height: 7, borderRadius: 3.5, backgroundColor: C.orange, marginHorizontal: -3.5 },
-  dragHandle: {
-    position: 'absolute', right: 0, top: 0, bottom: 0, width: 40,
-    justifyContent: 'center', alignItems: 'center', gap: 4,
+  dropIndicatorLine: {
+    flex: 1, height: 3, borderRadius: 1.5, backgroundColor: BRAND.orange,
+    shadowColor: BRAND.orange, shadowOpacity: 0.8, shadowRadius: 6,
   },
-  handleLine: { width: 14, height: 2, borderRadius: 1, backgroundColor: 'rgba(255,255,255,0.28)' },
+  dropIndicatorDot: {
+    width: 8, height: 8, borderRadius: 4, backgroundColor: BRAND.orange,
+    marginHorizontal: -4, shadowColor: BRAND.orange, shadowOpacity: 0.8, shadowRadius: 6,
+  },
 
-  // #1 hero card — full-bleed photo, gold border/glow, bottom-left serif
-  // name, bottom-right huge serif gold score. Matches the mockup's single
-  // hero treatment (only rank 1 ever renders this; 2+ use rowCard below).
+  dragHandle: {
+    position: 'absolute', right: 0, top: 0, bottom: 0, width: 38,
+    justifyContent: 'center', alignItems: 'center', gap: 3.5,
+  },
+  handleLine: { width: 14, height: 2, borderRadius: 1, backgroundColor: 'rgba(255,255,255,0.22)' },
+
+  // #1 Hero Card (Luxury Gobbl Editorial styling)
   heroCard: {
-    height: 220, borderRadius: 8, overflow: 'hidden', position: 'relative',
-    backgroundColor: '#1a1a1a',
-    borderWidth: 1.5, borderColor: 'rgba(233,184,114,0.5)',
+    height: 228, borderRadius: 20, overflow: 'hidden', position: 'relative',
+    backgroundColor: BRAND.surfaceCard,
+    borderWidth: 1.5, borderColor: BRAND.borderGold,
+    shadowColor: '#000', shadowOpacity: 0.4, shadowRadius: 18, shadowOffset: { width: 0, height: 8 },
+    elevation: 8,
   },
   heroImgFallback: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
-  heroEmoji: { fontSize: 44 },
+  heroEmoji: { fontSize: 48 },
   heroBadge: {
-    position: 'absolute', top: 14, left: 14, zIndex: 2,
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: C.gold, borderRadius: C.pill,
-    paddingHorizontal: 11, paddingVertical: 5,
+    position: 'absolute', top: 12, left: 12, zIndex: 2,
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    backgroundColor: 'rgba(10, 10, 10, 0.88)',
+    borderRadius: 999, borderWidth: 1, borderColor: BRAND.borderGold,
+    paddingHorizontal: 10, paddingVertical: 5,
+    shadowColor: '#000', shadowOpacity: 0.5, shadowRadius: 8,
   },
-  heroBadgeText: { fontSize: 11, fontWeight: '800', color: C.bg, letterSpacing: 0.3 },
+  heroBadgeStar: { fontSize: 10, color: BRAND.gold, fontWeight: '800' },
+  heroBadgeText: { fontSize: 10, fontWeight: '800', color: BRAND.gold, letterSpacing: 0.5, textTransform: 'uppercase' },
+
   heroBottomRow: {
     position: 'absolute', left: 16, right: 16, bottom: 14, zIndex: 2,
-    flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', gap: 10,
+    flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between',
   },
-  heroName: { fontFamily: C.serif, fontSize: 24, color: C.white },
-  heroMeta: { fontSize: 12, color: 'rgba(245,245,247,0.6)', marginTop: 2 },
-  heroScore: { fontFamily: C.serif, fontSize: 40, color: C.gold },
+  heroName: { fontFamily: C.serif, fontSize: 23, color: BRAND.textPrimary, fontWeight: '700', letterSpacing: -0.3 },
+  heroMetaWrap: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 },
+  heroMetaChip: {
+    paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderWidth: 1, borderColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  heroMetaChipText: { fontSize: 10, color: BRAND.textSecondary, fontWeight: '500' },
 
-  landGlow: { position: 'absolute', top: -1, left: -1, right: -1, bottom: -1, borderWidth: 1, borderColor: C.gold, borderRadius: 8 },
-  landBadge: { position: 'absolute', top: -11, right: 16, backgroundColor: C.gold, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10, zIndex: 5 },
-  landBadgeText: { fontWeight: '800', fontSize: 10, letterSpacing: 0.8, color: C.bg },
+  heroScoreCol: { alignItems: 'flex-end', shrink: 0, paddingLeft: 8 },
+  heroScoreBaseline: { flexDirection: 'row', alignItems: 'baseline', gap: 2 },
+  heroScore: { fontFamily: C.serif, fontSize: 40, color: BRAND.orange, fontWeight: '800', lineHeight: 42 },
+  heroScoreMax: { fontFamily: C.serif, fontSize: 14, color: BRAND.gold, fontWeight: '700' },
+  heroScoreLabel: { fontSize: 9, fontWeight: '800', color: BRAND.gold, letterSpacing: 1.5, marginTop: 2 },
 
-  // Plain list rows (rank 2+) — matches the mockup's flat list under the hero.
-  rowCard: { backgroundColor: C.glassBg, borderRadius: 8, borderWidth: 1, borderColor: C.glassBorder, overflow: 'hidden' },
-  rowCardPinned: { borderColor: C.orange + '50', borderWidth: 1, borderLeftWidth: 3, borderLeftColor: C.orange },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingLeft: 14, paddingRight: 40, paddingVertical: 12 },
-  rowGlow: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(255,107,61,0.06)' },
-  rowBadge: { position: 'absolute', right: 14, top: -1, backgroundColor: C.orange, paddingHorizontal: 7, paddingVertical: 2, borderRadius: 8 },
-  rowBadgeText: { fontWeight: '800', fontSize: 9, letterSpacing: 0.6, color: '#000000' },
-  rowRankPressable: { width: 30, alignItems: 'center', justifyContent: 'center', gap: 1 },
-  rowRank: { width: 30, fontFamily: C.serif, fontSize: 20, color: 'rgba(245,245,247,0.6)', textAlign: 'center' },
-  rowRankPinDot: { fontSize: 9, textAlign: 'center' },
-  rowRankMedal: { fontSize: 10, textAlign: 'center', marginTop: 1 },
-  rowImg: { width: 46, height: 46, borderRadius: 12, backgroundColor: C.bg },
+  landGlow: { position: 'absolute', top: -1, left: -1, right: -1, bottom: -1, borderWidth: 2, borderColor: BRAND.gold, borderRadius: 20 },
+  landBadge: { position: 'absolute', top: -11, right: 16, backgroundColor: BRAND.gold, paddingHorizontal: 9, paddingVertical: 3, borderRadius: 8, zIndex: 5 },
+  landBadgeText: { fontWeight: '800', fontSize: 9, letterSpacing: 0.8, color: BRAND.bg },
+
+  // Plain list rows (Rank 2+)
+  rowCard: {
+    backgroundColor: BRAND.surface,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: BRAND.border,
+    overflow: 'hidden',
+    shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 8, shadowOffset: { width: 0, height: 2 },
+  },
+  rowCardPinned: { borderColor: BRAND.orange + '60', borderLeftWidth: 3.5, borderLeftColor: BRAND.orange },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 11, paddingLeft: 12, paddingRight: 40, paddingVertical: 10 },
+  rowGlow: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(255,99,33,0.08)' },
+  rowBadge: { position: 'absolute', right: 14, top: -1, backgroundColor: BRAND.orange, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
+  rowBadgeText: { fontWeight: '800', fontSize: 8.5, letterSpacing: 0.6, color: '#FFFFFF' },
+  rowRankPressable: { width: 28, alignItems: 'center', justifyContent: 'center' },
+  rowRank: { width: 28, fontFamily: C.serif, fontSize: 18, color: BRAND.textMuted, textAlign: 'center', fontWeight: '700' },
+  rowRankPinDot: { fontSize: 9, textAlign: 'center', marginTop: 1 },
+  rowRankMedal: { fontSize: 11, textAlign: 'center', marginTop: 1 },
+  rowImg: { width: 44, height: 44, borderRadius: 12, backgroundColor: BRAND.surfaceCard, borderWidth: 1, borderColor: BRAND.border },
   rowImgFallback: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center' },
   rowEmoji: { fontSize: 20 },
-  rowNameWrap: { flex: 1 },
-  rowName: { fontSize: 14, color: C.white, fontWeight: '600' },
-  rowDistance: { fontSize: 10, color: C.gray3, marginTop: 1, fontWeight: '500' },
-  rowScore: { fontWeight: '700', fontSize: 15, color: C.white },
+  rowNameWrap: { flex: 1, minWidth: 0 },
+  rowName: { fontSize: 13.5, color: BRAND.textPrimary, fontWeight: '600' },
+  rowDistance: { fontSize: 10.5, color: BRAND.textSecondary, marginTop: 2, fontWeight: '500' },
+  rowScore: { fontFamily: C.serif, fontWeight: '700', fontSize: 16, color: BRAND.orange },
 
   // Rank reveal overlay
   slotPhase: { alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24 },
   slotMealEmoji: { fontSize: 52, marginBottom: 10 },
-  slotMealName: { fontWeight: '700', fontSize: 20, color: C.white, marginBottom: 6, textAlign: 'center' },
-  slotFindingLabel: { fontSize: 11, color: C.gray3, letterSpacing: 2.5, textTransform: 'uppercase', marginBottom: 28 },
+  slotMealName: { fontWeight: '700', fontSize: 20, color: BRAND.textPrimary, marginBottom: 6, textAlign: 'center' },
+  slotFindingLabel: { fontSize: 10.5, color: BRAND.textMuted, letterSpacing: 2.5, textTransform: 'uppercase', marginBottom: 28, fontWeight: '800' },
   slotViewport: { width: '100%', height: SLOT_VISIBLE * SLOT_ITEM_H, overflow: 'hidden' },
   slotFadeTop: { position: 'absolute', top: 0, left: 0, right: 0, height: SLOT_ITEM_H * 2.2, zIndex: 2 },
   slotFadeBottom: { position: 'absolute', bottom: 0, left: 0, right: 0, height: SLOT_ITEM_H * 2.2, zIndex: 2 },
   slotCenterBand: { position: 'absolute', top: SLOT_CENTER * SLOT_ITEM_H, left: 0, right: 0, height: SLOT_ITEM_H, borderTopWidth: 1, borderBottomWidth: 1, zIndex: 1 },
   slotRow: { height: SLOT_ITEM_H, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, gap: 12 },
-  slotRankNum: { fontWeight: '700', fontSize: 13, color: C.gray4, width: 36, textAlign: 'right' },
+  slotRankNum: { fontWeight: '700', fontSize: 13, color: BRAND.textMuted, width: 36, textAlign: 'right' },
   slotRowEmoji: { fontSize: 26 },
-  slotRowName: { flex: 1, fontSize: 15, color: C.gray3 },
+  slotRowName: { flex: 1, fontSize: 14.5, color: BRAND.textSecondary },
   celebPhase: { alignItems: 'center', justifyContent: 'center' },
   celebMedal: { fontSize: 72, marginBottom: 6 },
   celebRankNum: { fontFamily: C.serif, fontSize: 110, lineHeight: 116 },
-  celebTitle: { fontWeight: '800', fontSize: 16, letterSpacing: 4, marginTop: 6 },
-  celebMealName: { fontSize: 16, color: C.gray1, marginTop: 20, textAlign: 'center', fontWeight: '500', paddingHorizontal: 40 },
+  celebTitle: { fontWeight: '800', fontSize: 15, letterSpacing: 4, marginTop: 6 },
+  celebMealName: { fontSize: 16, color: BRAND.textSecondary, marginTop: 20, textAlign: 'center', fontWeight: '500', paddingHorizontal: 40 },
 });

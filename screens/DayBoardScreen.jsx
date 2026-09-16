@@ -22,6 +22,13 @@ import { THEME as C } from '../lib/theme';
 import StripedPlaceholder from '../components/StripedPlaceholder';
 import { useAppForeground } from '../lib/useAppForeground';
 
+// Returns true in the last 3 days of the month — show Recaps banner then
+function isMonthEnd() {
+  const now = new Date();
+  const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  return now.getDate() >= lastDay - 2;
+}
+
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 // Sized off the actual viewport, not fixed pixels, so this holds across
@@ -90,6 +97,20 @@ function formatLastSeen(lastSeenAt) {
   const diffHours = Math.floor(diffMin / 60);
   if (diffHours < 24) return `${diffHours}h ago`;
   return 'Offline';
+}
+
+const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const DAYS_FULL = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+function dateLabel(d) {
+  const dateObj = d instanceof Date ? d : new Date(d);
+  return `${MONTHS_SHORT[dateObj.getMonth()]} ${dateObj.getDate()}`;
+}
+
+function getRelativeDateLabel(offset, targetDate) {
+  if (offset === 0) return 'Today';
+  if (offset === -1) return 'Yesterday';
+  return `${DAYS_FULL[targetDate.getDay()]}, ${MONTHS_SHORT[targetDate.getMonth()]} ${targetDate.getDate()}`;
 }
 
 
@@ -970,6 +991,8 @@ export default function DayBoardScreen() {
   const [pendingRequests, setPendingRequests] = useState(0);
   const [streak, setStreak] = useState(0);
   const [loggedToday, setLoggedToday] = useState(false);
+  const [dietFocus, setDietFocus] = useState(null);
+  const [dayOffset, setDayOffset] = useState(0);
   const [likeCounts, setLikeCounts] = useState({});    // mealId -> count
   const [commentCounts, setCommentCounts] = useState({}); // mealId -> count
   const [voteCounts, setVoteCounts] = useState({});    // mealId -> Tier Duel vote count
@@ -993,7 +1016,7 @@ export default function DayBoardScreen() {
   const [duelTooltipVisible, dismissDuelTooltip] = useFirstVisit('@fw_tt_duelcard');
   const [trailTooltipVisible, dismissTrailTooltip] = useFirstVisit('@fw_tt_daytrail');
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (offset = dayOffset) => {
     setLoading(true);
     setError(null);
     try {
@@ -1011,12 +1034,16 @@ export default function DayBoardScreen() {
         return;
       }
       setCurrentUserId(user.id);
+      supabase.from('user_diet_preferences').select('primary_goal, plan_completed_at').eq('user_id', user.id).maybeSingle()
+        .then(({ data }) => setDietFocus(data?.plan_completed_at ? data.primary_goal : null))
+        .catch(() => setDietFocus(null));
       supabase.from('profiles').update({ last_seen_at: new Date().toISOString() }).eq('id', user.id).then(() => {}).catch(() => {});
 
-      const now = new Date();
-      const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
-      const dayEnd   = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).toISOString();
-      const todayKey = localDateKey(now);
+      const targetDate = new Date();
+      targetDate.setDate(targetDate.getDate() + offset);
+      const dayStart = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate()).toISOString();
+      const dayEnd   = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate() + 1).toISOString();
+      const activeDayKey = localDateKey(targetDate);
 
       // Fetch accepted friends list safely
       try {
@@ -1066,7 +1093,7 @@ export default function DayBoardScreen() {
           .from('meal_skips')
           .select('slot')
           .eq('user_id', user.id)
-          .eq('day', todayKey),
+          .eq('day', activeDayKey),
         supabase
           .from('meal_skips')
           .select('day')
@@ -1098,7 +1125,7 @@ export default function DayBoardScreen() {
           // Scoped by slot+day (not meal_id) so this doubles as the source
           // for "did I already vote in this slot today" — friends_can_see_votes
           // (019) already limits what comes back to what the viewer may see.
-          supabase.from('post_votes').select('voter_id, meal_id, slot').eq('day', todayKey),
+          supabase.from('post_votes').select('voter_id, meal_id, slot').eq('day', activeDayKey),
         ]);
         const nextLikeCounts = {};
         for (const row of likeRows || []) nextLikeCounts[row.meal_id] = (nextLikeCounts[row.meal_id] || 0) + 1;
@@ -1121,11 +1148,11 @@ export default function DayBoardScreen() {
         setMyVoteMealIdByTag({});
       }
     } catch (e) {
-      setError(e.message || "Failed to load today's board.");
+      setError(e.message || "Failed to load board.");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [dayOffset]);
 
   useFocusEffect(useCallback(() => {
     load();
@@ -1496,6 +1523,9 @@ export default function DayBoardScreen() {
           <TouchableOpacity style={styles.iconChip} onPress={startTour} hitSlop={8}>
             <Ionicons name="help-outline" size={16} color={C.white} />
           </TouchableOpacity>
+          <TouchableOpacity style={styles.iconChip} onPress={() => navigation.navigate('TierList')} hitSlop={8}>
+            <Ionicons name="trophy-outline" size={16} color={C.gold} />
+          </TouchableOpacity>
           <TourTarget id="board.map" action={() => navigation.navigate('Map')}>
             <TouchableOpacity style={styles.iconChip} onPress={() => navigation.navigate('Map')} hitSlop={8}>
               <Ionicons name="map-outline" size={15} color={C.white} />
@@ -1529,17 +1559,69 @@ export default function DayBoardScreen() {
         </View>
       ) : (
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-          <Text style={styles.dateHeader}>{dateLabel(new Date())}</Text>
+          {/* ── Date Navigation Row with Arrows ── */}
+          <View style={styles.dateNavRow}>
+            <TouchableOpacity
+              style={styles.dateNavArrow}
+              onPress={() => {
+                const nextOffset = dayOffset - 1;
+                setDayOffset(nextOffset);
+                load(nextOffset);
+              }}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="chevron-back" size={20} color={C.white} />
+            </TouchableOpacity>
+
+            <View style={styles.dateNavCenter}>
+              <Text style={styles.dateHeader}>
+                {dateLabel(new Date(Date.now() + dayOffset * 86400000))}
+              </Text>
+              <Text style={styles.dateSubHeader}>
+                {getRelativeDateLabel(dayOffset, new Date(Date.now() + dayOffset * 86400000))}
+              </Text>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.dateNavArrow, dayOffset >= 0 && styles.dateNavArrowDisabled]}
+              disabled={dayOffset >= 0}
+              onPress={() => {
+                if (dayOffset < 0) {
+                  const nextOffset = dayOffset + 1;
+                  setDayOffset(nextOffset);
+                  load(nextOffset);
+                }
+              }}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="chevron-forward" size={20} color={dayOffset >= 0 ? '#444444' : C.white} />
+            </TouchableOpacity>
+          </View>
+
           <View style={styles.statusRow}>
-            <View style={styles.liveDot} />
+            <View style={[styles.liveDot, dayOffset !== 0 && { backgroundColor: C.gray2 }]} />
             <Text style={styles.friendCount}>
             {friendsEatingCount === 0
               ? "Log a meal below, then add friends to fill this in"
               : `${friendsEatingCount} friend${friendsEatingCount === 1 ? '' : 's'} eating`}
             </Text>
-            <TouchableOpacity style={styles.todayPill} onPress={() => {}}>
-              <Text style={styles.todayPillText}>Today</Text>
-            </TouchableOpacity>
+            {dayOffset !== 0 ? (
+              <TouchableOpacity
+                style={styles.todayPillActive}
+                onPress={() => {
+                  setDayOffset(0);
+                  load(0);
+                }}
+                activeOpacity={0.75}
+              >
+                <Ionicons name="today-outline" size={12} color={C.bg} style={{ marginRight: 3 }} />
+                <Text style={styles.todayPillTextActive}>Today</Text>
+              </TouchableOpacity>
+            ) : (
+              <View style={styles.todayPill}>
+                <Text style={styles.todayPillText}>Today</Text>
+              </View>
+            )}
           </View>
 
           {storyPeople.length > 0 && (
@@ -1551,6 +1633,17 @@ export default function DayBoardScreen() {
               onNudge={handleNudgeFriend}
             />
           )}
+
+          <TouchableOpacity style={styles.storyPromptCard} onPress={handleCompose} activeOpacity={0.85}>
+            <View style={styles.storyPromptIcon}>
+              <Ionicons name={loggedToday ? 'checkmark' : 'camera-outline'} size={18} color={C.bg} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.storyPromptEyebrow}>TODAY'S TABLE PROMPT</Text>
+              <Text style={styles.storyPromptTitle}>{dietFocus === 'muscle_gain' ? 'Show your recovery fuel to the crew.' : dietFocus === 'weight_loss' ? 'Share a satisfying lean-day plate.' : loggedToday ? 'You shared today. Add the next course?' : 'What is one meal worth sharing today?'}</Text>
+            </View>
+            <Ionicons name="arrow-forward" size={18} color={C.gold} />
+          </TouchableOpacity>
 
           {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
@@ -1766,15 +1859,54 @@ const styles = StyleSheet.create({
   friendStoryReactorName: { color: 'rgba(255,255,255,0.85)', fontSize: 11, fontWeight: '600', marginTop: 4, textAlign: 'center' },
   friendStoryNoReactionsText: { color: 'rgba(255,255,255,0.6)', fontSize: 12, fontStyle: 'italic' },
 
-  dateHeader: {
-    fontFamily: C.serif, fontSize: DATE_HEADER_SIZE, color: C.white,
-    paddingHorizontal: BOARD_GUTTER, marginTop: 8,
+  dateNavRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: BOARD_GUTTER,
+    marginTop: 8,
+    marginBottom: 4,
   },
-  statusRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: BOARD_GUTTER, marginTop: 4, marginBottom: 18, gap: 7 },
+  dateNavCenter: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  dateNavArrow: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: '#18181b',
+    borderWidth: 1,
+    borderColor: '#27272a',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dateNavArrowDisabled: {
+    opacity: 0.35,
+    backgroundColor: '#121214',
+    borderColor: '#1e1e20',
+  },
+  dateHeader: {
+    fontFamily: C.serif,
+    fontSize: DATE_HEADER_SIZE,
+    color: C.white,
+    textAlign: 'center',
+  },
+  dateSubHeader: {
+    color: C.gold,
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 2,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
+  statusRow: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: BOARD_GUTTER, marginTop: 6, marginBottom: 18, gap: 7 },
   liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: C.green },
   friendCount: { flex: 1, fontSize: 13, color: C.gray2, fontWeight: '500' },
-  todayPill: { borderWidth: 1, borderColor: C.glassBorder, borderRadius: C.pill, paddingHorizontal: 11, paddingVertical: 5 },
+  todayPill: { borderWidth: 1, borderColor: '#27272a', backgroundColor: '#141416', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 5 },
   todayPillText: { color: C.gray1, fontSize: 11, fontWeight: '700' },
+  todayPillActive: { flexDirection: 'row', alignItems: 'center', backgroundColor: C.orange, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 5 },
+  todayPillTextActive: { color: C.bg, fontSize: 11, fontWeight: '800' },
   storySection: { marginBottom: 24 },
   storyHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: BOARD_GUTTER, marginBottom: 12 },
   storyTitle: { color: C.white, fontSize: 15, fontWeight: '700' },
@@ -1794,6 +1926,10 @@ const styles = StyleSheet.create({
   statusDotOnline: { backgroundColor: C.green },
   statusDotOffline: { backgroundColor: C.gray2 },
   storySubText: { color: C.gray2, fontSize: 9, maxWidth: 62, textAlign: 'center', marginTop: 1 },
+  storyPromptCard: { flexDirection: 'row', alignItems: 'center', gap: 12, marginHorizontal: BOARD_GUTTER, marginBottom: 22, padding: 14, backgroundColor: '#1e1711', borderWidth: 1, borderColor: '#4c3420', borderRadius: 24 },
+  storyPromptIcon: { width: 38, height: 38, borderRadius: 19, backgroundColor: C.gold, alignItems: 'center', justifyContent: 'center' },
+  storyPromptEyebrow: { color: C.gold, fontSize: 9, fontWeight: '900', letterSpacing: 1 },
+  storyPromptTitle: { color: C.white, fontSize: 13, lineHeight: 18, fontWeight: '700', marginTop: 2 },
 
   nudgeOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.72)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 20 },
   nudgeCard: { width: '100%', maxWidth: 340, backgroundColor: C.surface, borderRadius: 24, padding: 24, alignItems: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)' },

@@ -485,7 +485,7 @@ function MealDetailModal({ meal, onClose, onDeleted, onPostChanged }) {
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
-export default function HistoryScreen() {
+export default function HistoryScreen({ embedded = false }) {
   const navigation = useNavigation();
   const [meals, setMeals] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -571,7 +571,7 @@ export default function HistoryScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.safe} edges={['top']}>
+      <SafeAreaView style={styles.safe} edges={embedded ? [] : ['top']}>
         <StatusBar barStyle="light-content" backgroundColor={C.bg} />
         <View style={styles.loadingBox}>
           <ActivityIndicator color={C.orange} />
@@ -581,7 +581,7 @@ export default function HistoryScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
+    <SafeAreaView style={styles.safe} edges={embedded ? [] : ['top']}>
       <StatusBar barStyle="light-content" backgroundColor={C.bg} />
 
       <FlatList
@@ -596,7 +596,7 @@ export default function HistoryScreen() {
         }
         ListHeaderComponent={
           <View style={styles.pageHeader}>
-            <Text style={styles.pageTitle}>Food history</Text>
+            {embedded ? null : <Text style={styles.pageTitle}>Food history</Text>}
             {error ? <Text style={styles.pageError}>{error}</Text> : null}
           </View>
         }
