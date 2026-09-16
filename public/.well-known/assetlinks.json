@@ -1,10 +1,19 @@
-[{
-  "relation": ["delegate_permission_launch_intent/receiver_class"],
-  "target": {
-    "namespace": "android_app",
-    "package_name": "com.ncoderpro.foodwrapped",
-    "sha256_cert_fingerprints": [
-      "28:AC:E4:79:A3:C7:9C:9C:40:6F:81:02:71:B3:E1:D0:DD:93:85:CC:29:7C:1D:41:60:C2:C6:49:94:14:43:43"
-    ]
+[
+  {
+    "relation": [
+      "delegate_permission_launch_intent/receiver_class",
+      "delegate_permission/common.handle_all_urls",
+      "delegate_permission/common.get_login_creds"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.ncoderpro.foodwrapped",
+      "sha256_cert_fingerprints": [
+        "28:AC:E4:79:A3:C7:9C:9C:40:6F:81:02:71:B3:E1:D0:DD:93:85:CC:29:7C:1D:41:60:C2:C6:49:94:14:43:43",
+        "C5:CA:98:A3:04:BE:A9:31:7C:1A:07:AA:E4:09:3F:22:9C:8D:7A:55:F4:74:F0:51:95:87:D0:7A:8E:3C:96:D9",
+        "56:52:55:66:89:EB:1C:CC:3B:A5:34:D9:18:1E:69:B3:BB:A0:44:75:B0:D2:34:D1:E0:92:F3:52:FB:FC:4F:24",
+        "D5:29:C7:A8:53:4C:DD:CB:12:4D:FD:67:E1:22:94:41:C5:B1:C8:47:3A:E5:73:77:9D:3C:F1:16:9C:95:09:A4"
+      ]
+    }
   }
-}]
+]
