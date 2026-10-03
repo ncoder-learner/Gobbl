@@ -7,12 +7,15 @@ import {
   ScrollView,
   StyleSheet,
   ActivityIndicator,
+  Modal,
   useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../lib/supabase';
 import { THEME as C } from '../lib/theme';
+import { DIET_DISCLAIMER_TEXT, getDietSuggestionCopy } from '../lib/dietTemplates';
+import { checkSafeNutritionFloor } from '../lib/nutritionEngine';
 
 export const GOAL_OPTIONS = [
   {
@@ -88,6 +91,32 @@ export const RESTRICTION_OPTIONS = [
 
 export const PRIMARY_GOAL_IDS = GOAL_OPTIONS.map((g) => g.id);
 
+const DIET_DISCLAIMER_VERSION = 'diet_disclaimer_v1';
+const DIET_CHECKPOINT_VERSION = 'diet_restrictive_checkpoint_v1';
+
+function evaluateDietCheckpoint({ caloriesValue, proteinValue, carbsValue, goalId }) {
+  const numericCalories = Number(caloriesValue) || 0;
+  const numericProtein = Number(proteinValue) || 0;
+  const numericCarbs = Number(carbsValue) || 0;
+  const normalizedGoal = PRIMARY_GOAL_IDS.includes(goalId) ? goalId : 'no_restriction';
+  const safetyCheck = checkSafeNutritionFloor(numericCalories, numericProtein, normalizedGoal);
+  const isRestrictivePreset = normalizedGoal === 'keto' || normalizedGoal === 'weight_loss' || numericCarbs <= 30;
+  const needsCheckpoint = !safetyCheck.isSafe || isRestrictivePreset;
+  const caution = getDietSuggestionCopy().caution;
+
+  const reason = !safetyCheck.isSafe
+    ? safetyCheck.reason || `${caution} This plan may be more restrictive than it looks.`
+    : `${caution} This plan is intentionally restrictive and may not fit everyone.`;
+
+  return {
+    needsCheckpoint,
+    reason,
+    recommendation:
+      safetyCheck.recommendation ||
+      'Talk to a physician or registered dietitian before starting a restrictive eating pattern.',
+  };
+}
+
 export default function DietSetupScreen({ userId, onSaved, onClose }) {
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
@@ -107,6 +136,13 @@ export default function DietSetupScreen({ userId, onSaved, onClose }) {
   const [initialLoading, setInitialLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState(null);
+  const [showDisclaimerModal, setShowDisclaimerModal] = useState(false);
+  const [showCheckpointModal, setShowCheckpointModal] = useState(false);
+  const [disclaimerLoading, setDisclaimerLoading] = useState(false);
+  const [checkpointLoading, setCheckpointLoading] = useState(false);
+  const [checkpointReason, setCheckpointReason] = useState('');
+  const [checkpointRecommendation, setCheckpointRecommendation] = useState('');
+  const [disclaimerAcceptedForVersion, setDisclaimerAcceptedForVersion] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -131,8 +167,26 @@ export default function DietSetupScreen({ userId, onSaved, onClose }) {
           .maybeSingle();
 
         if (error) {
-          // Non-fatal, fallback to default presets
           console.log('Error fetching user_diet_preferences:', error.message);
+        }
+
+        const { data: auditRows, error: auditError } = await supabase
+          .from('diet_disclaimer_audit_logs')
+          .select('terms_version')
+          .eq('user_id', uid)
+          .order('accepted_at', { ascending: false })
+          .limit(1);
+
+        if (auditError) {
+          console.log('Error querying diet disclaimer audit logs:', auditError.message);
+        }
+
+        const latestDisclaimerVersion = auditRows?.[0]?.terms_version || null;
+        const acceptedForCurrentVersion = Boolean(data?.disclaimer_accepted_at) && latestDisclaimerVersion === DIET_DISCLAIMER_VERSION;
+
+        if (isMounted) {
+          setDisclaimerAcceptedForVersion(acceptedForCurrentVersion);
+          setShowDisclaimerModal(!acceptedForCurrentVersion);
         }
 
         if (data && isMounted) {
@@ -214,6 +268,151 @@ export default function DietSetupScreen({ userId, onSaved, onClose }) {
     }
   };
 
+  const handleDisclaimerAcknowledge = async () => {
+    const uid = resolvedUserId || userId;
+    if (!uid) {
+      setShowDisclaimerModal(false);
+      return;
+    }
+
+    setDisclaimerLoading(true);
+    try {
+      const acceptedAt = new Date().toISOString();
+      const { error: prefError } = await supabase
+        .from('user_diet_preferences')
+        .upsert({
+          user_id: uid,
+          disclaimer_accepted_at: acceptedAt,
+          updated_at: acceptedAt,
+        }, { onConflict: 'user_id' });
+
+      const { error: auditError } = await supabase
+        .from('diet_disclaimer_audit_logs')
+        .insert({
+          user_id: uid,
+          terms_version: DIET_DISCLAIMER_VERSION,
+          consent_summary: 'User acknowledged general diet guidance disclaimer before using diet features.',
+          accepted_at: acceptedAt,
+        });
+
+      if (prefError || auditError) {
+        setErrorMsg(prefError?.message || auditError?.message || 'Could not record disclaimer acknowledgement.');
+        setDisclaimerLoading(false);
+        return;
+      }
+
+      setDisclaimerAcceptedForVersion(true);
+      setShowDisclaimerModal(false);
+    } catch (err) {
+      setErrorMsg(err.message || 'Unable to save disclaimer acknowledgement.');
+    } finally {
+      setDisclaimerLoading(false);
+    }
+  };
+
+  const persistDietPlan = async (uid) => {
+    const numCal = Math.max(800, Number(calories) || 2200);
+    const numProtein = Math.max(20, Number(protein) || 120);
+    const numCarbs = Math.max(0, Number(carbs) || 200);
+    const numFat = Math.max(10, Number(fat) || 60);
+    const numSodium = Math.max(500, Number(sodium) || 2300);
+    const nowIso = new Date().toISOString();
+    const primaryGoal = PRIMARY_GOAL_IDS.includes(selectedGoal) ? selectedGoal : 'no_restriction';
+    const goalDefaults = GOAL_OPTIONS.find((g) => g.id === primaryGoal)?.defaults;
+    const numWater = Math.max(0.5, Number(goalDefaults?.water) || 3.0);
+
+    const payload = {
+      user_id: uid,
+      spot: 'general',
+      primary_goal: primaryGoal,
+      sport: selectedGoal === 'sport_performance' ? selectedSport : 'casual_fitness',
+      calories: numCal,
+      target_calories: numCal,
+      protein_grams: numProtein,
+      target_protein_g: numProtein,
+      carbs_grams: numCarbs,
+      fat_grams: numFat,
+      water_liters: numWater,
+      sodium_mg_limit: numSodium,
+      target_sodium_mg: numSodium,
+      dietary_restrictions: selectedRestrictions,
+      inclusions: selectedRestrictions,
+      disclaimer_accepted_at: nowIso,
+      plan_completed_at: nowIso,
+      updated_at: nowIso,
+    };
+
+    const { error } = await supabase
+      .from('user_diet_preferences')
+      .upsert(payload, { onConflict: 'user_id' });
+
+    if (error) {
+      const fallbackPayload = {
+        user_id: uid,
+        spot: 'general',
+        primary_goal: primaryGoal,
+        sport: selectedGoal === 'sport_performance' ? selectedSport : 'casual_fitness',
+        calories: numCal,
+        protein_grams: numProtein,
+        carbs_grams: numCarbs,
+        fat_grams: numFat,
+        water_liters: numWater,
+        sodium_mg_limit: numSodium,
+        dietary_restrictions: selectedRestrictions,
+        plan_completed_at: nowIso,
+        updated_at: nowIso,
+      };
+
+      const { error: fallbackError } = await supabase
+        .from('user_diet_preferences')
+        .upsert(fallbackPayload, { onConflict: 'user_id' });
+
+      if (fallbackError) {
+        throw fallbackError;
+      }
+    }
+
+    setSaving(false);
+    onSaved?.();
+    onClose?.();
+  };
+
+  const handleCheckpointContinue = async () => {
+    const uid = resolvedUserId || userId;
+    if (!uid) {
+      setShowCheckpointModal(false);
+      setSaving(false);
+      return;
+    }
+
+    setCheckpointLoading(true);
+    try {
+      const acceptedAt = new Date().toISOString();
+      const { error: auditError } = await supabase
+        .from('diet_disclaimer_audit_logs')
+        .insert({
+          user_id: uid,
+          terms_version: DIET_CHECKPOINT_VERSION,
+          consent_summary: 'User acknowledged restrictive-diet checkpoint before saving the plan.',
+          accepted_at: acceptedAt,
+        });
+
+      if (auditError) {
+        setErrorMsg(auditError.message || 'Could not record checkpoint acknowledgment.');
+        setCheckpointLoading(false);
+        return;
+      }
+
+      setShowCheckpointModal(false);
+      await persistDietPlan(uid);
+    } catch (err) {
+      setErrorMsg(err.message || 'Failed to save diet preferences.');
+      setCheckpointLoading(false);
+    } finally {
+      setCheckpointLoading(false);
+    }
+  };
+
   const handleSave = async () => {
     setSaving(true);
     setErrorMsg(null);
@@ -237,75 +436,23 @@ export default function DietSetupScreen({ userId, onSaved, onClose }) {
         return;
       }
 
-      const numCal = Math.max(800, Number(calories) || 2200);
-      const numProtein = Math.max(20, Number(protein) || 120);
-      const numCarbs = Math.max(0, Number(carbs) || 200);
-      const numFat = Math.max(10, Number(fat) || 60);
-      const numSodium = Math.max(500, Number(sodium) || 2300);
-      const nowIso = new Date().toISOString();
       const primaryGoal = PRIMARY_GOAL_IDS.includes(selectedGoal) ? selectedGoal : 'no_restriction';
-      const goalDefaults = GOAL_OPTIONS.find((g) => g.id === primaryGoal)?.defaults;
-      const numWater = Math.max(0.5, Number(goalDefaults?.water) || 3.0);
+      const checkpoint = evaluateDietCheckpoint({
+        caloriesValue: calories,
+        proteinValue: protein,
+        carbsValue: carbs,
+        goalId: primaryGoal,
+      });
 
-      // Send both current schema and legacy schema columns to ensure 100% save success
-      const payload = {
-        user_id: uid,
-        // `spot` is required by the deployed table. It represents the
-        // general/default plan bucket until the product exposes locations.
-        spot: 'general',
-        primary_goal: primaryGoal,
-        sport: selectedGoal === 'sport_performance' ? selectedSport : 'casual_fitness',
-        calories: numCal,
-        target_calories: numCal,
-        protein_grams: numProtein,
-        target_protein_g: numProtein,
-        carbs_grams: numCarbs,
-        fat_grams: numFat,
-        water_liters: numWater,
-        sodium_mg_limit: numSodium,
-        target_sodium_mg: numSodium,
-        dietary_restrictions: selectedRestrictions,
-        inclusions: selectedRestrictions,
-        disclaimer_accepted_at: nowIso,
-        plan_completed_at: nowIso,
-        updated_at: nowIso,
-      };
-
-      const { error } = await supabase
-        .from('user_diet_preferences')
-        .upsert(payload, { onConflict: 'user_id' });
-
-      if (error) {
-        // If some column didn't exist in older migration, try with standard subset
-        const fallbackPayload = {
-          user_id: uid,
-          spot: 'general',
-          primary_goal: primaryGoal,
-          sport: selectedGoal === 'sport_performance' ? selectedSport : 'casual_fitness',
-          calories: numCal,
-          protein_grams: numProtein,
-          carbs_grams: numCarbs,
-          fat_grams: numFat,
-          water_liters: numWater,
-          sodium_mg_limit: numSodium,
-          dietary_restrictions: selectedRestrictions,
-          plan_completed_at: nowIso,
-          updated_at: nowIso,
-        };
-        const { error: fallbackError } = await supabase
-          .from('user_diet_preferences')
-          .upsert(fallbackPayload, { onConflict: 'user_id' });
-
-        if (fallbackError) {
-          setErrorMsg(fallbackError.message);
-          setSaving(false);
-          return;
-        }
+      if (checkpoint.needsCheckpoint) {
+        setCheckpointReason(checkpoint.reason);
+        setCheckpointRecommendation(checkpoint.recommendation);
+        setShowCheckpointModal(true);
+        setSaving(false);
+        return;
       }
 
-      setSaving(false);
-      onSaved?.();
-      onClose?.();
+      await persistDietPlan(uid);
     } catch (err) {
       setErrorMsg(err.message || 'Failed to save diet preferences.');
       setSaving(false);
@@ -322,6 +469,100 @@ export default function DietSetupScreen({ userId, onSaved, onClose }) {
 
   return (
     <View style={styles.container}>
+      <Modal
+        visible={showDisclaimerModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {}}
+      >
+        <View style={styles.disclaimerModalOverlay}>
+          <View style={styles.disclaimerModalCard}>
+            <View style={styles.disclaimerModalHeader}>
+              <View style={styles.disclaimerIconWrap}>
+                <Ionicons name="information-circle-outline" size={28} color={C.orange} />
+              </View>
+              <Text style={styles.disclaimerModalTitle}>Important Notice</Text>
+            </View>
+
+            <ScrollView
+              style={styles.disclaimerScroll}
+              contentContainerStyle={styles.disclaimerScrollContent}
+              showsVerticalScrollIndicator={false}
+            >
+              {DIET_DISCLAIMER_TEXT.map((line, idx) => (
+                <Text key={idx} style={styles.disclaimerLine}>{line}</Text>
+              ))}
+              <Text style={styles.disclaimerLine}>
+                The app provides general nutrition information for education and tracking, not medical advice, and it does not replace the guidance of a doctor or registered dietitian.
+              </Text>
+            </ScrollView>
+
+            <TouchableOpacity
+              style={[styles.disclaimerActionButton, disclaimerLoading && styles.actionButtonDisabled]}
+              onPress={handleDisclaimerAcknowledge}
+              disabled={disclaimerLoading}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.actionButtonText}>
+                {disclaimerLoading ? 'Saving...' : 'I Acknowledge'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={showCheckpointModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {}}
+      >
+        <View style={styles.disclaimerModalOverlay}>
+          <View style={styles.disclaimerModalCard}>
+            <View style={styles.disclaimerModalHeader}>
+              <View style={styles.disclaimerIconWrap}>
+                <Ionicons name="alert-circle-outline" size={28} color="#f59e0b" />
+              </View>
+              <Text style={styles.disclaimerModalTitle}>Check In First</Text>
+            </View>
+
+            <ScrollView
+              style={styles.disclaimerScroll}
+              contentContainerStyle={styles.disclaimerScrollContent}
+              showsVerticalScrollIndicator={false}
+            >
+              <Text style={styles.checkpointReasonText}>{checkpointReason}</Text>
+              <Text style={styles.checkpointRecommendationText}>{checkpointRecommendation}</Text>
+            </ScrollView>
+
+            <View style={styles.checkpointActions}>
+              <TouchableOpacity
+                style={[styles.cancelCheckpointButton, checkpointLoading && styles.actionButtonDisabled]}
+                onPress={() => {
+                  setShowCheckpointModal(false);
+                  setSaving(false);
+                }}
+                activeOpacity={0.8}
+                disabled={checkpointLoading}
+              >
+                <Text style={styles.cancelCheckpointText}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.disclaimerActionButton, checkpointLoading && styles.actionButtonDisabled]}
+                onPress={handleCheckpointContinue}
+                disabled={checkpointLoading}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.actionButtonText}>
+                  {checkpointLoading ? 'Saving...' : 'I Understand, Continue'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* Top Bar with Step Indicators */}
       <View style={[styles.topBar, { paddingTop: Math.max(insets.top, 12) }]}>
         <TouchableOpacity
@@ -1044,5 +1285,94 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 16,
     paddingHorizontal: 12,
+  },
+  disclaimerModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.72)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  disclaimerModalCard: {
+    width: '100%',
+    maxWidth: 420,
+    backgroundColor: '#141416',
+    borderRadius: 26,
+    borderWidth: 1,
+    borderColor: '#27272a',
+    paddingHorizontal: 20,
+    paddingTop: 22,
+    paddingBottom: 18,
+  },
+  disclaimerModalHeader: {
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  disclaimerIconWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#2e180d',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  disclaimerModalTitle: {
+    color: C.white,
+    fontSize: 22,
+    fontWeight: '800',
+    fontFamily: C.serif,
+  },
+  disclaimerScroll: {
+    maxHeight: 260,
+  },
+  disclaimerScrollContent: {
+    paddingBottom: 6,
+  },
+  disclaimerLine: {
+    color: C.gray1,
+    fontSize: 13,
+    lineHeight: 20,
+    marginBottom: 10,
+  },
+  disclaimerActionButton: {
+    backgroundColor: C.orange,
+    borderRadius: 999,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 18,
+  },
+  checkpointActions: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 18,
+  },
+  cancelCheckpointButton: {
+    flex: 1,
+    backgroundColor: '#2a2a2e',
+    borderRadius: 999,
+    paddingVertical: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#3f3f46',
+  },
+  cancelCheckpointText: {
+    color: C.gray1,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  checkpointReasonText: {
+    color: '#fca5a5',
+    fontSize: 14,
+    lineHeight: 22,
+    fontWeight: '600',
+    marginBottom: 12,
+  },
+  checkpointRecommendationText: {
+    color: C.gray1,
+    fontSize: 13,
+    lineHeight: 20,
   },
 });
